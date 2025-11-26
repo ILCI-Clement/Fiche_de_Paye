@@ -66,10 +66,7 @@ def somme(ws, lignes, col_source, col_resultat, ligne_total, somme):
     reste_minutes = total_minutes % 60
     ws.cell(row=ligne_total, column=col_resultat, value=f"{total_heures:02d}:{reste_minutes:02d}")
 
-def remplir_fiche_paie(fichier_entree, mois, annee, fichier_vacances):
-    wb = load_workbook(fichier_entree)
-    ws = wb.active
-
+def remplir_calendrier(ws, mois, annee, vacances):
     clnn = 3
 
     for i in range(5):
@@ -84,7 +81,6 @@ def remplir_fiche_paie(fichier_entree, mois, annee, fichier_vacances):
 
     colonnes = [15, 17, 19, 21, 23, 25, 27]
     jours_feries = holidays.France(years=annee)
-    vacances = lire_vacances(fichier_vacances)
 
     nb_jours = calendar.monthrange(annee, mois)[1]
 
@@ -152,20 +148,34 @@ def remplir_fiche_paie(fichier_entree, mois, annee, fichier_vacances):
 
     somme(ws, lignes=29, col_source=[3,8,13,18,23], col_resultat=28, ligne_total=29, somme="total")
 
+def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
+    wb = load_workbook(fichier_entree)
+    modele = wb.active
+
+    for employe in employes_data:
+        ws = wb.copy_worksheet(modele)
+        if employe["nom"]:
+            ws.title = employe["nom"]
+        else:
+            ws.title = "Sans nom"
+    
+        vacances = employe["vacances"]
+
+        remplir_calendrier(ws, mois, annee, vacances)
+
+    wb.remove(modele)
+    
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
     return buffer
 
 
-# -------------------------
 # Interface Streamlit
-# -------------------------
 
-st.title("Générateur automatique de fiche de paie (Excel)")
+st.title("Générateur automatique de fiche de présence (Excel)")
 
-uploaded_excel = st.file_uploader("Importer le fichier Excel modèle", type=["xlsx"])
-uploaded_vacances = st.file_uploader("Importer le fichier vacances.txt", type=["txt"])
+uploaded_excel = "Fiche_Exemple.xlsx"
 
 col1, col2 = st.columns(2)
 with col1:
@@ -173,18 +183,49 @@ with col1:
 with col2:
     annee = st.number_input("Année", min_value=2000, max_value=2100, value=2025)
 
-if st.button("Générer la fiche"):
 
-    if not uploaded_excel or not uploaded_vacances:
-        st.error("Merci d'importer l'Excel modèle **et** le fichier vacances.txt.")
-    else:
-        buffer = remplir_fiche_paie(uploaded_excel, mois, annee, uploaded_vacances)
 
-        st.success("Fiche générée avec succès !")
+nb_employe = st.number_input("Nombre d'employés :", min_value=1, max_value=10, step=1)
 
-        st.download_button(
-            "Télécharger la fiche remplie",
-            data=buffer,
-            file_name=f"fiche_paie_{mois}_{annee}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+employe = [f"Employé {j+1}" for j in range(nb_employe)]
+
+employes_data = []
+tabs = st.tabs(employe)
+
+for h, tab in enumerate(tabs):
+    with tab:
+        st.subheader("Information Employé")
+        nom = st.text_input("Nom", key=f"nom_{h}")
+        st.subheader("Saisir les jours de vacances")
+
+        nb_jours_vac = st.number_input("Nombre de jours de vacances :", min_value=0, max_value=31, value=0, key=f"nb_jours_vac_{h}")
+
+        vacances = {}
+
+        for i in range(nb_jours_vac):
+            st.markdown(f"### Jour de vacances #{i+1}")
+            vac_col1, vac_col2, vac_col3 = st.columns(3)
+            with vac_col1:
+                d = st.date_input(f"Date du jour {i+1}", key=f"date_{h}_{i}")
+            with vac_col2:
+                t1 = st.time_input(f"Heure début {i+1}", value=time(9, 0), key=f"deb_{h}_{i}")
+            with vac_col3:
+                t2 = st.time_input(f"Heure fin {i+1}", value=time(17, 0), key=f"fin_{h}_{i}")
+
+            vacances[d] = (t1.strftime("%H:%M"), t2.strftime("%H:%M"))
+
+        employes_data.append({"nom": nom, "vacances": vacances})
+
+
+
+if st.button("Générer la fiche"): 
+    buffer = remplir_fiche_paie(uploaded_excel, mois, annee, employes_data)
+
+    st.success("Fiche générée avec succès !")
+
+    st.download_button(
+        "Télécharger la fiche remplie",
+        data=buffer,
+        file_name=f"fiche_paie_{mois}_{annee}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
