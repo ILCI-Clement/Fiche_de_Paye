@@ -6,17 +6,6 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment, Font
 import io
 
-def lire_vacances(file):
-    vacances = {}
-    for ligne in file.getvalue().decode("utf-8").splitlines():
-        parts = ligne.strip().split()
-        if len(parts) == 3:
-            jour = datetime.strptime(parts[0], "%d-%m-%Y").date()
-            debut = parts[1]
-            fin = parts[2]
-            vacances[jour] = (debut, fin)
-    return vacances
-
 def heures_vers_texte(nb_heures):
     heures = int(nb_heures)
     minutes = int(round((nb_heures - heures) * 60))
