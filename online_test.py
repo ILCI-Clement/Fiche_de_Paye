@@ -55,7 +55,7 @@ def somme(ws, lignes, col_source, col_resultat, ligne_total, somme):
     reste_minutes = total_minutes % 60
     ws.cell(row=ligne_total, column=col_resultat, value=f"{total_heures:02d}:{reste_minutes:02d}")
 
-def remplir_calendrier(ws, mois, annee, vacances, nom, responsable):
+def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsable):
     mois_string = ["JANVIER", "FEVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOUT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DECEMBRE"]
 
     ws.cell(row=4, column=28, value=nom)
@@ -117,8 +117,36 @@ def remplir_calendrier(ws, mois, annee, vacances, nom, responsable):
                     ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"CP\n13:00 à 17:00")
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-
+            elif d in absences:
+                if absences[d] == (True, True):
+                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                    cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n09:00 à 17:00")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                elif absences[d] == (True, False):
+                    cell = ws.cell(row=col+1, column=ligne+4, value="04:00")
+                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                    cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n09:00 à 12:00")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                elif absences[d] == (False, True):
+                    cell = ws.cell(row=col, column=ligne+4, value="03:00")
+                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                    cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n13:00 à 17:00")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            elif d in arret:
+                if arret[d] == (True, True):
+                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                    cell = ws.cell(row=col, column=ligne+1, value=f"AM\n09:00 à 17:00")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                elif arret[d] == (True, False):
+                    cell = ws.cell(row=col+1, column=ligne+4, value="04:00")
+                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                    cell = ws.cell(row=col, column=ligne+1, value=f"AM\n09:00 à 12:00")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                elif arret[d] == (False, True):
+                    cell = ws.cell(row=col, column=ligne+4, value="03:00")
+                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                    cell = ws.cell(row=col, column=ligne+1, value=f"AM\n13:00 à 17:00")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             elif d.weekday() in [5, 6]:
                 ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                 cell = ws.cell(row=col, column=ligne+1, value="WEEK-END")
@@ -168,7 +196,11 @@ def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
     
         vacances = employe["vacances"]
 
-        remplir_calendrier(ws, mois, annee, vacances, employe["nom"], employe["responsable"])
+        absences = employe["absences"]
+
+        arret = employe["arret"]
+
+        remplir_calendrier(ws, mois, annee, vacances, absences, arret, employe["nom"], employe["responsable"])
 
     wb.remove(modele)
     
@@ -178,7 +210,7 @@ def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
     return buffer
 
 
-# Interface Streamlit
+############### Interface Streamlit #################
 
 st.title("Générateur automatique de fiche de présence (Excel)")
 
@@ -192,7 +224,7 @@ with col2:
 
 
 
-nb_employe = st.number_input("Nombre d'employés :", min_value=1, max_value=10, step=1)
+nb_employe = st.number_input("Nombre d'employés :", min_value=1, max_value=30, step=1)
 
 employe = [f"Employé {j+1}" for j in range(nb_employe)]
 
@@ -202,39 +234,98 @@ tabs = st.tabs(employe)
 for h, tab in enumerate(tabs):
     with tab:
         st.subheader("Information Employé")
-        nom = st.text_input("NOM Prénom de l'employé", key=f"employe_nom_{h}")
-        responsable = st.text_input("NOM Prénom du Responsable", key=f"resp_nom_{h}")
-        st.subheader("Saisir les jours de vacances")
+        nom = st.text_input("NOM Prénom (Employé)", key=f"employe_nom_{h}")
+        responsable = st.text_input("NOM Prénom (Responsable)", key=f"resp_nom_{h}")
+        
+        with st.expander("Congés payés"):
+            st.subheader("Saisir les jours de congés payés")
+            nb_jours_vac = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=0, key=f"nb_jours_vac_{h}")
 
-        nb_jours_vac = st.number_input("Nombre de jours de vacances :", min_value=0, max_value=31, value=0, key=f"nb_jours_vac_{h}")
+            vacances = {}
 
-        vacances = {}
+            for i in range(nb_jours_vac):
+                st.markdown(f"### Jour de CP #{i+1}")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    d = st.date_input(f"Date du jour {i+1}", key=f"date_cp_{h}_{i}")
+                with col2:
+                    t1 = st.checkbox(f"Matin", value=False, key=f"matin_{h}_{i}")
+                with col3:
+                    t2 = st.checkbox(f"Après-midi", value=False, key=f"aprem_{h}_{i}")
 
-        for i in range(nb_jours_vac):
-            st.markdown(f"### Jour de vacances #{i+1}")
-            vac_col1, vac_col2, vac_col3 = st.columns(3)
-            with vac_col1:
-                d = st.date_input(f"Date du jour {i+1}", key=f"date_{h}_{i}")
-            with vac_col2:
-                t1 = st.checkbox(f"Matin du jour {i+1}", value=False, key=f"matin_{h}_{i}")
-            with vac_col3:
-                t2 = st.checkbox(f"Après-Midi du jour {i+1}", value=False, key=f"aprem_{h}_{i}")
+                vacances[d] = (t1, t2)
 
-            vacances[d] = (t1, t2)
+        with st.expander("Absences"):
+            st.subheader("Saisir les jours d'absences")
+            nb_jours_abs = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=0, key=f"nb_jours_abs_{h}")
 
-        employes_data.append({"nom": nom, "responsable": responsable, "vacances": vacances})
+            absences = {}
+
+            for i in range(nb_jours_abs):
+                st.markdown(f"### Jour d'ABS #{i+1}")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    d_abs = st.date_input(f"Date du jour {i+1}", key=f"date_abs_{h}_{i}")
+                with col2:
+                    t1_abs = st.checkbox(f"Matin", value=False, key=f"matin_abs_{h}_{i}")
+                with col3:
+                    t2_abs = st.checkbox(f"Après-midi", value=False, key=f"aprem_abs_{h}_{i}")
+
+                absences[d_abs] = (t1_abs, t2_abs)
+                
+        with st.expander("Arrêts maladies"):
+            st.subheader("Saisir les jours d'arrêts maladies")
+            nb_jours_am = st.number_input("Nombre de jours", min_value=0, max_value=31, value=0, key=f"nb_jours_am_{h}")
+
+            arret = {}
+
+            for i in range(nb_jours_am):
+                st.markdown(f"### Jour d'AM #{i+1}")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    d_am = st.date_input(f"Date du jour {i+1}", key=f"date_am_{h}_{i}")
+                with col2:
+                    t1_am = st.checkbox(f"Matin", value=False, key=f"matin_am_{h}_{i}")
+                with col3:
+                    t2_am = st.checkbox(f"Après-midi", value=False, key=f"aprem_am_{h}_{i}")
+
+                arret[d_am] = (t1_am, t2_am)
+
+        employes_data.append({"nom": nom, "responsable": responsable, "vacances": vacances, "absences": absences, "arret": arret})
 
 
 
 if st.button("Générer la fiche"): 
-    check_erreur = False
-    for a in employes_data:
-        b = a["vacances"]
-        for c in b:
-            if b[c] == (False, False):
-                check_erreur = True
-    if(check_erreur == True):
-        st.error(f"Il faut cocher au moins une des deux cases pour le jour de congé de {a["nom"]} !")
+    erreur_type = None
+    erreur_employe = None
+
+    categories = {
+        "vacances": "congé payé",
+        "absences": "absence",
+        "arret": "arrêt maladie"
+    }
+
+    for employe in employes_data:
+        nom_emp = employe["nom"]
+
+        for key_cat, label in categories.items():
+            for date_jour, (matin, aprem) in employe[key_cat].items():
+                
+                if not matin and not aprem:
+                    erreur_type = label
+                    erreur_employe = nom_emp
+                    break
+            
+            if erreur_type:
+                break
+        
+        if erreur_type:
+            break
+
+    if erreur_type:
+        st.error(
+            f"Il faut cocher au moins une des deux cases pour le {erreur_type} de **{erreur_employe}** !"
+        )
     else:
         buffer = remplir_fiche_paie(uploaded_excel, mois, annee, employes_data)
 
