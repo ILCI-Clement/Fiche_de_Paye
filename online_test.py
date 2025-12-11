@@ -55,18 +55,23 @@ def somme(ws, lignes, col_source, col_resultat, ligne_total, somme):
     reste_minutes = total_minutes % 60
     ws.cell(row=ligne_total, column=col_resultat, value=f"{total_heures:02d}:{reste_minutes:02d}")
 
-def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsable):
+def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsable, ddc, fdc, vacances_total, absences_total, arret_total):
     mois_string = ["JANVIER", "FEVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOUT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DECEMBRE"]
 
-    ws.cell(row=4, column=28, value=nom)
-    ws.cell(row=8, column=28, value=responsable)
-    ws.cell(row=4, column=14, value=mois_string[mois-1])
-    ws.cell(row=7, column=14, value=annee)
-    
-    clnn = 3
+    ws.cell(row=2, column=27, value=nom)
+    ws.cell(row=6, column=27, value=responsable)
+    ws.cell(row=2, column=13, value=mois_string[mois-1])
+    ws.cell(row=5, column=13, value=annee)
+    ws.cell(row=29, column=9, value=vacances_total)
+    ws.cell(row=27, column=9, value=absences_total)
+    ws.cell(row=27, column=19, value=arret_total)
+    ws.cell(row=29 , column=28, value=ddc.strftime("%x"))
+    ws.cell(row=32 , column=28, value=fdc.strftime("%x"))
+
+    clnn = 2
 
     for i in range(5):
-        lgn = 15
+        lgn = 11
         for j in range(7):
             ws.cell(row=lgn, column=clnn, value="")
             for k in range(4):
@@ -75,13 +80,14 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
             lgn += 2
         clnn += 5
 
-    colonnes = [15, 17, 19, 21, 23, 25, 27]
+    colonnes = [11, 13, 15, 17, 19, 21, 23]
     jours_feries = holidays.France(years=annee)
 
     nb_jours = calendar.monthrange(annee, mois)[1]
 
-    ligne = 3
+    ligne = 2
     jour = 1
+    # vacances_ligne = 0
     premier_jour = date(annee, mois, 1)
     decalage = premier_jour.weekday()
 
@@ -117,6 +123,19 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
                     ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"CP\n13:00 à 17:00")
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+                # if not ws.cell(row=29, column=5, value=d.strftime(f"{d.day}/%m")) and ws.cell(row=29, column=3, value=""):
+                #     ws.cell(row=29+vacances_ligne, column=3, value=d.strftime("%d/%m"))
+                #     for i in range(31):
+                #         print(i)
+                #         if d.day+i+1 not in vacances:
+                #             ws.cell(row=29, column=5, value=d.strftime(f"{d.day+i}/%m"))
+                #             break
+                #     vacances_ligne += 1
+                    
+
+
+
             elif d in absences:
                 if absences[d] == (True, True):
                     ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
@@ -175,13 +194,13 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
         decalage = 0
         ligne += 5
 
-    somme(ws, lignes=[15,16,17,18,19,20,21,22,23,24], col_source=7, col_resultat=3, ligne_total=29, somme="semaine")
-    somme(ws, lignes=[15,16,17,18,19,20,21,22,23,24], col_source=12, col_resultat=8, ligne_total=29, somme="semaine")
-    somme(ws, lignes=[15,16,17,18,19,20,21,22,23,24], col_source=17, col_resultat=13, ligne_total=29, somme="semaine")
-    somme(ws, lignes=[15,16,17,18,19,20,21,22,23,24], col_source=22, col_resultat=18, ligne_total=29, somme="semaine")
-    somme(ws, lignes=[15,16,17,18,19,20,21,22,23,24], col_source=27, col_resultat=23, ligne_total=29, somme="semaine")
+    somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=6, col_resultat=2, ligne_total=25, somme="semaine")
+    somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=11, col_resultat=7, ligne_total=25, somme="semaine")
+    somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=16, col_resultat=12, ligne_total=25, somme="semaine")
+    somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=21, col_resultat=17, ligne_total=25, somme="semaine")
+    somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=26, col_resultat=22, ligne_total=25, somme="semaine")
 
-    somme(ws, lignes=29, col_source=[3,8,13,18,23], col_resultat=28, ligne_total=29, somme="total")
+    somme(ws, lignes=25, col_source=[2,7,12,17,22], col_resultat=27, ligne_total=25, somme="total")
 
 def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
     wb = load_workbook(fichier_entree)
@@ -195,12 +214,30 @@ def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
             ws.title = "Sans nom"
     
         vacances = employe["vacances"]
+        vacances_total = 0
+        for jour, (mat, aprem) in employe["vacances"].items():
+            if (mat and not aprem) or (not mat and aprem):
+                vacances_total = vacances_total + 0.5
+            elif mat and aprem:
+                vacances_total = vacances_total + 1
 
         absences = employe["absences"]
+        absences_total = 0
+        for jour, (mat, aprem) in employe["absences"].items():
+            if (mat and not aprem) or (not mat and aprem):
+                absences_total = absences_total + 0.5
+            elif mat and aprem:
+                absences_total = absences_total + 1
 
         arret = employe["arret"]
+        arret_total = 0
+        for jour, (mat, aprem) in employe["arret"].items():
+            if (mat and not aprem) or (not mat and aprem):
+                arret_total = arret_total + 0.5
+            elif mat and aprem:
+                arret_total = arret_total + 1
 
-        remplir_calendrier(ws, mois, annee, vacances, absences, arret, employe["nom"], employe["responsable"])
+        remplir_calendrier(ws, mois, annee, vacances, absences, arret, employe["nom"], employe["responsable"], employe["ddc"], employe["fdc"], vacances_total, absences_total, arret_total)
 
     wb.remove(modele)
     
@@ -236,6 +273,8 @@ for h, tab in enumerate(tabs):
         st.subheader("Information Employé")
         nom = st.text_input("NOM Prénom (Employé)", key=f"employe_nom_{h}")
         responsable = st.text_input("NOM Prénom (Responsable)", key=f"resp_nom_{h}")
+        ddc = st.date_input(f"Date de début de contrat", key=f"date_deb_contrat_{h}")
+        fdc = st.date_input(f"Date de fin de contrat", key=f"date_fin_contrat_{h}")
         
         with st.expander("Congés payés"):
             st.subheader("Saisir les jours de congés payés")
@@ -291,7 +330,7 @@ for h, tab in enumerate(tabs):
 
                 arret[d_am] = (t1_am, t2_am)
 
-        employes_data.append({"nom": nom, "responsable": responsable, "vacances": vacances, "absences": absences, "arret": arret})
+        employes_data.append({"nom": nom, "responsable": responsable, "ddc": ddc, "fdc": fdc, "vacances": vacances, "absences": absences, "arret": arret})
 
 
 
