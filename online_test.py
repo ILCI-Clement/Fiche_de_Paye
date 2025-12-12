@@ -1,6 +1,6 @@
 import streamlit as st
 import calendar
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 import holidays
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment, Font
@@ -28,6 +28,29 @@ def calculer_heures(ws, ligne_debut, ligne_fin, col_heure_debut, col_heure_fin, 
         else:
             ws.cell(row=row, column=col_resultat, value="")
 
+# Pour regrouper plusieurs jours de congés, d'absences ou d'arret maladies qui se suivent
+def regrouper_plages(vacances):
+    if not vacances:
+        return []
+
+    dates = sorted(vacances.keys())
+    plages = []
+
+    debut = dates[0]
+    fin = dates[0]
+
+    for d in dates[1:]:
+        if d == fin + timedelta(days=1):
+            fin = d
+        else:
+            plages.append((debut, fin))
+            debut = d
+            fin = d
+
+    plages.append((debut, fin))
+    return plages
+
+# Fais la somme des heures travaillées (donc 3e colonne) pour chaque semaine ou pour le mois entier
 def somme(ws, lignes, col_source, col_resultat, ligne_total, somme):
     total_minutes = 0
 
@@ -58,39 +81,62 @@ def somme(ws, lignes, col_source, col_resultat, ligne_total, somme):
 def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsable, ddc, fdc, vacances_total, absences_total, arret_total):
     mois_string = ["JANVIER", "FEVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOUT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DECEMBRE"]
 
+    # Remplissage des infos de base
+
     ws.cell(row=2, column=27, value=nom)
     ws.cell(row=6, column=27, value=responsable)
     ws.cell(row=2, column=13, value=mois_string[mois-1])
     ws.cell(row=5, column=13, value=annee)
-    ws.cell(row=29, column=9, value=vacances_total)
+    ws.cell(row=30, column=9, value=vacances_total)
     ws.cell(row=27, column=9, value=absences_total)
     ws.cell(row=27, column=19, value=arret_total)
-    ws.cell(row=29 , column=28, value=ddc.strftime("%x"))
-    ws.cell(row=32 , column=28, value=fdc.strftime("%x"))
+    ws.cell(row=30, column=28, value=ddc.strftime("%x"))
+    ws.cell(row=35, column=28, value=fdc.strftime("%x"))
 
-    clnn = 2
+    # Remplissage des groupes de CP, ABS et AM dans la cartouche du bas
 
-    for i in range(5):
-        lgn = 11
-        for j in range(7):
-            ws.cell(row=lgn, column=clnn, value="")
-            for k in range(4):
-                for l in range(2):
-                    ws.cell(row=lgn+l, column=clnn+k+1, value="")
-            lgn += 2
-        clnn += 5
+    plages_vacances = regrouper_plages(vacances)
+    nb_plages_vac = 0
 
-    colonnes = [11, 13, 15, 17, 19, 21, 23]
+    for d1, d2 in plages_vacances:
+        ws.cell(row=30+nb_plages_vac, column=2, value="du")
+        ws.cell(row=30+nb_plages_vac, column=3, value=f"{d1.strftime('%d/%m')}")
+        ws.cell(row=30+nb_plages_vac, column=4, value="au")
+        ws.cell(row=30+nb_plages_vac, column=5, value=f"{d2.strftime('%d/%m')}")
+        nb_plages_vac += 1
+
+    plages_absences = regrouper_plages(absences)
+    nb_plages_abs = 0
+
+    for d1, d2 in plages_absences:
+        ws.cell(row=27+nb_plages_abs, column=2, value="du")
+        ws.cell(row=27+nb_plages_abs, column=3, value=f"{d1.strftime('%d/%m')}")
+        ws.cell(row=27+nb_plages_abs, column=4, value="au")
+        ws.cell(row=27+nb_plages_abs, column=5, value=f"{d2.strftime('%d/%m')}")
+        nb_plages_abs += 1
+    
+    plages_arret = regrouper_plages(arret)
+    nb_plages_arret = 0
+
+    for d1, d2 in plages_arret:
+        ws.cell(row=27+nb_plages_arret, column=12, value="du")
+        ws.cell(row=27+nb_plages_arret, column=13, value=f"{d1.strftime('%d/%m')}")
+        ws.cell(row=27+nb_plages_arret, column=14, value="au")
+        ws.cell(row=27+nb_plages_arret, column=15, value=f"{d2.strftime('%d/%m')}")
+        nb_plages_arret += 1
+
+    # Calcul des jours fériés et du premier jour de la semaine selon le mois et l'année
+
     jours_feries = holidays.France(years=annee)
-
     nb_jours = calendar.monthrange(annee, mois)[1]
-
-    ligne = 2
-    jour = 1
-    # vacances_ligne = 0
     premier_jour = date(annee, mois, 1)
     decalage = premier_jour.weekday()
 
+    ligne = 2
+    jour = 1
+    colonnes = [11, 13, 15, 17, 19, 21, 23]
+
+    # Remplissage des jours dans la cartouche du milieu 
     while jour <= nb_jours:
         for i, col in enumerate(colonnes):
             if i < decalage and jour == 1:
@@ -123,19 +169,6 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
                     ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"CP\n13:00 à 17:00")
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-                # if not ws.cell(row=29, column=5, value=d.strftime(f"{d.day}/%m")) and ws.cell(row=29, column=3, value=""):
-                #     ws.cell(row=29+vacances_ligne, column=3, value=d.strftime("%d/%m"))
-                #     for i in range(31):
-                #         print(i)
-                #         if d.day+i+1 not in vacances:
-                #             ws.cell(row=29, column=5, value=d.strftime(f"{d.day+i}/%m"))
-                #             break
-                #     vacances_ligne += 1
-                    
-
-
-
             elif d in absences:
                 if absences[d] == (True, True):
                     ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
@@ -194,14 +227,19 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
         decalage = 0
         ligne += 5
 
+    # Somme des heures travaillées en semaine
+
     somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=6, col_resultat=2, ligne_total=25, somme="semaine")
     somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=11, col_resultat=7, ligne_total=25, somme="semaine")
     somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=16, col_resultat=12, ligne_total=25, somme="semaine")
     somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=21, col_resultat=17, ligne_total=25, somme="semaine")
     somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=26, col_resultat=22, ligne_total=25, somme="semaine")
 
+    # Somme des heures travaillées dans le mois
+
     somme(ws, lignes=25, col_source=[2,7,12,17,22], col_resultat=27, ligne_total=25, somme="total")
 
+# Remplis un calendrier en fonction du nombre d'employés en entrée
 def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
     wb = load_workbook(fichier_entree)
     modele = wb.active
@@ -238,6 +276,8 @@ def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
                 arret_total = arret_total + 1
 
         remplir_calendrier(ws, mois, annee, vacances, absences, arret, employe["nom"], employe["responsable"], employe["ddc"], employe["fdc"], vacances_total, absences_total, arret_total)
+
+    # Sauvegarde
 
     wb.remove(modele)
     
@@ -332,16 +372,16 @@ for h, tab in enumerate(tabs):
 
         employes_data.append({"nom": nom, "responsable": responsable, "ddc": ddc, "fdc": fdc, "vacances": vacances, "absences": absences, "arret": arret})
 
-
+# Vérifie si les cases sont bien cochées avant de générer l'excel
 
 if st.button("Générer la fiche"): 
     erreur_type = None
     erreur_employe = None
 
     categories = {
-        "vacances": "congé payé",
-        "absences": "absence",
-        "arret": "arrêt maladie"
+        "vacances": "le congé payé",
+        "absences": "l'absence",
+        "arret": "l'arrêt maladie"
     }
 
     for employe in employes_data:
@@ -363,7 +403,7 @@ if st.button("Générer la fiche"):
 
     if erreur_type:
         st.error(
-            f"Il faut cocher au moins une des deux cases pour le {erreur_type} de **{erreur_employe}** !"
+            f"Une des deux cases 'Matin' ou 'Après-midi' pour {erreur_type} de **{erreur_employe}** n'a pas été chochée !"
         )
     else:
         buffer = remplir_fiche_paie(uploaded_excel, mois, annee, employes_data)
