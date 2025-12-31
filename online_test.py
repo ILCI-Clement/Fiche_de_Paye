@@ -316,10 +316,10 @@ for h, tab in enumerate(tabs):
         st.subheader("Information Employé")
         nom = st.text_input("NOM Prénom (Employé)", key=f"employe_nom_{h}")
         responsable = st.text_input("NOM Prénom (Responsable)", key=f"resp_nom_{h}")
-        ddc = st.date_input(f"Date de début de contrat", key=f"date_deb_contrat_{h}")
+        ddc = st.date_input(f"Date de début de contrat", key=f"date_deb_contrat_{h}", format="MM/DD/YYYY")
         cdi = st.checkbox(f"Contrat à durée indéterminée ?", value=False, key=f"contrat_type_{h}")
         if (cdi == False):
-            fdc = st.date_input(f"Date de fin de contrat", key=f"date_fin_contrat_{h}")
+            fdc = st.date_input(f"Date de fin de contrat", key=f"date_fin_contrat_{h}", format="MM/DD/YYYY")
         else:
             fdc = "Pas de fin"
         
@@ -333,7 +333,7 @@ for h, tab in enumerate(tabs):
                 st.markdown(f"### Jour de CP #{i+1}")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    d = st.date_input(f"Date du jour {i+1}", key=f"date_cp_{h}_{i}")
+                    d = st.date_input(f"Date du jour {i+1}", key=f"date_cp_{h}_{i}", format="MM/DD/YYYY")
                 with col2:
                     t1 = st.checkbox(f"Matin", value=False, key=f"matin_{h}_{i}")
                 with col3:
@@ -351,7 +351,7 @@ for h, tab in enumerate(tabs):
                 st.markdown(f"### Jour d'ABS #{i+1}")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    d_abs = st.date_input(f"Date du jour {i+1}", key=f"date_abs_{h}_{i}")
+                    d_abs = st.date_input(f"Date du jour {i+1}", key=f"date_abs_{h}_{i}", format="MM/DD/YYYY")
                 with col2:
                     t1_abs = st.checkbox(f"Matin", value=False, key=f"matin_abs_{h}_{i}")
                 with col3:
@@ -369,7 +369,7 @@ for h, tab in enumerate(tabs):
                 st.markdown(f"### Jour d'AM #{i+1}")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    d_am = st.date_input(f"Date du jour {i+1}", key=f"date_am_{h}_{i}")
+                    d_am = st.date_input(f"Date du jour {i+1}", key=f"date_am_{h}_{i}", format="MM/DD/YYYY")
                 with col2:
                     t1_am = st.checkbox(f"Matin", value=False, key=f"matin_am_{h}_{i}")
                 with col3:
