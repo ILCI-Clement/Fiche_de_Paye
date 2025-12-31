@@ -91,7 +91,10 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
     ws.cell(row=27, column=9, value=absences_total)
     ws.cell(row=27, column=19, value=arret_total)
     ws.cell(row=30, column=28, value=ddc.strftime("%x"))
-    ws.cell(row=35, column=28, value=fdc.strftime("%x"))
+    if (isinstance(fdc, date)):
+        ws.cell(row=35, column=28, value=fdc.strftime("%x"))
+    else:
+        ws.cell(row=35, column=28, value=fdc)
 
     # Remplissage des groupes de CP, ABS et AM dans la cartouche du bas
 
@@ -314,7 +317,11 @@ for h, tab in enumerate(tabs):
         nom = st.text_input("NOM Prénom (Employé)", key=f"employe_nom_{h}")
         responsable = st.text_input("NOM Prénom (Responsable)", key=f"resp_nom_{h}")
         ddc = st.date_input(f"Date de début de contrat", key=f"date_deb_contrat_{h}")
-        fdc = st.date_input(f"Date de fin de contrat", key=f"date_fin_contrat_{h}")
+        cdi = st.checkbox(f"Contrat à durée indéterminée ?", value=False, key=f"contrat_type_{h}")
+        if (cdi == False):
+            fdc = st.date_input(f"Date de fin de contrat", key=f"date_fin_contrat_{h}")
+        else:
+            fdc = "Pas de fin"
         
         with st.expander("Congés payés"):
             st.subheader("Saisir les jours de congés payés")
