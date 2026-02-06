@@ -242,6 +242,14 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
 
     somme(ws, lignes=25, col_source=[2,7,12,17,22], col_resultat=27, ligne_total=25, somme="total")
 
+
+def convertir_jours(liste):
+    resultat = {}
+    for j in liste:
+        if j["date"] is not None:
+            resultat[j["date"]] = (j["matin"], j["aprem"])
+    return resultat
+
 # Remplis un calendrier en fonction du nombre d'employés en entrée
 def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
     wb = load_workbook(fichier_entree)
@@ -254,25 +262,25 @@ def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
         else:
             ws.title = "Sans nom"
     
-        vacances = employe["vacances"]
+        vacances = convertir_jours(employe["vacances"])
         vacances_total = 0
-        for jour, (mat, aprem) in employe["vacances"].items():
+        for jour, (mat, aprem) in vacances.items():
             if (mat and not aprem) or (not mat and aprem):
                 vacances_total = vacances_total + 0.5
             elif mat and aprem:
                 vacances_total = vacances_total + 1
 
-        absences = employe["absences"]
+        absences = convertir_jours(employe["absences"])
         absences_total = 0
-        for jour, (mat, aprem) in employe["absences"].items():
+        for jour, (mat, aprem) in absences.items():
             if (mat and not aprem) or (not mat and aprem):
                 absences_total = absences_total + 0.5
             elif mat and aprem:
                 absences_total = absences_total + 1
 
-        arret = employe["arret"]
+        arret = convertir_jours(employe["arret"])
         arret_total = 0
-        for jour, (mat, aprem) in employe["arret"].items():
+        for jour, (mat, aprem) in arret.items():
             if (mat and not aprem) or (not mat and aprem):
                 arret_total = arret_total + 0.5
             elif mat and aprem:
@@ -289,95 +297,188 @@ def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
     buffer.seek(0)
     return buffer
 
+# --- UTILISATEURS ---
+USERS = st.secrets["USERS"]
 
+# --- INITIALISATION SESSION ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = None
+
+# --- LOGOUT ---
+def logout():
+    st.session_state.logged_in = False
+    st.session_state.username = None
+    st.rerun()
+
+# --- LOGIN PAGE ---
+def login_page():
+    st.title("Connexion")
+
+    username = st.text_input("Nom d'utilisateur")
+    password = st.text_input("Mot de passe", type="password")
+
+    if st.button("Se connecter"):
+        if username in USERS and USERS[username] == password:
+            st.session_state.logged_in = True
+            st.session_state.username = username
+            st.success("Connexion réussie")
+            st.rerun()
+        else:
+            st.error("Identifiants incorrects")
 ############### Interface Streamlit #################
 
+if not st.session_state.logged_in:
+    login_page()
+    st.stop()  # bloque le reste de l'app
+
+st.button("Déconnexion", on_click=logout)
+
 st.title("Générateur automatique de fiche de présence (Excel)")
+st.write(f"Bienvenue {st.session_state.username} !")
+
+username = st.session_state.username
+
+if "user_data" not in st.session_state:
+    st.session_state.user_data = {}
+
+if username not in st.session_state.user_data:
+    st.session_state.user_data[username] = {}
+
+user_store = st.session_state.user_data[username]
 
 uploaded_excel = "Fiche_Exemple.xlsx"
 
 col1, col2 = st.columns(2)
 with col1:
-    mois = st.number_input("Mois", min_value=1, max_value=12, value=1)
+    user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=user_store.get("mois", 1), key="mois")
 with col2:
-    annee = st.number_input("Année", min_value=2000, max_value=2100, value=2025)
+    user_store["annee"] = st.number_input("Année", min_value=2000, max_value=2100, value=user_store.get("annee", 2025), key="annee")
 
 
+user_store["nb_employe"] = st.number_input("Nombre d'employés :", min_value=1, max_value=30, step=1, value=user_store.get("nb_employe", 1), key="nb_employe")
+employe = [f"Employé {j+1}" for j in range(user_store["nb_employe"])]
 
-nb_employe = st.number_input("Nombre d'employés :", min_value=1, max_value=30, step=1)
+if "employes_data" not in user_store:
+    user_store["employes_data"] = []
 
-employe = [f"Employé {j+1}" for j in range(nb_employe)]
+# Ajouter des employés si on augmente le nombre
+while len(user_store["employes_data"]) < user_store["nb_employe"]:
+    user_store["employes_data"].append({
+        "nom": "",
+        "responsable": "",
+        "ddc": None,
+        "fdc": None,
+        "cdi": False,
+        "vacances": [],
+        "absences": [],
+        "arret": []
+    })
 
-employes_data = []
+# Supprimer des employés si on diminue le nombre
+while len(user_store["employes_data"]) > user_store["nb_employe"]:
+    user_store["employes_data"].pop()
+
 tabs = st.tabs(employe)
 
 for h, tab in enumerate(tabs):
     with tab:
+        emp = user_store["employes_data"][h]
+        if "vacances" not in emp:
+            emp["vacances"] = []
+        if "absences" not in emp:
+            emp["absences"] = []
+        if "arret" not in emp:
+            emp["arret"] = []
+
+
         st.subheader("Information Employé")
-        nom = st.text_input("NOM Prénom (Employé)", key=f"employe_nom_{h}")
-        responsable = st.text_input("NOM Prénom (Responsable)", key=f"resp_nom_{h}")
-        ddc = st.date_input(f"Date de début de contrat", key=f"date_deb_contrat_{h}", format="MM/DD/YYYY")
-        cdi = st.checkbox(f"Contrat à durée indéterminée ?", value=False, key=f"contrat_type_{h}")
-        if (cdi == False):
-            fdc = st.date_input(f"Date de fin de contrat", key=f"date_fin_contrat_{h}", format="MM/DD/YYYY")
+        emp["nom"] = st.text_input("NOM Prénom (Employé)", key=f"{username}_employe_nom_{h}", value=emp["nom"])
+        emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{h}", value=emp["responsable"])
+        emp["ddc"] = st.date_input(f"Date de début de contrat", key=f"{username}_date_deb_contrat_{h}", format="MM/DD/YYYY", value=emp.get("ddc", None))
+        emp["cdi"] = st.checkbox(f"Contrat à durée indéterminée ?", value=emp.get("cdi", False), key=f"{username}_contrat_type_{h}")
+        if (emp["cdi"] == False):
+            if (emp["fdc"] == "Pas de fin"):
+                emp["fdc"] = st.date_input(f"Date de fin de contrat", key=f"{username}_date_fin_contrat_{h}", format="MM/DD/YYYY", value=None)
+            else:
+                emp["fdc"] = st.date_input(f"Date de fin de contrat", key=f"{username}_date_fin_contrat_{h}", format="MM/DD/YYYY", value=emp.get("fdc", None))
         else:
-            fdc = "Pas de fin"
-        
+            emp["fdc"] = "Pas de fin"
+
         with st.expander("Congés payés"):
             st.subheader("Saisir les jours de congés payés")
-            nb_jours_vac = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=0, key=f"nb_jours_vac_{h}")
+            nb_jours_vac = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["vacances"]), key=f"{username}_nb_jours_vac_{h}")
 
-            vacances = {}
+            while len(emp["vacances"]) < nb_jours_vac:
+                emp["vacances"].append({
+                "date": None,
+                "matin": False,
+                "aprem": False
+            })
 
-            for i in range(nb_jours_vac):
+            while len(emp["vacances"]) > nb_jours_vac:
+                emp["vacances"].pop()
+
+            for i, vac in enumerate(emp["vacances"]):
                 st.markdown(f"### Jour de CP #{i+1}")
                 col1, col2, col3 = st.columns(3)
-                with col1:
-                    d = st.date_input(f"Date du jour {i+1}", key=f"date_cp_{h}_{i}", format="MM/DD/YYYY")
-                with col2:
-                    t1 = st.checkbox(f"Matin", value=False, key=f"matin_{h}_{i}")
-                with col3:
-                    t2 = st.checkbox(f"Après-midi", value=False, key=f"aprem_{h}_{i}")
 
-                vacances[d] = (t1, t2)
+                with col1:
+                    vac["date"] = st.date_input(f"Date", key=f"{username}_date_cp_{h}_{i}", format="MM/DD/YYYY", value=vac["date"])
+                with col2:
+                    vac["matin"] = st.checkbox(f"Matin", value=vac["matin"], key=f"{username}_matin_{h}_{i}")
+                with col3:
+                    vac["aprem"] = st.checkbox(f"Après-midi", value=vac["aprem"], key=f"{username}_aprem_{h}_{i}")
+
 
         with st.expander("Absences"):
             st.subheader("Saisir les jours d'absences")
-            nb_jours_abs = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=0, key=f"nb_jours_abs_{h}")
+            nb_jours_abs = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["absences"]), key=f"{username}_nb_jours_abs_{h}")
 
-            absences = {}
+            while len(emp["absences"]) < nb_jours_abs:
+                emp["absences"].append({
+                "date": None,
+                "matin": False,
+                "aprem": False
+            })
 
-            for i in range(nb_jours_abs):
+            while len(emp["absences"]) > nb_jours_abs:
+                emp["absences"].pop()
+
+            for i, abs in enumerate(emp["absences"]):
                 st.markdown(f"### Jour d'ABS #{i+1}")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    d_abs = st.date_input(f"Date du jour {i+1}", key=f"date_abs_{h}_{i}", format="MM/DD/YYYY")
+                    abs["date"] = st.date_input(f"Date", key=f"{username}_date_abs_{h}_{i}", format="MM/DD/YYYY", value=abs["date"])
                 with col2:
-                    t1_abs = st.checkbox(f"Matin", value=False, key=f"matin_abs_{h}_{i}")
+                    abs["matin"] = st.checkbox(f"Matin", value=abs["matin"], key=f"{username}_matin_abs_{h}_{i}")
                 with col3:
-                    t2_abs = st.checkbox(f"Après-midi", value=False, key=f"aprem_abs_{h}_{i}")
+                    abs["aprem"] = st.checkbox(f"Après-midi", value=abs["aprem"], key=f"{username}_aprem_abs_{h}_{i}")
 
-                absences[d_abs] = (t1_abs, t2_abs)
                 
         with st.expander("Arrêts maladies"):
             st.subheader("Saisir les jours d'arrêts maladies")
-            nb_jours_am = st.number_input("Nombre de jours", min_value=0, max_value=31, value=0, key=f"nb_jours_am_{h}")
+            nb_jours_am = st.number_input("Nombre de jours", min_value=0, max_value=31, value=len(emp["arret"]), key=f"{username}_nb_jours_am_{h}")
 
-            arret = {}
+            while len(emp["arret"]) < nb_jours_am:
+                emp["arret"].append({
+                "date": None,
+                "matin": False,
+                "aprem": False
+            })
 
-            for i in range(nb_jours_am):
+            while len(emp["arret"]) > nb_jours_am:
+                emp["arret"].pop()
+
+            for i, am in enumerate(emp["arret"]):
                 st.markdown(f"### Jour d'AM #{i+1}")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    d_am = st.date_input(f"Date du jour {i+1}", key=f"date_am_{h}_{i}", format="MM/DD/YYYY")
+                    am["date"] = st.date_input(f"Date", key=f"{username}_date_am_{h}_{i}", format="MM/DD/YYYY", value=am["date"])
                 with col2:
-                    t1_am = st.checkbox(f"Matin", value=False, key=f"matin_am_{h}_{i}")
+                    am["matin"] = st.checkbox(f"Matin", value=am["matin"], key=f"{username}_matin_am_{h}_{i}")
                 with col3:
-                    t2_am = st.checkbox(f"Après-midi", value=False, key=f"aprem_am_{h}_{i}")
-
-                arret[d_am] = (t1_am, t2_am)
-
-        employes_data.append({"nom": nom, "responsable": responsable, "ddc": ddc, "fdc": fdc, "vacances": vacances, "absences": absences, "arret": arret})
+                    am["aprem"] = st.checkbox(f"Après-midi", value=am["aprem"], key=f"{username}_aprem_am_{h}_{i}")
 
 # Vérifie si les cases sont bien cochées avant de générer l'excel
 
@@ -391,13 +492,12 @@ if st.button("Générer la fiche"):
         "arret": "l'arrêt maladie"
     }
 
-    for employe in employes_data:
-        nom_emp = employe["nom"]
+    for employe in user_store["employes_data"]:
+        nom_emp = employe.get("nom", "Employé sans nom")
 
         for key_cat, label in categories.items():
-            for date_jour, (matin, aprem) in employe[key_cat].items():
-                
-                if not matin and not aprem:
+            for jour in employe[key_cat]:
+                if not jour["matin"] and not jour["aprem"]:
                     erreur_type = label
                     erreur_employe = nom_emp
                     break
@@ -413,13 +513,13 @@ if st.button("Générer la fiche"):
             f"Une des deux cases 'Matin' ou 'Après-midi' pour {erreur_type} de **{erreur_employe}** n'a pas été chochée !"
         )
     else:
-        buffer = remplir_fiche_paie(uploaded_excel, mois, annee, employes_data)
+        buffer = remplir_fiche_paie(uploaded_excel, user_store["mois"], user_store["annee"], user_store["employes_data"])
 
         st.success("Fiche générée avec succès !")
 
         st.download_button(
             "Télécharger la fiche remplie",
             data=buffer,
-            file_name=f"fiche_paie_{mois}_{annee}.xlsx",
+            file_name=f"fiche_paie_{user_store["mois"]}_{user_store["annee"]}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
