@@ -492,7 +492,7 @@ if st.button("Générer la fiche"):
         "arret": "l'arrêt maladie"
     }
 
-    for employe in user_store["employes_data"]:
+    for idx, employe in enumerate(user_store["employes_data"], start=1):
         nom_emp = employe.get("nom", "Employé sans nom")
 
         for key_cat, label in categories.items():
@@ -505,12 +505,32 @@ if st.button("Générer la fiche"):
             if erreur_type:
                 break
         
+        if (not employe["fdc"]):
+            erreur_type = "du fin de contrat"
+            erreur_employe = f"{nom_emp} (Employé {idx})"
+
+        if (not employe["ddc"]):
+            erreur_type = "du début de contrat"
+            erreur_employe = f"{nom_emp} (Employé {idx})"
+
+        if (employe["responsable"] == ""):
+            erreur_type = "du responsable"
+            erreur_employe = f"{nom_emp} (Employé {idx})"
+
+        if (employe["nom"] == ""):
+            erreur_type = "du nom"
+            erreur_employe = f"Employé {idx}"
+
         if erreur_type:
             break
 
-    if erreur_type:
+    if (erreur_type == "le congé payé" or erreur_type == "l'absence" or erreur_type == "l'arrêt maladie"):
         st.error(
             f"Une des deux cases 'Matin' ou 'Après-midi' pour {erreur_type} de **{erreur_employe}** n'a pas été chochée !"
+        )
+    elif erreur_type:
+        st.error(
+            f"Il manque l'information {erreur_type} pour **{erreur_employe}** !"
         )
     else:
         buffer = remplir_fiche_paie(uploaded_excel, user_store["mois"], user_store["annee"], user_store["employes_data"])
