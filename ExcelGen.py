@@ -90,11 +90,11 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
     ws.cell(row=30, column=9, value=vacances_total)
     ws.cell(row=27, column=9, value=absences_total)
     ws.cell(row=27, column=19, value=arret_total)
-    ws.cell(row=30, column=28, value=ddc.strftime("%x"))
+    ws.cell(row=30, column=29, value=ddc.strftime("%x"))
     if (isinstance(fdc, date)):
-        ws.cell(row=35, column=28, value=fdc.strftime("%x"))
+        ws.cell(row=35, column=29, value=fdc.strftime("%x"))
     else:
-        ws.cell(row=35, column=28, value=fdc)
+        ws.cell(row=35, column=29, value=fdc)
 
     # Remplissage des groupes de CP, ABS et AM dans la cartouche du bas
 
@@ -239,10 +239,11 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
     somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=16, col_resultat=12, ligne_total=25, somme="semaine")
     somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=21, col_resultat=17, ligne_total=25, somme="semaine")
     somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=26, col_resultat=22, ligne_total=25, somme="semaine")
+    somme(ws, lignes=[11,12,13,14,15,16,17,18,19,20], col_source=31, col_resultat=27, ligne_total=25, somme="semaine")
 
     # Somme des heures travaillées dans le mois
 
-    somme(ws, lignes=25, col_source=[2,7,12,17,22], col_resultat=27, ligne_total=25, somme="total")
+    somme(ws, lignes=25, col_source=[2,7,12,17,22,27], col_resultat=32, ligne_total=25, somme="total")
 
 
 def convertir_jours(liste):
