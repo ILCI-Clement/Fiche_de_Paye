@@ -3,14 +3,18 @@ from datetime import date
 import requests
 from ExcelGen import remplir_fiche_paie
 
+# Secrets de streamlit
 TOKEN = st.secrets["PRESENCE_TOKEN"]
 API_URL = st.secrets["URL_PRESENCE"]
+USERS = st.secrets["USERS"]
 
+# Configuration du header pour les requêtes
 headers = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json"
 }
 
+# Les dates sont transformées en chaînes de caractères (ISO format).
 def serialize_dates(data):
     """Convertir date en string"""
     if isinstance(data, dict):
@@ -21,6 +25,7 @@ def serialize_dates(data):
         return data.isoformat()
     return data
 
+# Les chaînes sont retransformées en objets datetime.date pour être compatibles avec les widgets Streamlit.
 def deserialize_dates(data):
     """Convertir string en date"""
     if isinstance(data, dict):
@@ -34,21 +39,18 @@ def deserialize_dates(data):
             return data
     return data
 
-# --- UTILISATEURS ---
-USERS = st.secrets["USERS"]
-
-# --- INITIALISATION SESSION ---
+# INITIALISATION SESSION
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = None
 
-# --- LOGOUT ---
+# LOGOUT
 def logout():
     st.session_state.logged_in = False
     st.session_state.username = None
     st.rerun()
 
-# --- LOGIN PAGE ---
+# LOGIN
 def login_page():
     st.title("Connexion")
 
@@ -65,6 +67,7 @@ def login_page():
             st.error("Identifiants incorrects")
 ############### Interface Streamlit #################
 
+# Vérification de l'accès
 if not st.session_state.logged_in:
     login_page()
     st.stop()  # bloque le reste de l'app
@@ -72,9 +75,10 @@ if not st.session_state.logged_in:
 st.button("Déconnexion", on_click=logout)
 username = st.session_state.username
 
-# --- CHARGEMENT DES DONNEES ---
+# CHARGEMENT DES DONNEES DU VPS (MariaDB)
 if "data_loaded" not in st.session_state:
     try:
+        # Appel GET à l'API pour récupérer le JSON stocké
         response = requests.get(f"{API_URL}/get-config/{username}", headers=headers)
         if response.status_code == 200 and response.json():
             # On récupère les données et on convertit les strings en dates
@@ -87,28 +91,30 @@ if "data_loaded" not in st.session_state:
         st.error(f"Erreur de connexion au serveur : {e}")
         st.session_state.user_data = {username: {}}
 
+# Raccourci vers les données de l'utilisateur actuel
 user_store = st.session_state.user_data[username]
 
+# FORMULAIRE PRINCIPAL 
 st.title("Générateur automatique de fiche de présence (Excel)")
 st.write(f"Bienvenue {username} !")
 
+# Initialisation des sous-structures si vides
 if "user_data" not in st.session_state:
     st.session_state.user_data = {}
-
 if username not in st.session_state.user_data:
     st.session_state.user_data[username] = {}
-
 user_store = st.session_state.user_data[username]
 
 uploaded_excel = "Fiche_Exemple.xlsx"
 
+# Sélection du mois et de l'année
 col1, col2 = st.columns(2)
 with col1:
     user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=user_store.get("mois", 1), key="mois")
 with col2:
     user_store["annee"] = st.number_input("Année", min_value=2000, max_value=2100, value=user_store.get("annee", 2025), key="annee")
 
-
+# Gestion dynamique de la liste des employés
 user_store["nb_employe"] = st.number_input("Nombre d'employés :", min_value=1, max_value=30, step=1, value=user_store.get("nb_employe", 1), key="nb_employe")
 employe = [f"Employé {j+1}" for j in range(user_store["nb_employe"])]
 
@@ -128,11 +134,11 @@ while len(user_store["employes_data"]) < user_store["nb_employe"]:
         "arret": [],
         "planning": {d: True for d in ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]}
     })
-
 # Supprimer des employés si on diminue le nombre
 while len(user_store["employes_data"]) > user_store["nb_employe"]:
     user_store["employes_data"].pop()
 
+# Création des onglets pour chaque employé
 tabs = st.tabs(employe)
 
 for h, tab in enumerate(tabs):
@@ -152,7 +158,11 @@ for h, tab in enumerate(tabs):
             else:
                 emp["fdc"] = "Pas de fin"
                 st.write("Fin de contrat : N/A")
+        
+        # SECTION PLANNINGS ET CONGES
+        # Note : Le code utilise des boucles 'while' pour synchroniser le nombre de jours saisis avec le contenu du dictionnaire 'user_store'.
 
+        # Section Planning pour les temps partiels
         with st.expander("Temps partiel / Planning hebdomadaire"):
             st.write("Cochez les jours travaillés :")
             cols_days = st.columns(7)
@@ -160,6 +170,7 @@ for h, tab in enumerate(tabs):
             for i, jour in enumerate(jours):
                 emp["planning"][jour] = cols_days[i].checkbox(jour[:3], value=emp["planning"].get(jour, True), key=f"plan_{h}_{jour}")
 
+        # Section Congés
         with st.expander("Congés payés"):
             st.subheader("Saisir les jours de congés payés")
             nb_jours_vac = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["vacances"]), key=f"{username}_nb_jours_vac_{h}")
@@ -185,7 +196,7 @@ for h, tab in enumerate(tabs):
                 with col3:
                     vac["aprem"] = st.checkbox(f"Après-midi", value=vac["aprem"], key=f"{username}_aprem_{h}_{i}")
 
-
+        # Section Absences
         with st.expander("Absences"):
             st.subheader("Saisir les jours d'absences")
             nb_jours_abs = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["absences"]), key=f"{username}_nb_jours_abs_{h}")
@@ -210,7 +221,7 @@ for h, tab in enumerate(tabs):
                 with col3:
                     abs["aprem"] = st.checkbox(f"Après-midi", value=abs["aprem"], key=f"{username}_aprem_abs_{h}_{i}")
 
-                
+        # Section Arrêts
         with st.expander("Arrêts maladies"):
             st.subheader("Saisir les jours d'arrêts maladies")
             nb_jours_am = st.number_input("Nombre de jours", min_value=0, max_value=31, value=len(emp["arret"]), key=f"{username}_nb_jours_am_{h}")
@@ -235,6 +246,7 @@ for h, tab in enumerate(tabs):
                 with col3:
                     am["aprem"] = st.checkbox(f"Après-midi", value=am["aprem"], key=f"{username}_aprem_am_{h}_{i}")
 
+# BOUTON DE SAUVEGARDE SUR LE VPS
 st.divider()
 if st.button("Sauvegarder", use_container_width=True):
     try:
@@ -254,8 +266,9 @@ if st.button("Sauvegarder", use_container_width=True):
     except Exception as e:
         st.error(f"Impossible de joindre le serveur : {e}")
 
-# Vérifie si les cases sont bien cochées avant de générer l'excel
+# GÉNÉRATION EXCEL
 if st.button("Générer la fiche", type="primary"): 
+    # Logique de validation des champs obligatoires
     erreur_type = None
     erreur_employe = None
 
