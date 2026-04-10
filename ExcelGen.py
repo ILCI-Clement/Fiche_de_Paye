@@ -254,7 +254,8 @@ def convertir_jours(liste):
     return resultat
 
 # Remplis un calendrier en fonction du nombre d'employés en entrée
-def remplir_fiche_paie(fichier_entree, mois, annee, employes_data):
+def remplir_fiche_paie(mois, annee, employes_data):
+    fichier_entree = "Fiche_Exemple.xlsx"
     wb = load_workbook(fichier_entree)
     modele = wb.active
 
