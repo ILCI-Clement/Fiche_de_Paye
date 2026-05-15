@@ -4,10 +4,14 @@ import requests
 from DocxGen import generer_docx_stagiaire
 from ExcelGen import remplir_fiche_paie
 
+st.set_page_config(page_title="Générateur automatique de fiche de présence", layout="wide")
+
 # Secrets de streamlit
 TOKEN = st.secrets["PRESENCE_TOKEN"]
 API_URL = st.secrets["URL_PRESENCE"]
 USERS = st.secrets["USERS"]
+HORAIRES = [f"{h:02d}:{m:02d}" for h in range(7, 21) for m in (0, 30)]
+HORAIRES.insert(0, "") # Option vide pour les jours non travaillés
 
 # Configuration du header pour les requêtes
 headers = {
@@ -55,8 +59,8 @@ def logout():
 def login_page():
     st.title("Connexion")
 
-    username = st.text_input("Nom d'utilisateur")
-    password = st.text_input("Mot de passe", type="password")
+    username = st.text_input("Nom d'utilisateur", width=400)
+    password = st.text_input("Mot de passe", type="password", width=400)
 
     if st.button("Se connecter"):
         if username in USERS and USERS[username] == password:
@@ -66,6 +70,7 @@ def login_page():
             st.rerun()
         else:
             st.error("Identifiants incorrects")
+            
 ############### Interface Streamlit #################
 
 # Vérification de l'accès
@@ -109,7 +114,7 @@ user_store = st.session_state.user_data[username]
 # Sélection du mois et de l'année
 col1, col2 = st.columns(2)
 with col1:
-    user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=user_store.get("mois", 1), key="mois")
+    user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=user_store.get("mois", 1), key="mois", help="Saisissez le numéro du mois")
 with col2:
     user_store["annee"] = st.number_input("Année", min_value=2000, max_value=2100, value=user_store.get("annee", 2025), key="annee")
 
@@ -158,7 +163,7 @@ for h, tab in enumerate(tabs):
 
         # CHAMPS SALARIÉS
         if type_contrat == "Salarié":
-            st.subheader("Information Employé")
+            st.subheader("Informations Employé")
             emp["nom"] = st.text_input("NOM Prénom (Employé)", key=f"{username}_employe_nom_{h}", value=emp["nom"])
             emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{h}", value=emp["responsable"])
             c1, c2 = st.columns(2)
@@ -177,11 +182,31 @@ for h, tab in enumerate(tabs):
 
             # Section Planning pour les temps partiels
             with st.expander("Temps partiel / Planning hebdomadaire"):
-                st.write("Cochez les jours travaillés :")
-                cols_days = st.columns(7)
+                st.write("Indiquez les horaires pour chaque jour (décochez si non travaillé) :")
+                
+                # On définit les jours de la semaine
                 jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-                for i, jour in enumerate(jours):
-                    emp["planning"][jour] = cols_days[i].checkbox(jour[:3], value=emp["planning"].get(jour, True), key=f"plan_{h}_{jour}")
+                
+                # On initialise la structure si besoin
+                if "planning_detail" not in emp:
+                    emp["planning_detail"] = {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": True} for j in jours}
+
+                for jour in jours:
+                    st.write(f"**{jour}**")
+                    c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 2, 2])
+                    
+                    with c1:
+                        emp["planning_detail"][jour]["actif"] = st.checkbox("Jour de travail", value=emp["planning_detail"][jour]["actif"], key=f"check_{h}_{jour}")
+                    
+                    if emp["planning_detail"][jour]["actif"]:
+                        with c2:
+                            emp["planning_detail"][jour]["m1"] = st.selectbox("Matin de", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["m1"]), key=f"m1_{h}_{jour}")
+                        with c3:
+                            emp["planning_detail"][jour]["m2"] = st.selectbox("à", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["m2"]), key=f"m2_{h}_{jour}")
+                        with c4:
+                            emp["planning_detail"][jour]["a1"] = st.selectbox("Après-midi de", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["a1"]), key=f"a1_{h}_{jour}")
+                        with c5:
+                            emp["planning_detail"][jour]["a2"] = st.selectbox("à", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["a2"]), key=f"a2_{h}_{jour}")
 
             # Section Congés
             with st.expander("Congés payés"):

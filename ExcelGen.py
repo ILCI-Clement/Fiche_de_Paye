@@ -203,29 +203,28 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
                     ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"AM\n13:00 à 17:00")
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            elif d.weekday() in [5, 6] or not planning.get(nom_jour_fr, True):
-                ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
-                val_label = "WEEK-END" if d.weekday() in [5, 6] else "REPOS"
-                cell = ws.cell(row=col, column=ligne+1, value=val_label)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-
             else:
-                cell = ws.cell(row=col, column=ligne+1, value="09:00")
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-                cell = ws.cell(row=col, column=ligne+2, value="à")
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-                cell = ws.cell(row=col, column=ligne+3, value="12:00")
-                cell.alignment = Alignment(horizontal="center", vertical="center")
+                # Si le jour n'est pas trouvé, on met 'actif': False par sécurité
+                config_jour = planning.get(nom_jour_fr, {"actif": False})
 
-                cell = ws.cell(row=col+1, column=ligne+1, value="13:00")
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-                cell = ws.cell(row=col+1, column=ligne+2, value="à")
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-                cell = ws.cell(row=col+1, column=ligne+3, value="17:00")
-                cell.alignment = Alignment(horizontal="center", vertical="center")
+                if d.weekday() in [5, 6] or not config_jour.get("actif", True):
+                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                    val_label = "WEEK-END" if d.weekday() in [5, 6] else "REPOS"
+                    cell = ws.cell(row=col, column=ligne+1, value=val_label)
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    # On remplit le Matin
+                    ws.cell(row=col, column=ligne+1, value=config_jour["m1"])
+                    ws.cell(row=col, column=ligne+2, value="à")
+                    ws.cell(row=col, column=ligne+3, value=config_jour["m2"])
+                        
+                    # On remplit l'Après-midi
+                    ws.cell(row=col+1, column=ligne+1, value=config_jour["a1"])
+                    ws.cell(row=col+1, column=ligne+2, value="à")
+                    ws.cell(row=col+1, column=ligne+3, value=config_jour["a2"])
 
-                calculer_heures(ws, col, col, ligne+1, ligne+3, ligne+4)
-                calculer_heures(ws, col+1, col+1, ligne+1, ligne+3, ligne+4)
+                    calculer_heures(ws, col, col, ligne+1, ligne+3, ligne+4)
+                    calculer_heures(ws, col+1, col+1, ligne+1, ligne+3, ligne+4)
 
             jour += 1
 
@@ -290,7 +289,7 @@ def remplir_fiche_paie(mois, annee, employes_data):
             elif mat and aprem:
                 arret_total = arret_total + 1
 
-        remplir_calendrier(ws, mois, annee, vacances, absences, arret, employe["nom"], employe["responsable"], employe["ddc"], employe["fdc"], vacances_total, absences_total, arret_total, employe.get("planning", {}))
+        remplir_calendrier(ws, mois, annee, vacances, absences, arret, employe["nom"], employe["responsable"], employe["ddc"], employe["fdc"], vacances_total, absences_total, arret_total, employe.get("planning_detail", {}))
 
     # Sauvegarde
 
