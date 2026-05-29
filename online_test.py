@@ -10,7 +10,6 @@ st.set_page_config(page_title="Générateur automatique de fiche de présence", 
 # Secrets de streamlit
 TOKEN = st.secrets["PRESENCE_TOKEN"]
 API_URL = st.secrets["URL_PRESENCE"]
-USERS = st.secrets["USERS"]
 HORAIRES = [f"{h:02d}:{m:02d}" for h in range(7, 21) for m in (0, 30)]
 HORAIRES.insert(0, "") # Option vide pour les jours non travaillés
 
