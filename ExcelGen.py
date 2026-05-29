@@ -90,9 +90,9 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
     ws.cell(row=30, column=9, value=vacances_total)
     ws.cell(row=27, column=9, value=absences_total)
     ws.cell(row=27, column=19, value=arret_total)
-    ws.cell(row=30, column=29, value=ddc.strftime("%x"))
+    ws.cell(row=30, column=29, value=ddc.strftime("%d/%m/%Y"))
     if (isinstance(fdc, date)):
-        ws.cell(row=35, column=29, value=fdc.strftime("%x"))
+        ws.cell(row=35, column=29, value=fdc.strftime("%d/%m/%Y"))
     else:
         ws.cell(row=35, column=29, value=fdc)
 

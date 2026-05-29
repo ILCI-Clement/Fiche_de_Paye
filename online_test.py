@@ -1,6 +1,7 @@
 import streamlit as st
-from datetime import date
+from datetime import date, datetime
 import requests
+import time
 from DocxGen import generer_docx_stagiaire
 from ExcelGen import remplir_fiche_paie
 
@@ -49,6 +50,9 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = None
 
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+
 # LOGOUT
 def logout():
     st.session_state.logged_in = False
@@ -63,13 +67,20 @@ def login_page():
     password = st.text_input("Mot de passe", type="password", width=400)
 
     if st.button("Se connecter"):
-        if username in USERS and USERS[username] == password:
-            st.session_state.logged_in = True
-            st.session_state.username = username
-            st.success("Connexion réussie")
-            st.rerun()
-        else:
-            st.error("Identifiants incorrects")
+        try:
+            # On demande à l'API de vérifier
+            res = requests.post(f"{API_URL}/login", json={"username": username, "password": password})
+            if res.status_code == 200:
+                data = res.json()
+                st.session_state.logged_in = True
+                st.session_state.username = data["username"]
+                st.session_state.is_admin = data["is_admin"] # On stocke s'il est admin
+                st.success("Connexion réussie")
+                st.rerun()
+            else:
+                st.error("Identifiants incorrects")
+        except Exception as e:
+            st.error(f"Erreur de connexion à l'API : {e}")
             
 ############### Interface Streamlit #################
 
@@ -104,6 +115,58 @@ user_store = st.session_state.user_data[username]
 st.title("Générateur automatique de fiche de présence")
 st.write(f"Bienvenue {username} !")
 
+if st.session_state.is_admin:
+    with st.sidebar.expander("PANNEAU ADMINISTRATEUR", expanded=False):
+        st.subheader("Créer un nouvel utilisateur")
+        new_user = st.text_input("Nom d'utilisateur", key="admin_new_user")
+        new_pass = st.text_input("Mot de passe", type="password", key="admin_new_pass")
+        new_is_admin = st.checkbox("Administrateur ?", value=False, help="Cochez pour que l'utilisateur soit administrateur")
+            
+        if st.button("Créer l'utilisateur", type="primary"):
+            if new_user and new_pass:
+                payload = {"new_username": new_user, "new_password": new_pass, "is_admin": new_is_admin}
+                res = requests.post(f"{API_URL}/create-user", headers=headers, json=payload)
+                    
+                if res.status_code == 200:
+                    st.success(f"Compte '{new_user}' créé avec succès !")
+                else:
+                    st.error(f"Erreur : {res.json().get('detail')}")
+            else:
+                st.warning("Veuillez remplir tous les champs.")
+
+        st.write("---") # Ligne de séparation
+        
+        st.subheader("Supprimer un utilisateur")
+        user_to_del = st.text_input("Nom de l'utilisateur à supprimer", key="admin_del_user")
+        
+        # Sécurité Streamlit : On demande de cocher une case pour confirmer avant de cliquer
+        confirmer_suppression = st.checkbox("Je confirme vouloir supprimer définitivement cet utilisateur", key="confirm_del")
+        
+        if st.button("Supprimer l'utilisateur", type="secondary", disabled=not confirmer_suppression):
+            if user_to_del:
+                # Sécurité : Éviter que l'admin connecté se supprime lui-même
+                if user_to_del == st.session_state.username:
+                    st.error("Vous ne pouvez pas supprimer le compte avec lequel vous êtes actuellement connecté !")
+                else:
+                    try:
+                        # Appel à l'API avec la méthode DELETE
+                        # Note : On passe le nom dans l'URL directement comme défini dans FastAPI
+                        res = requests.delete(
+                            f"{API_URL}/delete-user/{user_to_del}", 
+                            headers=headers
+                        )
+                        
+                        if res.status_code == 200:
+                            st.success(f"Le compte '{user_to_del}' a été supprimé.")
+                            # Petit rerun pour rafraîchir l'interface si nécessaire
+                            st.rerun()
+                        else:
+                            st.error(f"Erreur : {res.json().get('detail', 'Impossible de supprimer cet utilisateur')}")
+                    except Exception as e:
+                        st.error(f"Erreur de communication avec l'API : {e}")
+            else:
+                st.warning("Veuillez saisir un nom d'utilisateur.")
+
 # Initialisation des sous-structures si vides
 if "user_data" not in st.session_state:
     st.session_state.user_data = {}
@@ -112,194 +175,212 @@ if username not in st.session_state.user_data:
 user_store = st.session_state.user_data[username]
 
 # Sélection du mois et de l'année
+now = datetime.now()
 col1, col2 = st.columns(2)
 with col1:
-    user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=user_store.get("mois", 1), key="mois", help="Saisissez le numéro du mois")
+    user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=user_store.get("mois", int(now.strftime("%m"))), key="mois", help="Saisissez le numéro du mois")
 with col2:
-    user_store["annee"] = st.number_input("Année", min_value=2000, max_value=2100, value=user_store.get("annee", 2025), key="annee")
-
-# Gestion dynamique de la liste des employés
-user_store["nb_employe"] = st.number_input("Nombre d'employés :", min_value=1, max_value=30, step=1, value=user_store.get("nb_employe", 1), key="nb_employe")
-employe = [f"Employé {j+1}" for j in range(user_store["nb_employe"])]
+    user_store["annee"] = st.number_input("Année", min_value=2000, max_value=2100, value=user_store.get("annee", int(now.strftime("%Y"))), key="annee")
 
 if "employes_data" not in user_store:
     user_store["employes_data"] = []
 
-# Ajouter des employés si on augmente le nombre
-while len(user_store["employes_data"]) < user_store["nb_employe"]:
+# Bouton pour ajouter un employé à la fin de la liste
+if st.button("Ajouter un employé / stagiaire", use_container_width=True):
     user_store["employes_data"].append({
-        "nom": "",
-        "responsable": "",
-        "ddc": None,
-        "fdc": None,
-        "cdi": False,
-        "vacances": [],
-        "absences": [],
-        "arret": [],
-        "planning": {d: True for d in ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]}
+        "id": int(time.time() * 1000),
+        "type": "Salarié",
+        "nom": "", "responsable": "", "ddc": None, "fdc": None, "cdi": False,
+        "vacances": [], "absences": [], "arret": [],
+        "planning_detail": {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": True} for j in ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]}
     })
-# Supprimer des employés si on diminue le nombre
-while len(user_store["employes_data"]) > user_store["nb_employe"]:
-    user_store["employes_data"].pop()
+    st.rerun() # On force Streamlit à recréer les onglets immédiatement
 
-# Création des onglets pour chaque employé
-tabs = st.tabs(employe)
+# Si la liste est vide, on affiche un message d'aide
+if not user_store["employes_data"]:
+    st.info("Aucun employé ou stagiaire configuré. Cliquez sur le bouton ci-dessus pour commencer.")
 
-for h, tab in enumerate(tabs):
-    with tab:
-        emp = user_store["employes_data"][h]
-        
-        # Sélection du type de contrat
-        type_contrat = st.radio(
-            "Type de contrat",
-            ["Salarié", "Stagiaire"],
-            key=f"type_contrat_{h}",
-            index=0 if emp.get("type", "Salarié") == "Salarié" else 1,
-            horizontal=True
-        )
-        emp["type"] = type_contrat
+if user_store["employes_data"]:
+    # Génération dynamique des titres des onglets (affiche le nom de l'employé s'il existe)
+    labels_onglets = [
+        f"Employé {idx+1}" for idx in range(len(user_store["employes_data"]))
+    ]
+    
+    # Création des onglets pour chaque employé
+    tabs = st.tabs(labels_onglets)
 
-        st.divider()
-
-        # CHAMPS SALARIÉS
-        if type_contrat == "Salarié":
-            st.subheader("Informations Employé")
-            emp["nom"] = st.text_input("NOM Prénom (Employé)", key=f"{username}_employe_nom_{h}", value=emp["nom"])
-            emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{h}", value=emp["responsable"])
-            c1, c2 = st.columns(2)
-            with c1:
-                emp["ddc"] = st.date_input("Début de contrat", key=f"ddc_{h}", value=emp.get("ddc"))
-                emp["cdi"] = st.checkbox("Contrat CDI ?", value=emp.get("cdi", False), key=f"cdi_{h}")
-            with c2:
-                if not emp["cdi"]:
-                    emp["fdc"] = st.date_input("Fin de contrat", key=f"fdc_{h}", value=emp.get("fdc") if emp.get("fdc") != "Pas de fin" else None)
-                else:
-                    emp["fdc"] = "Pas de fin"
-                    st.write("Fin de contrat : N/A")
+    for h, tab in enumerate(tabs):
+        with tab:
+            emp = user_store["employes_data"][h]
             
-            # SECTION PLANNINGS ET CONGES
-            # Note : Le code utilise des boucles 'while' pour synchroniser le nombre de jours saisis avec le contenu du dictionnaire 'user_store'.
+            # Si un vieil employé n'a pas d'ID (migration), on lui en donne un
+            if "id" not in emp:
+                emp["id"] = int(time.time() * 1000) + h
 
-            # Section Planning pour les temps partiels
-            with st.expander("Temps partiel / Planning hebdomadaire"):
-                st.write("Indiquez les horaires pour chaque jour (décochez si non travaillé) :")
+            emp_id = emp["id"] # Notre clé magique et unique
+
+            # --- BOUTON DE SUPPRESSION DE CE TAB PRÉCIS ---
+            c_space, c_del = st.columns([4, 1])
+            with c_space:
+                st.subheader(f"Fiche de {emp["nom"]}" if emp["nom"] else f"Fiche d'employe")
+            with c_del:
+                # Un bouton rouge aligné à droite pour supprimer l'employé courant
+                if st.button("Supprimer cette fiche", key=f"del_btn_{emp_id}", type="secondary", help="Supprime définitivement cet employé de la liste"):
+                    user_store["employes_data"].pop(h) # Supprime précisément l'index h
+                    st.success("Fiche supprimée ! Sauvegardez pour appliquer les changements sur le serveur.")
+                    st.rerun() # Recharge l'interface sans l'onglet supprimé
+
+            # Sélection du type de contrat
+            type_contrat = st.radio(
+                "Type de contrat",
+                ["Salarié", "Stagiaire"],
+                key=f"type_contrat_{emp_id}",
+                index=0 if emp.get("type", "Salarié") == "Salarié" else 1,
+                horizontal=True
+            )
+            emp["type"] = type_contrat
+
+            st.divider()
+
+            # CHAMPS SALARIÉS
+            if type_contrat == "Salarié":
+                st.subheader("Informations Employé")
+                emp["nom"] = st.text_input("NOM Prénom (Employé)", key=f"{username}_employe_nom_{emp_id}", value=emp["nom"])
+                emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{emp_id}", value=emp["responsable"])
+                c1, c2 = st.columns(2)
+                with c1:
+                    emp["ddc"] = st.date_input("Début de contrat", key=f"ddc_{emp_id}", value=emp.get("ddc"), format="DD/MM/YYYY")
+                    emp["cdi"] = st.checkbox("Contrat CDI ?", value=emp.get("cdi", False), key=f"cdi_{emp_id}")
+                with c2:
+                    if not emp["cdi"]:
+                        emp["fdc"] = st.date_input("Fin de contrat", key=f"fdc_{emp_id}", value=emp.get("fdc") if emp.get("fdc") != "Pas de fin" else None, format="DD/MM/YYYY")
+                    else:
+                        emp["fdc"] = "Pas de fin"
+                        st.write("Fin de contrat : N/A")
                 
-                # On définit les jours de la semaine
-                jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-                
-                # On initialise la structure si besoin
-                if "planning_detail" not in emp:
-                    emp["planning_detail"] = {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": True} for j in jours}
+                # SECTION PLANNINGS ET CONGES
+                # Note : Le code utilise des boucles 'while' pour synchroniser le nombre de jours saisis avec le contenu du dictionnaire 'user_store'.
 
-                for jour in jours:
-                    st.write(f"**{jour}**")
-                    c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 2, 2])
+                # Section Planning pour les temps partiels
+                with st.expander("Temps partiel / Planning hebdomadaire"):
+                    st.write("Indiquez les horaires pour chaque jour (décochez si non travaillé) :")
                     
-                    with c1:
-                        emp["planning_detail"][jour]["actif"] = st.checkbox("Jour de travail", value=emp["planning_detail"][jour]["actif"], key=f"check_{h}_{jour}")
+                    # On définit les jours de la semaine
+                    jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
                     
-                    if emp["planning_detail"][jour]["actif"]:
-                        with c2:
-                            emp["planning_detail"][jour]["m1"] = st.selectbox("Matin de", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["m1"]), key=f"m1_{h}_{jour}")
-                        with c3:
-                            emp["planning_detail"][jour]["m2"] = st.selectbox("à", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["m2"]), key=f"m2_{h}_{jour}")
-                        with c4:
-                            emp["planning_detail"][jour]["a1"] = st.selectbox("Après-midi de", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["a1"]), key=f"a1_{h}_{jour}")
-                        with c5:
-                            emp["planning_detail"][jour]["a2"] = st.selectbox("à", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["a2"]), key=f"a2_{h}_{jour}")
+                    # On initialise la structure si besoin
+                    if "planning_detail" not in emp:
+                        emp["planning_detail"] = {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": True} for j in jours}
 
-            # Section Congés
-            with st.expander("Congés payés"):
-                st.subheader("Saisir les jours de congés payés")
-                nb_jours_vac = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["vacances"]), key=f"{username}_nb_jours_vac_{h}")
+                    for jour in jours:
+                        st.write(f"**{jour}**")
+                        c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 2, 2])
+                        
+                        with c1:
+                            emp["planning_detail"][jour]["actif"] = st.checkbox("Jour de travail", value=emp["planning_detail"][jour]["actif"], key=f"check_{emp_id}_{jour}")
+                        
+                        if emp["planning_detail"][jour]["actif"]:
+                            with c2:
+                                emp["planning_detail"][jour]["m1"] = st.selectbox("Matin de", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["m1"]), key=f"m1_{emp_id}_{jour}")
+                            with c3:
+                                emp["planning_detail"][jour]["m2"] = st.selectbox("à", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["m2"]), key=f"m2_{emp_id}_{jour}")
+                            with c4:
+                                emp["planning_detail"][jour]["a1"] = st.selectbox("Après-midi de", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["a1"]), key=f"a1_{emp_id}_{jour}")
+                            with c5:
+                                emp["planning_detail"][jour]["a2"] = st.selectbox("à", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["a2"]), key=f"a2_{emp_id}_{jour}")
 
-                while len(emp["vacances"]) < nb_jours_vac:
-                    emp["vacances"].append({
-                    "date": None,
-                    "matin": False,
-                    "aprem": False
-                })
+                # Section Congés
+                with st.expander("Congés payés"):
+                    st.subheader("Saisir les jours de congés payés")
+                    nb_jours_vac = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["vacances"]), key=f"{username}_nb_jours_vac_{emp_id}")
 
-                while len(emp["vacances"]) > nb_jours_vac:
-                    emp["vacances"].pop()
+                    while len(emp["vacances"]) < nb_jours_vac:
+                        emp["vacances"].append({
+                        "date": None,
+                        "matin": False,
+                        "aprem": False
+                    })
 
-                for i, vac in enumerate(emp["vacances"]):
-                    st.markdown(f"### Jour de CP #{i+1}")
-                    col1, col2, col3 = st.columns(3)
+                    while len(emp["vacances"]) > nb_jours_vac:
+                        emp["vacances"].pop()
 
-                    with col1:
-                        vac["date"] = st.date_input(f"Date", key=f"{username}_date_cp_{h}_{i}", format="MM/DD/YYYY", value=vac["date"])
-                    with col2:
-                        vac["matin"] = st.checkbox(f"Matin", value=vac["matin"], key=f"{username}_matin_{h}_{i}")
-                    with col3:
-                        vac["aprem"] = st.checkbox(f"Après-midi", value=vac["aprem"], key=f"{username}_aprem_{h}_{i}")
+                    for i, vac in enumerate(emp["vacances"]):
+                        st.markdown(f"### Jour de CP #{i+1}")
+                        col1, col2, col3 = st.columns(3)
 
-            # Section Absences
-            with st.expander("Absences"):
-                st.subheader("Saisir les jours d'absences")
-                nb_jours_abs = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["absences"]), key=f"{username}_nb_jours_abs_{h}")
+                        with col1:
+                            vac["date"] = st.date_input(f"Date", key=f"{username}_date_cp_{emp_id}_{i}", format="MM/DD/YYYY", value=vac["date"])
+                        with col2:
+                            vac["matin"] = st.checkbox(f"Matin", value=vac["matin"], key=f"{username}_matin_{emp_id}_{i}")
+                        with col3:
+                            vac["aprem"] = st.checkbox(f"Après-midi", value=vac["aprem"], key=f"{username}_aprem_{emp_id}_{i}")
 
-                while len(emp["absences"]) < nb_jours_abs:
-                    emp["absences"].append({
-                    "date": None,
-                    "matin": False,
-                    "aprem": False
-                })
+                # Section Absences
+                with st.expander("Absences"):
+                    st.subheader("Saisir les jours d'absences")
+                    nb_jours_abs = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["absences"]), key=f"{username}_nb_jours_abs_{emp_id}")
 
-                while len(emp["absences"]) > nb_jours_abs:
-                    emp["absences"].pop()
+                    while len(emp["absences"]) < nb_jours_abs:
+                        emp["absences"].append({
+                        "date": None,
+                        "matin": False,
+                        "aprem": False
+                    })
 
-                for i, abs in enumerate(emp["absences"]):
-                    st.markdown(f"### Jour d'ABS #{i+1}")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        abs["date"] = st.date_input(f"Date", key=f"{username}_date_abs_{h}_{i}", format="MM/DD/YYYY", value=abs["date"])
-                    with col2:
-                        abs["matin"] = st.checkbox(f"Matin", value=abs["matin"], key=f"{username}_matin_abs_{h}_{i}")
-                    with col3:
-                        abs["aprem"] = st.checkbox(f"Après-midi", value=abs["aprem"], key=f"{username}_aprem_abs_{h}_{i}")
+                    while len(emp["absences"]) > nb_jours_abs:
+                        emp["absences"].pop()
 
-            # Section Arrêts
-            with st.expander("Arrêts maladies"):
-                st.subheader("Saisir les jours d'arrêts maladies")
-                nb_jours_am = st.number_input("Nombre de jours", min_value=0, max_value=31, value=len(emp["arret"]), key=f"{username}_nb_jours_am_{h}")
+                    for i, abs in enumerate(emp["absences"]):
+                        st.markdown(f"### Jour d'ABS #{i+1}")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            abs["date"] = st.date_input(f"Date", key=f"{username}_date_abs_{emp_id}_{i}", format="MM/DD/YYYY", value=abs["date"])
+                        with col2:
+                            abs["matin"] = st.checkbox(f"Matin", value=abs["matin"], key=f"{username}_matin_abs_{emp_id}_{i}")
+                        with col3:
+                            abs["aprem"] = st.checkbox(f"Après-midi", value=abs["aprem"], key=f"{username}_aprem_abs_{emp_id}_{i}")
 
-                while len(emp["arret"]) < nb_jours_am:
-                    emp["arret"].append({
-                    "date": None,
-                    "matin": False,
-                    "aprem": False
-                })
+                # Section Arrêts
+                with st.expander("Arrêts maladies"):
+                    st.subheader("Saisir les jours d'arrêts maladies")
+                    nb_jours_am = st.number_input("Nombre de jours", min_value=0, max_value=31, value=len(emp["arret"]), key=f"{username}_nb_jours_am_{emp_id}")
 
-                while len(emp["arret"]) > nb_jours_am:
-                    emp["arret"].pop()
+                    while len(emp["arret"]) < nb_jours_am:
+                        emp["arret"].append({
+                        "date": None,
+                        "matin": False,
+                        "aprem": False
+                    })
 
-                for i, am in enumerate(emp["arret"]):
-                    st.markdown(f"### Jour d'AM #{i+1}")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        am["date"] = st.date_input(f"Date", key=f"{username}_date_am_{h}_{i}", format="MM/DD/YYYY", value=am["date"])
-                    with col2:
-                        am["matin"] = st.checkbox(f"Matin", value=am["matin"], key=f"{username}_matin_am_{h}_{i}")
-                    with col3:
-                        am["aprem"] = st.checkbox(f"Après-midi", value=am["aprem"], key=f"{username}_aprem_am_{h}_{i}")
-        else:
-            # CHAMPS STAGIAIRES
-            st.subheader("Information Stagiaire")
-        
-            c1, c2 = st.columns(2)
-            with c1:
-                emp["nom_stagiaire"] = st.text_input("Nom du stagiaire", key=f"st_nom_{h}", value=emp.get("nom_stagiaire", ""))
-                emp["dds"] = st.date_input("Début de stage", key=f"dds_{h}", value=emp.get("dds"))
-                emp["nb_jours"] = st.number_input("Nombre de jours", key=f"st_nj_{h}", value=emp.get("nb_jours", 0))
-                emp["taux_horaire"] = st.number_input("Taux horaire (€)", key=f"st_th_{h}", value=emp.get("taux_horaire", 0.0))
-                emp["facture_mensuelle"] = st.number_input("Facture mensuelle (€)", key=f"st_fm_{h}", value=emp.get("facture_mensuelle", 0.0))
-            with c2:
-                emp["prenom_stagiaire"] = st.text_input("Prénom du stagiaire", key=f"st_pre_{h}", value=emp.get("prenom_stagiaire", ""))
-                emp["fds"] = st.date_input("Fin de stage", key=f"fds_{h}", value=emp.get("dds"))
-                emp["nb_heures_jour"] = st.number_input("Nombre d'heures/jour", key=f"st_nhj_{h}", value=emp.get("nb_heures_jour", 0.0))
-                emp["transport"] = st.text_input("Transport", key=f"st_tr_{h}", value=emp.get("transport", ""))
-                emp["taux"] = st.number_input("Taux (%)", key=f"st_tx_{h}", value=emp.get("taux", 0.0))
+                    while len(emp["arret"]) > nb_jours_am:
+                        emp["arret"].pop()
+
+                    for i, am in enumerate(emp["arret"]):
+                        st.markdown(f"### Jour d'AM #{i+1}")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            am["date"] = st.date_input(f"Date", key=f"{username}_date_am_{emp_id}_{i}", format="MM/DD/YYYY", value=am["date"])
+                        with col2:
+                            am["matin"] = st.checkbox(f"Matin", value=am["matin"], key=f"{username}_matin_am_{emp_id}_{i}")
+                        with col3:
+                            am["aprem"] = st.checkbox(f"Après-midi", value=am["aprem"], key=f"{username}_aprem_am_{emp_id}_{i}")
+            else:
+                # CHAMPS STAGIAIRES
+                st.subheader("Information Stagiaire")
+            
+                c1, c2 = st.columns(2)
+                with c1:
+                    emp["nom_stagiaire"] = st.text_input("Nom du stagiaire", key=f"st_nom_{emp_id}", value=emp.get("nom_stagiaire", ""))
+                    emp["dds"] = st.date_input("Début de stage", key=f"dds_{emp_id}", value=emp.get("dds"))
+                    emp["nb_jours"] = st.number_input("Nombre de jours", key=f"st_nj_{emp_id}", value=emp.get("nb_jours", 0))
+                    emp["taux_horaire"] = st.number_input("Taux horaire (€)", key=f"st_th_{emp_id}", value=emp.get("taux_horaire", 0.0))
+                    emp["facture_mensuelle"] = st.number_input("Facture mensuelle (€)", key=f"st_fm_{emp_id}", value=emp.get("facture_mensuelle", 0.0))
+                with c2:
+                    emp["prenom_stagiaire"] = st.text_input("Prénom du stagiaire", key=f"st_pre_{emp_id}", value=emp.get("prenom_stagiaire", ""))
+                    emp["fds"] = st.date_input("Fin de stage", key=f"fds_{emp_id}", value=emp.get("dds"))
+                    emp["nb_heures_jour"] = st.number_input("Nombre d'heures/jour", key=f"st_nhj_{emp_id}", value=emp.get("nb_heures_jour", 0.0))
+                    emp["transport"] = st.text_input("Transport", key=f"st_tr_{emp_id}", value=emp.get("transport", ""))
+                    emp["taux"] = st.number_input("Taux (%)", key=f"st_tx_{emp_id}", value=emp.get("taux", 0.0))
 
 # BOUTON DE SAUVEGARDE SUR LE VPS
 st.divider()
