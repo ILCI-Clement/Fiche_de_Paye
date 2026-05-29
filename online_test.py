@@ -178,9 +178,9 @@ user_store = st.session_state.user_data[username]
 now = datetime.now()
 col1, col2 = st.columns(2)
 with col1:
-    user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=user_store.get("mois", int(now.strftime("%m"))), key="mois", help="Saisissez le numéro du mois")
+    user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=int(now.strftime("%m")), key="mois", help="Saisissez le numéro du mois")
 with col2:
-    user_store["annee"] = st.number_input("Année", min_value=2000, max_value=2100, value=user_store.get("annee", int(now.strftime("%Y"))), key="annee")
+    user_store["annee"] = st.number_input("Année", min_value=2000, max_value=2100, value=int(now.strftime("%Y")), key="annee")
 
 if "employes_data" not in user_store:
     user_store["employes_data"] = []
