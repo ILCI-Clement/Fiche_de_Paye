@@ -4,6 +4,8 @@ import requests
 import time
 from DocxGen import generer_docx_stagiaire
 from ExcelGen import remplir_fiche_paie
+import zipfile
+import io
 
 st.set_page_config(page_title="Générateur automatique de fiche de présence", layout="wide")
 
@@ -212,16 +214,16 @@ if user_store["employes_data"]:
         with tab:
             emp = user_store["employes_data"][h]
             
-            # Si un vieil employé n'a pas d'ID (migration), on lui en donne un
+            # Si un employé n'a pas d'ID, on lui en donne un
             if "id" not in emp:
                 emp["id"] = int(time.time() * 1000) + h
 
-            emp_id = emp["id"] # Notre clé magique et unique
+            emp_id = emp["id"]
 
             # --- BOUTON DE SUPPRESSION DE CE TAB PRÉCIS ---
             c_space, c_del = st.columns([4, 1])
             with c_space:
-                st.subheader(f"Fiche de {emp["nom"]}" if emp["nom"] else f"Fiche d'employe")
+                st.subheader(f"Fiche de {emp["nom"]}" if emp["nom"] else f"Fiche d'employé")
             with c_del:
                 # Un bouton rouge aligné à droite pour supprimer l'employé courant
                 if st.button("Supprimer cette fiche", key=f"del_btn_{emp_id}", type="secondary", help="Supprime définitivement cet employé de la liste"):
@@ -407,11 +409,12 @@ if st.button("Générer la fiche", type="primary"):
     salaries = [e for e in user_store["employes_data"] if e.get("type") == "Salarié"]
     stagiaires = [e for e in user_store["employes_data"] if e.get("type") == "Stagiaire"]
 
+    bloquer_generation = False
+
     if salaries:
         # Logique de validation des champs obligatoires
         erreur_type = None
         erreur_employe = None
-
         categories = {
             "vacances": "le congé payé",
             "absences": "l'absence",
@@ -448,6 +451,7 @@ if st.button("Générer la fiche", type="primary"):
                 erreur_employe = f"Employé {idx}"
 
             if erreur_type:
+                bloquer_generation = True
                 break
 
         if (erreur_type == "le congé payé" or erreur_type == "l'absence" or erreur_type == "l'arrêt maladie"):
@@ -458,19 +462,8 @@ if st.button("Générer la fiche", type="primary"):
             st.error(
                 f"Il manque l'information {erreur_type} pour **{erreur_employe}** !"
             )
-        else:
-            # On génère un document pour tous les salariés
-            buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"], salaries)
 
-            st.success("Fiche salariés générée avec succès !")
-
-            st.download_button(
-                "Télécharger la fiche remplie",
-                data=buffer,
-                file_name=f"fiche_paie_{user_store["mois"]}_{user_store["annee"]}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-    if stagiaires:
+    if stagiaires and not bloquer_generation:
         # Logique de validation des champs obligatoires
         erreur_type_stage = None
         erreur_stagiaire = None
@@ -491,23 +484,46 @@ if st.button("Générer la fiche", type="primary"):
                 erreur_stagiaire = f"Stagiaire {idx}"
 
             if (stagiaire["prenom_stagiaire"] == ""):
-                erreur_type_stage = "du nom"
+                erreur_type_stage = "du prénom"
                 erreur_stagiaire = f"Stagiaire {idx}"
 
             if erreur_type_stage:
+                bloquer_generation = True
                 st.error(
                     f"Il manque l'information {erreur_type_stage} pour **{erreur_stagiaire}** !"
                 )
-            else:
-                # On génère un document par stagiaire            
-                buffer_docx = generer_docx_stagiaire(stagiaire, user_store['mois'], user_store['annee'])
+    
+    if not bloquer_generation and (salaries or stagiaires):
+        zip_buffer = io.BytesIO()
 
-                st.success("Fiches stagiaires générées avec succès !")
-                
-                st.download_button(
-                    label=f"Télécharger la fiche d'indemnité de stage de {stagiaire.get('nom_stagiaire')}",
-                    data=buffer_docx,
-                    file_name=f"Fiche_Stage_{stagiaire.get('nom_stagiaire')}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    key=f"btn_st_{idx}"
-                )
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+
+            if salaries:
+                for idx, salarie in enumerate(salaries):
+                    nom_propre = salarie.get("nom", f"Employe_{idx+1}").replace(" ", "_")
+                    file_name = f"Fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx"
+
+                    excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"],salarie)
+
+                    zip_file.writestr(file_name, excel_buffer.getvalue())
+            
+            if stagiaires:
+                for idx, stagiaire in enumerate(stagiaires):
+                    nom_propre = stagiaire.get("nom_stagiaire", f"Stagiaire_{idx+1}").replace(" ", "_")
+                    file_name = f"Fiche_stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx"
+
+                    docx_buffer = generer_docx_stagiaire(stagiaire, user_store['mois'], user_store['annee'])
+
+                    zip_file.writestr(file_name, docx_buffer.getvalue())
+
+        zip_buffer.seek(0)
+
+        st.success("Toutes les fiches individuelles ont été générées avec succès !")
+
+        st.download_button(
+            label="Télécharger toutes les fiches (Dossier ZIP)",
+            data=zip_buffer,
+            file_name=f"fiches_presence_{user_store['mois']}_{user_store['annee']}.zip",
+            mime="application/zip",
+            use_container_width=True
+        )

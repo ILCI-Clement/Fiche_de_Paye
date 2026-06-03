@@ -258,42 +258,38 @@ def remplir_fiche_paie(mois, annee, employes_data):
     wb = load_workbook(fichier_entree)
     modele = wb.active
 
-    for employe in employes_data:
-        ws = wb.copy_worksheet(modele)
-        if employe["nom"]:
-            ws.title = employe["nom"]
-        else:
-            ws.title = "Sans nom"
+    if employes_data.get("nom"):
+        modele.title = employes_data["nom"]
+    else:
+        modele.title = "Sans nom"
     
-        vacances = convertir_jours(employe["vacances"])
-        vacances_total = 0
-        for jour, (mat, aprem) in vacances.items():
-            if (mat and not aprem) or (not mat and aprem):
-                vacances_total = vacances_total + 0.5
-            elif mat and aprem:
-                vacances_total = vacances_total + 1
+    vacances = convertir_jours(employes_data["vacances"])
+    vacances_total = 0
+    for jour, (mat, aprem) in vacances.items():
+        if (mat and not aprem) or (not mat and aprem):
+            vacances_total = vacances_total + 0.5
+        elif mat and aprem:
+            vacances_total = vacances_total + 1
 
-        absences = convertir_jours(employe["absences"])
-        absences_total = 0
-        for jour, (mat, aprem) in absences.items():
-            if (mat and not aprem) or (not mat and aprem):
-                absences_total = absences_total + 0.5
-            elif mat and aprem:
-                absences_total = absences_total + 1
+    absences = convertir_jours(employes_data["absences"])
+    absences_total = 0
+    for jour, (mat, aprem) in absences.items():
+        if (mat and not aprem) or (not mat and aprem):
+            absences_total = absences_total + 0.5
+        elif mat and aprem:
+            absences_total = absences_total + 1
 
-        arret = convertir_jours(employe["arret"])
-        arret_total = 0
-        for jour, (mat, aprem) in arret.items():
-            if (mat and not aprem) or (not mat and aprem):
-                arret_total = arret_total + 0.5
-            elif mat and aprem:
-                arret_total = arret_total + 1
+    arret = convertir_jours(employes_data["arret"])
+    arret_total = 0
+    for jour, (mat, aprem) in arret.items():
+        if (mat and not aprem) or (not mat and aprem):
+            arret_total = arret_total + 0.5
+        elif mat and aprem:
+            arret_total = arret_total + 1
 
-        remplir_calendrier(ws, mois, annee, vacances, absences, arret, employe["nom"], employe["responsable"], employe["ddc"], employe["fdc"], vacances_total, absences_total, arret_total, employe.get("planning_detail", {}))
+    remplir_calendrier(modele, mois, annee, vacances, absences, arret, employes_data["nom"], employes_data["responsable"], employes_data["ddc"], employes_data["fdc"], vacances_total, absences_total, arret_total, employes_data.get("planning_detail", {}))
 
     # Sauvegarde
-
-    wb.remove(modele)
     
     buffer = io.BytesIO()
     wb.save(buffer)
