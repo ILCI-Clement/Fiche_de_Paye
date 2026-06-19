@@ -136,6 +136,31 @@ if st.session_state.is_admin:
                 st.warning("Veuillez remplir tous les champs.")
 
         st.write("---") # Ligne de séparation
+
+        st.subheader("Liste des utilisateurs")
+        
+        try:
+            # Appel à l'API pour récupérer la liste
+            res_list = requests.get(f"{API_URL}/list-users", headers=headers)
+            
+            if res_list.status_code == 200:
+                donnees_users = res_list.json().get("users", [])
+                
+                if donnees_users:
+                    # Pour un affichage ultra propre, on peut utiliser un petit tableau
+                    # ou boucler pour afficher des lignes avec des icônes
+                    for u in donnees_users:
+                        role = "Admin" if u["is_admin"] else "Utilisateur"
+                        # Affichage d'une ligne stylisée pour chaque utilisateur
+                        st.write(f"**{u['username']}** — *{role}*")
+                else:
+                    st.info("Aucun utilisateur trouvé en base.")
+            else:
+                st.error("Impossible de récupérer la liste des utilisateurs.")
+        except Exception as e:
+            st.error(f"Erreur de connexion à l'API : {e}")
+
+        st.write("---") # Ligne de séparation
         
         st.subheader("Supprimer un utilisateur")
         user_to_del = st.text_input("Nom de l'utilisateur à supprimer", key="admin_del_user")
@@ -223,7 +248,7 @@ if user_store["employes_data"]:
             # --- BOUTON DE SUPPRESSION DE CE TAB PRÉCIS ---
             c_space, c_del = st.columns([4, 1])
             with c_space:
-                st.subheader(f"Fiche de {emp["nom"]}" if emp["nom"] else f"Fiche d'employé")
+                st.subheader(f"Fiche de {emp['nom']}" if emp["nom"] else f"Fiche d'employé")
             with c_del:
                 # Un bouton rouge aligné à droite pour supprimer l'employé courant
                 if st.button("Supprimer cette fiche", key=f"del_btn_{emp_id}", type="secondary", help="Supprime définitivement cet employé de la liste"):
