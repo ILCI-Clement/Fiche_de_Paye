@@ -397,13 +397,13 @@ if user_store["employes_data"]:
                 c1, c2 = st.columns(2)
                 with c1:
                     emp["nom_stagiaire"] = st.text_input("Nom du stagiaire", key=f"st_nom_{emp_id}", value=emp.get("nom_stagiaire", ""))
-                    emp["dds"] = st.date_input("Début de stage", key=f"dds_{emp_id}", value=emp.get("dds"))
+                    emp["dds"] = st.date_input("Début de stage", key=f"dds_{emp_id}", value=emp.get("dds"), format="DD/MM/YYYY")
                     emp["nb_jours"] = st.number_input("Nombre de jours", key=f"st_nj_{emp_id}", value=emp.get("nb_jours", 0))
                     emp["taux_horaire"] = st.number_input("Taux horaire (€)", key=f"st_th_{emp_id}", value=emp.get("taux_horaire", 0.0))
                     emp["facture_mensuelle"] = st.number_input("Facture mensuelle (€)", key=f"st_fm_{emp_id}", value=emp.get("facture_mensuelle", 0.0))
                 with c2:
                     emp["prenom_stagiaire"] = st.text_input("Prénom du stagiaire", key=f"st_pre_{emp_id}", value=emp.get("prenom_stagiaire", ""))
-                    emp["fds"] = st.date_input("Fin de stage", key=f"fds_{emp_id}", value=emp.get("dds"))
+                    emp["fds"] = st.date_input("Fin de stage", key=f"fds_{emp_id}", value=emp.get("fds"), format="DD/MM/YYYY")
                     emp["nb_heures_jour"] = st.number_input("Nombre d'heures/jour", key=f"st_nhj_{emp_id}", value=emp.get("nb_heures_jour", 0.0))
                     emp["transport"] = st.text_input("Transport", key=f"st_tr_{emp_id}", value=emp.get("transport", ""))
                     emp["taux"] = st.number_input("Taux (%)", key=f"st_tx_{emp_id}", value=emp.get("taux", 0.0))
