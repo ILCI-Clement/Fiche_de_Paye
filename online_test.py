@@ -246,7 +246,7 @@ if user_store["employes_data"]:
             emp_id = emp["id"]
 
             # --- BOUTON DE SUPPRESSION DE CE TAB PRÉCIS ---
-            c_space, c_del = st.columns([4, 1])
+            c_space, c_gen, c_del = st.columns([4, 1, 1])
             with c_space:
                 st.subheader(f"Fiche de {emp['nom']}" if emp["nom"] else f"Fiche d'employé")
             with c_del:
@@ -255,6 +255,53 @@ if user_store["employes_data"]:
                     user_store["employes_data"].pop(h) # Supprime précisément l'index h
                     st.success("Fiche supprimée ! Sauvegardez pour appliquer les changements sur le serveur.")
                     st.rerun() # Recharge l'interface sans l'onglet supprimé
+            with c_gen:
+                if st.button("Générer cette fiche", key=f"gen_solo_btn_{emp_id}", type="primary", help="Charge uniquement la fiche de cet employé"):
+                    erreur_type_solo = None
+                    nom_propre = emp.get("nom", f"Fiche_{h+1}").replace(" ", "_")
+                    
+                    if emp.get("type") == "Salarié":
+                        # Validation Salarié
+                        if not emp.get("fdc"): erreur_type_solo = "du fin de contrat"
+                        if not emp.get("ddc"): erreur_type_solo = "du début de contrat"
+                        if emp.get("responsable") == "": erreur_type_solo = "du responsable"
+                        if emp.get("nom") == "": erreur_type_solo = "du nom"
+                        
+                        if erreur_type_solo:
+                            st.error(f"Impossible de générer : il manque l'information {erreur_type_solo} !")
+                        else:
+                            # Génération de l'Excel unique
+                            excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"], emp)
+                            
+                            # On propose le téléchargement immédiat de cet Excel
+                            st.download_button(
+                                label="Télécharger l'Excel",
+                                data=excel_buffer,
+                                file_name=f"fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"dl_solo_excel_{emp_id}"
+                            )
+                            
+                    else:
+                        # Validation Stagiaire
+                        if not emp.get("fds"): erreur_type_solo = "de la fin de stage"
+                        if not emp.get("dds"): erreur_type_solo = "du début de stage"
+                        if emp.get("nom_stagiaire") == "": erreur_type_solo = "du nom"
+                        
+                        if erreur_type_solo:
+                            st.error(f"Impossible de générer : il manque l'information {erreur_type_solo} !")
+                        else:
+                            # Génération du Word unique
+                            docx_buffer = generer_docx_stagiaire(emp, user_store['mois'], user_store['annee'])
+                            
+                            # On propose le téléchargement immédiat de ce Word
+                            st.download_button(
+                                label="Télécharger le Word",
+                                data=docx_buffer,
+                                file_name=f"Fiche_Stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key=f"dl_solo_docx_{emp_id}"
+                            )
 
             # Sélection du type de contrat
             type_contrat = st.radio(
@@ -429,7 +476,7 @@ if st.button("Sauvegarder", use_container_width=True):
         st.error(f"Impossible de joindre le serveur : {e}")
 
 # GÉNÉRATION EXCEL ET DOCX
-if st.button("Générer la fiche", type="primary"): 
+if st.button("Générer toutes les fiches", type="primary"): 
     # On sépare les deux types de contrat
     salaries = [e for e in user_store["employes_data"] if e.get("type") == "Salarié"]
     stagiaires = [e for e in user_store["employes_data"] if e.get("type") == "Stagiaire"]
