@@ -62,26 +62,61 @@ def logout():
 
 # LOGIN
 def login_page():
-    st.title("Connexion")
+    # Récupération des paramètres de l'URL
+    params = st.query_params
 
-    username = st.text_input("Nom d'utilisateur", width=400)
-    password = st.text_input("Mot de passe", type="password", width=400)
-
-    if st.button("Se connecter"):
-        try:
-            # On demande à l'API de vérifier
-            res = requests.post(f"{API_URL}/login", json={"username": username, "password": password})
-            if res.status_code == 200:
-                data = res.json()
-                st.session_state.logged_in = True
-                st.session_state.username = data["username"]
-                st.session_state.is_admin = data["is_admin"] # On stocke s'il est admin
-                st.success("Connexion réussie")
-                st.rerun()
+    if "token" in params:
+        # --- MODE RÉINITIALISATION (Si l'URL contient un jeton) ---
+        st.title(" Nouveau mot de passe")
+        token = params["token"]
+        new_pass = st.text_input("Saisissez votre nouveau mot de passe", type="password", width=400)
+        confirm_pass = st.text_input("Confirmez votre nouveau mot de passe", type="password", width=400)
+        if st.button("Valider le nouveau mot de passe", type="primary"):
+            if new_pass == confirm_pass:
+                res = requests.post(f"{API_URL}/reset-password", json={"token": token, "new_password": new_pass})
+                if res.status_code == 200:
+                    st.success("Votre mot de passe a bien été modifié ! Vous pouvez maintenant vous connecter.")
+                    # On vide les paramètres URL pour revenir à l'écran de connexion normal
+                    st.query_params.clear()
+                    st.button("Retour à la connexion")
+                else:
+                    st.error("Le lien est invalide ou a expiré.")
             else:
-                st.error("Identifiants incorrects")
-        except Exception as e:
-            st.error(f"Erreur de connexion à l'API : {e}")
+                st.warning("Les mots de passe ne correspondent pas.")
+    else:
+        st.title("Connexion")
+
+        username = st.text_input("Nom d'utilisateur", width=400)
+        password = st.text_input("Mot de passe", type="password", width=400)
+
+        if st.button("Se connecter", type="primary"):
+            try:
+                # On demande à l'API de vérifier
+                res = requests.post(f"{API_URL}/login", json={"username": username, "password": password})
+                if res.status_code == 200:
+                    data = res.json()
+                    st.session_state.logged_in = True
+                    st.session_state.username = data["username"]
+                    st.session_state.is_admin = data["is_admin"] # On stocke s'il est admin
+                    st.success("Connexion réussie")
+                    st.rerun()
+                else:
+                    st.error("Identifiants incorrects")
+            except Exception as e:
+                st.error(f"Erreur de connexion à l'API : {e}")
+        
+        # Toggle pour afficher le formulaire de mot de passe oublié
+        forgot_tab = st.checkbox("Mot de passe oublié ?")
+
+        if forgot_tab:
+            st.subheader("Récupération de compte")
+            email_recup = st.text_input("Entrez votre e-mail professionnel", width=400)
+            if st.button("Recevoir le lien de récupération"):
+                if email_recup:
+                    res = requests.post(f"{API_URL}/forgot-password", json={"email": email_recup})
+                    st.info("Si l'adresse existe, un lien vient de vous être envoyé par e-mail.")
+                else:
+                    st.warning("Veuillez entrer une adresse e-mail.")
             
 ############### Interface Streamlit #################
 
