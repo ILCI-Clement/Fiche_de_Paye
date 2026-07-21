@@ -155,12 +155,13 @@ if st.session_state.is_admin:
     with st.sidebar.expander("PANNEAU ADMINISTRATEUR", expanded=False):
         st.subheader("Créer un nouvel utilisateur")
         new_user = st.text_input("Nom d'utilisateur", key="admin_new_user")
+        new_mail = st.text_input("E-mail professionnel (exemple@univ-ilci.fr)", key="admin_new_mail")
         new_pass = st.text_input("Mot de passe", type="password", key="admin_new_pass")
         new_is_admin = st.checkbox("Administrateur ?", value=False, help="Cochez pour que l'utilisateur soit administrateur")
             
         if st.button("Créer l'utilisateur", type="primary"):
-            if new_user and new_pass:
-                payload = {"new_username": new_user, "new_password": new_pass, "is_admin": new_is_admin}
+            if new_user and new_mail and new_pass:
+                payload = {"new_username": new_user, "new_mail": new_mail, "new_password": new_pass, "is_admin": new_is_admin}
                 res = requests.post(f"{API_URL}/create-user", headers=headers, json=payload)
                     
                 if res.status_code == 200:
