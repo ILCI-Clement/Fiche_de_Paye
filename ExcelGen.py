@@ -32,7 +32,7 @@ def regrouper_plages(vacances):
     if not vacances:
         return []
 
-    dates = sorted(vacances.keys())
+    dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in vacances.keys()])
     plages = []
 
     debut = dates[0]
@@ -150,7 +150,9 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
             cell = ws.cell(row=col, column=ligne, value=jour)
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.font = Font(bold=True)
+
             d = date(annee, mois, jour)
+            d_str = d.strftime("%Y-%m-%d")
             nom_jour_fr = jours_trad[d.weekday()]
 
             if d in jours_feries:
@@ -158,51 +160,48 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
                 cell = ws.cell(row=col, column=ligne+1, value="FERIE")
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
-            elif d in vacances:
-                if vacances[d] == (True, True):
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
-                    cell = ws.cell(row=col, column=ligne+1, value=f"CP\n09:00 à 17:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                elif vacances[d] == (True, False):
+            elif d_str in vacances:
+                ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+                infos_cp = vacances[d_str]
+
+                if infos_cp["matin"] and infos_cp["aprem"]:   
+                    cell = ws.cell(row=col, column=ligne+1, value=f"CP EXAMEN\nALTERNANCE" if infos_cp.get("examen_alt") else "CP\n09:00 à 17:00")
+                elif infos_cp["matin"] and not infos_cp["aprem"]:
                     cell = ws.cell(row=col+1, column=ligne+4, value="04:00")
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"CP\n09:00 à 12:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                elif vacances[d] == (False, True):
+                elif not infos_cp["matin"] and infos_cp["aprem"]:
                     cell = ws.cell(row=col, column=ligne+4, value="03:00")
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"CP\n13:00 à 17:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            elif d in absences:
-                if absences[d] == (True, True):
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+            elif d_str in absences:
+                ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+                infos_abs = absences[d_str]
+
+                if infos_abs["matin"] and infos_abs["aprem"]:
                     cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n09:00 à 17:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                elif absences[d] == (True, False):
+                elif infos_abs["matin"] and not infos_abs["aprem"]:
                     cell = ws.cell(row=col+1, column=ligne+4, value="04:00")
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n09:00 à 12:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                elif absences[d] == (False, True):
+                elif not infos_abs["matin"] and infos_abs["aprem"]:
                     cell = ws.cell(row=col, column=ligne+4, value="03:00")
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n13:00 à 17:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            elif d in arret:
-                if arret[d] == (True, True):
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+            elif d_str in arret:
+                ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+                infos_am = arret[d_str]
+
+                if infos_am["matin"] and infos_am["aprem"]:
                     cell = ws.cell(row=col, column=ligne+1, value=f"AM\n09:00 à 17:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                elif arret[d] == (True, False):
+                elif infos_am["matin"] and not infos_am["aprem"]:
                     cell = ws.cell(row=col+1, column=ligne+4, value="04:00")
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"AM\n09:00 à 12:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                elif arret[d] == (False, True):
+                elif not infos_am["matin"] and infos_am["aprem"]:
                     cell = ws.cell(row=col, column=ligne+4, value="03:00")
-                    ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                     cell = ws.cell(row=col, column=ligne+1, value=f"AM\n13:00 à 17:00")
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             else:
                 # Si le jour n'est pas trouvé, on met 'actif': False par sécurité
                 config_jour = planning.get(nom_jour_fr, {"actif": False})
@@ -246,11 +245,17 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
 
 
 def convertir_jours(liste):
-    resultat = {}
+    dictionnaire_jours = {}
     for j in liste:
-        if j["date"] is not None:
-            resultat[j["date"]] = (j["matin"], j["aprem"])
-    return resultat
+        # Formatage de la date en string YYYY-MM-DD pour correspondre à ton calendrier
+        date_str = j["date"].strftime("%Y-%m-%d") if hasattr(j["date"], "strftime") else str(j["date"])
+        
+        dictionnaire_jours[date_str] = {
+            "matin": j.get("matin", False),
+            "aprem": j.get("aprem", False),
+            "examen_alt": j.get("examen_alt", False) # <-- On passe l'information ici
+        }
+    return dictionnaire_jours
 
 # Remplis un calendrier en fonction du nombre d'employés en entrée
 def remplir_fiche_paie(mois, annee, employes_data):
@@ -265,7 +270,10 @@ def remplir_fiche_paie(mois, annee, employes_data):
     
     vacances = convertir_jours(employes_data["vacances"])
     vacances_total = 0
-    for jour, (mat, aprem) in vacances.items():
+    for jour, infos in vacances.items():
+        mat = infos["matin"]
+        aprem = infos["aprem"]
+        
         if (mat and not aprem) or (not mat and aprem):
             vacances_total = vacances_total + 0.5
         elif mat and aprem:
@@ -273,7 +281,10 @@ def remplir_fiche_paie(mois, annee, employes_data):
 
     absences = convertir_jours(employes_data["absences"])
     absences_total = 0
-    for jour, (mat, aprem) in absences.items():
+    for jour, infos in absences.items():
+        mat = infos["matin"]
+        aprem = infos["aprem"]
+
         if (mat and not aprem) or (not mat and aprem):
             absences_total = absences_total + 0.5
         elif mat and aprem:
@@ -281,7 +292,10 @@ def remplir_fiche_paie(mois, annee, employes_data):
 
     arret = convertir_jours(employes_data["arret"])
     arret_total = 0
-    for jour, (mat, aprem) in arret.items():
+    for jour, infos in arret.items():
+        mat = infos["matin"]
+        aprem = infos["aprem"]
+
         if (mat and not aprem) or (not mat and aprem):
             arret_total = arret_total + 0.5
         elif mat and aprem:

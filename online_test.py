@@ -407,7 +407,8 @@ if user_store["employes_data"]:
                         emp["vacances"].append({
                         "date": None,
                         "matin": False,
-                        "aprem": False
+                        "aprem": False,
+                        "examen_alt": False
                     })
 
                     while len(emp["vacances"]) > nb_jours_vac:
@@ -415,7 +416,7 @@ if user_store["employes_data"]:
 
                     for i, vac in enumerate(emp["vacances"]):
                         st.markdown(f"### Jour de CP #{i+1}")
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2, col3, col4 = st.columns(4)
 
                         with col1:
                             vac["date"] = st.date_input(f"Date", key=f"{username}_date_cp_{emp_id}_{i}", format="MM/DD/YYYY", value=vac["date"])
@@ -423,6 +424,8 @@ if user_store["employes_data"]:
                             vac["matin"] = st.checkbox(f"Matin", value=vac["matin"], key=f"{username}_matin_{emp_id}_{i}")
                         with col3:
                             vac["aprem"] = st.checkbox(f"Après-midi", value=vac["aprem"], key=f"{username}_aprem_{emp_id}_{i}")
+                        with col4:
+                            vac["examen_alt"] = st.checkbox(f"Examen alternance", value=vac["examen_alt"], key=f"{username}_examen_alt_{emp_id}_{i}", help="Cochez la case si c'est un alternant qui pose des jours de congés pour les révisions de ses examens")
 
                 # Section Absences
                 with st.expander("Absences"):
