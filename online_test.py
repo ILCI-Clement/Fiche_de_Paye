@@ -426,7 +426,7 @@ if user_store["employes_data"]:
                         with col3:
                             vac["aprem"] = st.checkbox(f"Après-midi", value=vac["aprem"], key=f"{username}_aprem_{emp_id}_{i}")
                         with col4:
-                            vac["examen_alt"] = st.checkbox(f"Examen alternance", value=vac["examen_alt"], key=f"{username}_examen_alt_{emp_id}_{i}", help="Cochez la case si c'est un alternant qui pose des jours de congés pour les révisions de ses examens")
+                            vac["examen_alt"] = st.checkbox(f"Examen alternance", value=vac["examen_alt"] if "examen_alt" in vac else False, key=f"{username}_examen_alt_{emp_id}_{i}", help="Cochez la case si c'est un alternant qui pose des jours de congés pour les révisions de ses examens")
 
                 # Section Absences
                 with st.expander("Absences"):
