@@ -313,7 +313,7 @@ if user_store["employes_data"]:
                             st.download_button(
                                 label="Télécharger l'Excel",
                                 data=excel_buffer,
-                                file_name=f"fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
+                                file_name=f"Fiche_de_temps_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key=f"dl_solo_excel_{emp_id}"
                             )
@@ -615,7 +615,7 @@ if st.button("Générer toutes les fiches", type="primary"):
             if salaries:
                 for idx, salarie in enumerate(salaries):
                     nom_propre = salarie.get("nom", f"Employe_{idx+1}").replace(" ", "_")
-                    file_name = f"Fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx"
+                    file_name = f"Fiche_de_temps_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx"
 
                     excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"],salarie)
 
@@ -624,7 +624,7 @@ if st.button("Générer toutes les fiches", type="primary"):
             if stagiaires:
                 for idx, stagiaire in enumerate(stagiaires):
                     nom_propre = stagiaire.get("nom_stagiaire", f"Stagiaire_{idx+1}").replace(" ", "_")
-                    file_name = f"Fiche_stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx"
+                    file_name = f"Fiche_de_temps_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx"
 
                     docx_buffer = generer_docx_stagiaire(stagiaire, user_store['mois'], user_store['annee'])
 
@@ -637,7 +637,7 @@ if st.button("Générer toutes les fiches", type="primary"):
         st.download_button(
             label="Télécharger toutes les fiches (Dossier ZIP)",
             data=zip_buffer,
-            file_name=f"fiches_presence_{user_store['mois']}_{user_store['annee']}.zip",
+            file_name=f"Fiches_presences_{user_store['mois']}_{user_store['annee']}.zip",
             mime="application/zip",
             use_container_width=True
         )
