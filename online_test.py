@@ -7,7 +7,7 @@ from ExcelGen import remplir_fiche_paie
 import zipfile
 import io
 
-st.set_page_config(page_title="Fiches de présences - ILCI", layout="wide")
+st.set_page_config(page_title="Fiches de présences", layout="wide")
 
 # Secrets de streamlit
 TOKEN = st.secrets["PRESENCE_TOKEN"]
@@ -148,7 +148,7 @@ if "data_loaded" not in st.session_state:
 user_store = st.session_state.user_data[username]
 
 # FORMULAIRE PRINCIPAL 
-st.title("Fiches de présences - ILCI")
+st.title("Fiches de présences")
 st.write(f"Bienvenue {username} !")
 
 if st.session_state.is_admin:
