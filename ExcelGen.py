@@ -162,46 +162,49 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
 
             elif d_str in vacances:
                 ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                target_cell = ws.cell(row=col, column=ligne+1)
+                target_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
                 infos_cp = vacances[d_str]
 
                 if infos_cp["matin"] and infos_cp["aprem"]:   
-                    cell = ws.cell(row=col, column=ligne+1, value=f"CP EXAMEN\nALTERNANCE" if infos_cp.get("examen_alt") else "CP\n09:00 à 17:00")
+                    target_cell.value = "CP EXAMEN\nALTERNANCE" if infos_cp.get("examen_alt") else "CP\n09:00 à 17:00"
                 elif infos_cp["matin"] and not infos_cp["aprem"]:
-                    cell = ws.cell(row=col+1, column=ligne+4, value="04:00")
-                    cell = ws.cell(row=col, column=ligne+1, value=f"CP\n09:00 à 12:00")
+                    ws.cell(row=col+1, column=ligne+4, value="04:00")
+                    target_cell.value = "CP\n09:00 à 12:00"
                 elif not infos_cp["matin"] and infos_cp["aprem"]:
-                    cell = ws.cell(row=col, column=ligne+4, value="03:00")
-                    cell = ws.cell(row=col, column=ligne+1, value=f"CP\n13:00 à 17:00")
+                    ws.cell(row=col, column=ligne+4, value="03:00")
+                    target_cell.value = "CP\n13:00 à 17:00"
             elif d_str in absences:
                 ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                target_cell = ws.cell(row=col, column=ligne+1)
+                target_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
                 infos_abs = absences[d_str]
 
                 if infos_abs["matin"] and infos_abs["aprem"]:
-                    cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n09:00 à 17:00")
+                    target_cell.value = "ABS\n09:00 à 17:00"
                 elif infos_abs["matin"] and not infos_abs["aprem"]:
-                    cell = ws.cell(row=col+1, column=ligne+4, value="04:00")
-                    cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n09:00 à 12:00")
+                    ws.cell(row=col+1, column=ligne+4, value="04:00")
+                    target_cell.value = "ABS\n09:00 à 12:00"
                 elif not infos_abs["matin"] and infos_abs["aprem"]:
-                    cell = ws.cell(row=col, column=ligne+4, value="03:00")
-                    cell = ws.cell(row=col, column=ligne+1, value=f"ABS\n13:00 à 17:00")
+                    ws.cell(row=col+1, column=ligne+4, value="03:00")
+                    target_cell.value = "ABS\n09:00 à 12:00"
             elif d_str in arret:
                 ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                target_cell = ws.cell(row=col, column=ligne+1)
+                target_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
                 infos_am = arret[d_str]
 
                 if infos_am["matin"] and infos_am["aprem"]:
-                    cell = ws.cell(row=col, column=ligne+1, value=f"AM\n09:00 à 17:00")
+                    target_cell.value = "AM\n09:00 à 17:00"
                 elif infos_am["matin"] and not infos_am["aprem"]:
-                    cell = ws.cell(row=col+1, column=ligne+4, value="04:00")
-                    cell = ws.cell(row=col, column=ligne+1, value=f"AM\n09:00 à 12:00")
+                    ws.cell(row=col+1, column=ligne+4, value="04:00")
+                    target_cell.value = "AM\n09:00 à 12:00"
                 elif not infos_am["matin"] and infos_am["aprem"]:
-                    cell = ws.cell(row=col, column=ligne+4, value="03:00")
-                    cell = ws.cell(row=col, column=ligne+1, value=f"AM\n13:00 à 17:00")
+                    ws.cell(row=col+1, column=ligne+4, value="03:00")
+                    target_cell.value = "AM\n09:00 à 12:00"
             else:
                 # Si le jour n'est pas trouvé, on met 'actif': False par sécurité
                 config_jour = planning.get(nom_jour_fr, {"actif": False})
