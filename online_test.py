@@ -13,7 +13,8 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 login_page = st.Page("pages/Login.py", title="Connexion")
-fiches_page = st.Page("pages/Fiches.py", title="Création de Fiches")
+home_page = st.Page("pages/Home.py", title="Accueil", default=True)
+fiches_page = st.Page("pages/Fiches.py", title="Gestion des fiches")
 profile_page = st.Page("pages/Profile.py", title="Infos Personnelles")
 admin_page = st.Page("pages/Admin.py", title="Administration")
 
@@ -26,10 +27,10 @@ def get_pages_for_user():
     role = user.get("role")
     
     if role == "Admin":
-        return [profile_page, fiches_page, admin_page]
+        return [home_page, profile_page, fiches_page, admin_page]
 
     elif role == "Responsable":
-        return [profile_page, fiches_page]
+        return [home_page, profile_page, fiches_page]
     
     elif role == "Employe":
         return [profile_page]
@@ -42,6 +43,9 @@ pg = st.navigation(pages)
 if st.session_state["user"]:
     st.sidebar.write(f"Connecté en tant que : **{st.session_state['user']['name']}** ({st.session_state['user']['role']})")
     if st.sidebar.button("Se déconnecter"):
+        for key in list(st.session_state):
+            if not key.startswith('workspace_'):
+                del st.session_state[key]
         st.session_state["user"] = None
         st.rerun()
     
