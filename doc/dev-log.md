@@ -10,6 +10,7 @@
 - Correction de compatibilité de connexion : l'API historique peut renvoyer `role: null` avec `is_admin`. L'interface déduit désormais le rôle `Admin` ou `Responsable` dans ce cas, sans modifier le compte concerné.
 - Correction du panneau d'administration : la liste des utilisateurs contenait une f-string avec des guillemets incompatibles, qui ne se manifestait qu'une fois la page Admin redevenue accessible.
 - Alignement de l'environnement de production sur Streamlit `1.60.0`, version utilisée lors de la validation locale du composant calendrier. La version `1.58.0` affichait le composant de sélection sous forme d'espace réservé vide.
+- Correction de la politique CSP Nginx de l'interface Presence : les composants Streamlit sont intégrés dans une iframe du même domaine et nécessitent `frame-ancestors 'self'`. La règle précédente `frame-ancestors 'none'` empêchait le calendrier d'édition de s'afficher. La configuration Nginx a été sauvegardée avant rechargement ; aucune donnée applicative ou MariaDB n'a été modifiée.
 
 ## 2026-09-10 — Calendrier mensuel visuel
 
