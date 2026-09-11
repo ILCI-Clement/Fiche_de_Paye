@@ -45,7 +45,8 @@ try:
         if donnees_users:
             for u in donnees_users:
                 # Affichage d'une ligne stylisée pour chaque utilisateur
-                st.write(f"**{u['username']}** — *{u["role"]}* — {u['email']}")
+                role = u.get("role") or ("Admin" if u.get("is_admin") else "Responsable")
+                st.write(f"**{u.get('username', '')}** — *{role}* — {u.get('email', '')}")
         else:
             st.error("Impossible de récupérer la liste des utilisateurs.")
 except Exception as e:
@@ -79,5 +80,5 @@ if st.button("Supprimer l'utilisateur", type="secondary", disabled=not confirmer
                     st.error(f"Erreur : {res.json().get('detail', 'Impossible de supprimer cet utilisateur')}")
             except Exception as e:
                 st.error(f"Erreur de communication avec l'API : {e}")
-            else:
-                st.warning("Veuillez saisir un nom d'utilisateur.")
+    else:
+        st.warning("Veuillez saisir un nom d'utilisateur.")
