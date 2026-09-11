@@ -4,6 +4,7 @@ import requests
 import time
 from DocxGen import generer_docx_stagiaire
 from ExcelGen import remplir_fiche_paie
+from calendar_view import render_monthly_calendar
 import zipfile
 import io
 
@@ -93,7 +94,8 @@ if st.button("Ajouter un employé / stagiaire", use_container_width=True):
         "type": "Salarié",
         "nom": "", "responsable": "", "email_responsable": "", "ddc": None, "fdc": None, "cdi": False,
         "vacances": [], "absences": [], "arret": [],
-        "planning_detail": {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": True} for j in ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]}
+        "calendar_overrides": {},
+        "planning_detail": {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": j not in ("Samedi", "Dimanche")} for j in ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]}
     })
     st.rerun() # On force Streamlit à recréer les onglets immédiatement
 
@@ -190,6 +192,16 @@ if user_store["employes_data"]:
 
             st.divider()
 
+            # Visual monthly calendar shared by employees and interns.
+            render_monthly_calendar(
+                emp,
+                int(user_store["mois"]),
+                int(user_store["annee"]),
+                f"{username}_{emp_id}",
+            )
+
+            st.divider()
+
             # CHAMPS SALARIÉS
             if type_contrat == "Salarié":
                 st.subheader("Informations Employé")
@@ -219,7 +231,7 @@ if user_store["employes_data"]:
                     
                     # On initialise la structure si besoin
                     if "planning_detail" not in emp:
-                        emp["planning_detail"] = {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": True} for j in jours}
+                        emp["planning_detail"] = {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": j not in ("Samedi", "Dimanche")} for j in jours}
 
                     for jour in jours:
                         st.write(f"**{jour}**")
@@ -241,7 +253,13 @@ if user_store["employes_data"]:
                 # Section Congés
                 with st.expander("Congés payés"):
                     st.subheader("Saisir les jours de congés payés")
-                    nb_jours_vac = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["vacances"]), key=f"{username}_nb_jours_vac_{emp_id}")
+                    nb_jours_vac = st.number_input(
+                        "Nombre de jours :",
+                        min_value=0,
+                        max_value=31,
+                        value=len(emp["vacances"]),
+                        key=f"{username}_nb_jours_vac_{emp_id}_{len(emp['vacances'])}",
+                    )
 
                     while len(emp["vacances"]) < nb_jours_vac:
                         emp["vacances"].append({
@@ -270,7 +288,13 @@ if user_store["employes_data"]:
                 # Section Absences
                 with st.expander("Absences"):
                     st.subheader("Saisir les jours d'absences")
-                    nb_jours_abs = st.number_input("Nombre de jours :", min_value=0, max_value=31, value=len(emp["absences"]), key=f"{username}_nb_jours_abs_{emp_id}")
+                    nb_jours_abs = st.number_input(
+                        "Nombre de jours :",
+                        min_value=0,
+                        max_value=31,
+                        value=len(emp["absences"]),
+                        key=f"{username}_nb_jours_abs_{emp_id}_{len(emp['absences'])}",
+                    )
 
                     while len(emp["absences"]) < nb_jours_abs:
                         emp["absences"].append({
@@ -295,7 +319,13 @@ if user_store["employes_data"]:
                 # Section Arrêts
                 with st.expander("Arrêts maladies"):
                     st.subheader("Saisir les jours d'arrêts maladies")
-                    nb_jours_am = st.number_input("Nombre de jours", min_value=0, max_value=31, value=len(emp["arret"]), key=f"{username}_nb_jours_am_{emp_id}")
+                    nb_jours_am = st.number_input(
+                        "Nombre de jours",
+                        min_value=0,
+                        max_value=31,
+                        value=len(emp["arret"]),
+                        key=f"{username}_nb_jours_am_{emp_id}_{len(emp['arret'])}",
+                    )
 
                     while len(emp["arret"]) < nb_jours_am:
                         emp["arret"].append({

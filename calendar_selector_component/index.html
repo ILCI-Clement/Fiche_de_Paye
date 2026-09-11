@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Source Sans Pro", system-ui, sans-serif;
+    }
+    body { margin: 0; background: transparent; color: #e7edf5; }
+    .selection-toolbar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0 0 0.7rem; }
+    .selection-count { color: #b9c6d7; font-size: 0.86rem; min-width: 12rem; }
+    button { font: inherit; cursor: pointer; }
+    .selection-toolbar button, .status-menu button {
+      border: 1px solid #465364; border-radius: 0.5rem; background: #151b24; color: #eef4fb;
+      padding: 0.38rem 0.62rem;
+    }
+    .selection-toolbar button.primary { border-color: #f6535d; background: #c43f49; }
+    .selection-toolbar button:disabled { cursor: default; opacity: 0.45; }
+    .status-menu {
+      display: none; position: fixed; z-index: 3; inset: 0; background: rgba(4, 7, 11, 0.52);
+      align-items: center; justify-content: center; padding: 1rem;
+    }
+    .status-menu.open { display: flex; }
+    .status-panel {
+      width: min(29rem, 100%); border: 1px solid #465364; border-radius: 0.7rem;
+      background: #151b24; box-shadow: 0 1.1rem 3rem rgba(0, 0, 0, 0.45); padding: 1rem;
+    }
+    .status-panel h3 { margin: 0 0 0.3rem; font-size: 1rem; }
+    .status-panel p { color: #b9c6d7; font-size: 0.85rem; margin: 0 0 0.85rem; }
+    .status-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.45rem; }
+    .status-actions button { text-align: left; }
+    .other-row { display: flex; gap: 0.45rem; margin-top: 0.75rem; }
+    .other-row input { min-width: 0; flex: 1; border: 1px solid #465364; border-radius: 0.45rem; background: #0d1219; color: #eef4fb; padding: 0.42rem 0.5rem; }
+    .status-footer { display: flex; justify-content: space-between; gap: 0.45rem; margin-top: 0.75rem; }
+    .calendar-scroll { overflow-x: auto; padding-bottom: 0.35rem; }
+    .calendar { min-width: 45.5rem; }
+    .weekdays, .week { display: grid; grid-template-columns: repeat(7, minmax(6.5rem, 1fr)); }
+    .weekday { color: #9aa9bd; font-size: 0.84rem; font-weight: 700; text-align: center; padding: 0.3rem 0.1rem 0.45rem; }
+    .day {
+      box-sizing: border-box; min-height: 6.3rem; padding: 0.38rem 0.24rem 0.28rem;
+      background: #0d1219; border-top: 1px solid #293341; border-right: 1px solid #293341;
+    }
+    .day.empty { background: #0a0f15; }
+    .date { color: #d9e2ef; font-size: 0.82rem; font-weight: 700; height: 1.2rem; }
+    .half {
+      box-sizing: border-box; display: flex; align-items: center; height: 3.9rem; min-height: 3.9rem; margin: 0.16rem 0;
+      padding: 0.22rem 0.35rem; border: 1px solid #465364; border-radius: 0.55rem;
+      color: #eef4fb; cursor: crosshair; user-select: none; -webkit-user-select: none;
+      font-size: 0.77rem; line-height: 1.15; overflow: hidden; white-space: normal;
+    }
+    .half::before { content: ""; width: 0.78rem; height: 0.78rem; margin-right: 0.35rem; border: 1px solid #c2cedd; border-radius: 0.18rem; flex: 0 0 auto; }
+    .half.selected { outline: 2px solid #f6535d; outline-offset: 1px; filter: brightness(1.2); }
+    .half.selected::before { background: #f6535d; border-color: #f6535d; box-shadow: inset 0 0 0 2px #0d1219; }
+    .work { background: #1e4269; border-color: #4d85bd; }
+    .paid-leave { background: #1f513c; border-color: #4c9b72; }
+    .absence { background: #6b3b24; border-color: #b87549; }
+    .sick-leave { background: #6b3038; border-color: #ba6974; }
+    .holiday { background: #4a3e76; border-color: #887ac2; }
+    .other { background: #66521b; border-color: #b89a3c; }
+    .rest { background: #202833; border-color: #465364; color: #b7c2d0; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    const root = document.getElementById("root");
+    let selected = new Set();
+    let dragging = false;
+    let dragValue = false;
+
+    function post(type, payload) {
+      window.parent.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
+    }
+
+    function sendAction(status, reason = "") {
+      post("streamlit:setComponentValue", {
+        value: { action: "apply", keys: Array.from(selected), status, reason }
+      });
+    }
+
+    function setHeight() {
+      post("streamlit:setFrameHeight", { height: document.documentElement.scrollHeight });
+    }
+
+    function updateElement(element, value) {
+      const key = element.dataset.key;
+      if (value) selected.add(key); else selected.delete(key);
+      element.classList.toggle("selected", value);
+      updateToolbar();
+    }
+
+    function updateToolbar() {
+      const count = selected.size;
+      const countLabel = root.querySelector("#selection-count");
+      const modifyButton = root.querySelector("#modify-selection");
+      const clearButton = root.querySelector("#clear-selection");
+      if (countLabel) countLabel.textContent = `${count} demi-journée${count > 1 ? "s" : ""} sélectionnée${count > 1 ? "s" : ""}`;
+      if (modifyButton) modifyButton.disabled = count === 0;
+      if (clearButton) clearButton.disabled = count === 0;
+    }
+
+    function render(args) {
+      const cells = args.cells || [];
+      selected = new Set(args.selected || []);
+      const dayMap = new Map();
+      for (const cell of cells) {
+        if (!dayMap.has(cell.day)) dayMap.set(cell.day, { weekday: cell.weekday, halves: [] });
+        dayMap.get(cell.day).halves.push(cell);
+      }
+      const maxDay = Math.max(...Array.from(dayMap.keys()), 0);
+      const firstWeekday = dayMap.get(1)?.weekday ?? 0;
+      const weekdays = args.weekdays || ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+      let html = "<div class='selection-toolbar'><span id='selection-count'></span><button id='modify-selection' class='primary' disabled>Modifier la sélection</button><button id='clear-selection' disabled>Annuler la sélection</button></div>";
+      html += "<div id='status-menu' class='status-menu'><div class='status-panel'><h3>Modifier la sélection</h3><p>Le statut choisi sera appliqué aux demi-journées sélectionnées.</p><div class='status-actions'><button data-status='Travail'>Travail</button><button data-status='Congé payé'>Congé payé</button><button data-status='Absence'>Absence</button><button data-status='Arrêt maladie'>Arrêt maladie</button><button data-status='Férié'>Férié</button><button data-status='Réinitialiser'>Réinitialiser</button></div><div class='other-row'><input id='other-reason' placeholder='Motif pour Autre'><button id='apply-other'>Appliquer Autre</button></div><div class='status-footer'><span id='other-error'></span><button id='close-status-menu'>Fermer</button></div></div></div>";
+      html += "<div class='calendar-scroll'><div class='calendar'><div class='weekdays'>";
+      html += weekdays.map(day => `<div class='weekday'>${day}</div>`).join("");
+      html += "</div>";
+      let day = 1;
+      while (day <= maxDay) {
+        html += "<div class='week'>";
+        for (let index = 0; index < 7; index += 1) {
+          const available = day <= maxDay && (day > 1 || index >= firstWeekday);
+          if (!available) {
+            html += "<div class='day empty'></div>";
+            continue;
+          }
+          const data = dayMap.get(day);
+          const halves = (data?.halves || []).map(cell => {
+            const isSelected = selected.has(cell.key) ? " selected" : "";
+            return `<div class='half ${cell.style}${isSelected}' data-key='${cell.key}'>${cell.period} · ${cell.label}</div>`;
+          }).join("");
+          html += `<div class='day'><div class='date'>${day}</div>${halves}</div>`;
+          day += 1;
+        }
+        html += "</div>";
+      }
+      html += "</div></div>";
+      root.innerHTML = html;
+      root.querySelectorAll(".half").forEach(element => {
+        element.addEventListener("pointerdown", event => {
+          event.preventDefault();
+          dragging = true;
+          dragValue = !selected.has(element.dataset.key);
+          updateElement(element, dragValue);
+        });
+        element.addEventListener("pointerenter", () => {
+          if (dragging) updateElement(element, dragValue);
+        });
+      });
+      root.querySelector("#modify-selection").addEventListener("click", () => {
+        root.querySelector("#status-menu").classList.add("open");
+      });
+      root.querySelector("#clear-selection").addEventListener("click", () => {
+        selected.clear();
+        root.querySelectorAll(".half.selected").forEach(element => element.classList.remove("selected"));
+        updateToolbar();
+      });
+      root.querySelector("#close-status-menu").addEventListener("click", () => {
+        root.querySelector("#status-menu").classList.remove("open");
+      });
+      root.querySelectorAll("[data-status]").forEach(button => {
+        button.addEventListener("click", () => sendAction(button.dataset.status));
+      });
+      root.querySelector("#apply-other").addEventListener("click", () => {
+        const reason = root.querySelector("#other-reason").value.trim();
+        if (!reason) {
+          root.querySelector("#other-error").textContent = "Veuillez saisir un motif.";
+          return;
+        }
+        sendAction("Autre", reason);
+      });
+      updateToolbar();
+      setHeight();
+    }
+
+    window.addEventListener("pointerup", () => {
+      if (!dragging) return;
+      dragging = false;
+    });
+    window.addEventListener("message", event => {
+      if (event.data.type === "streamlit:render") render(event.data.args || {});
+    });
+    post("streamlit:componentReady", { apiVersion: 1 });
+  </script>
+</body>
+</html>
