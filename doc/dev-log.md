@@ -1,5 +1,13 @@
 # Journal de développement
 
+## 2026-09-11 — Publication du calendrier de présence
+
+- Publication du calendrier mensuel visuel et du mode de modification groupée sur la branche `main` du dépôt GitHub.
+- Déploiement du commit `11f4ef6` sur l'interface Presence de production, dans `/var/www/presence-interface`.
+- Création d'une sauvegarde du code applicatif sur le VPS avant la mise à jour, puis redémarrage contrôlé de `presence-interface.service`.
+- Vérification du service actif et de la réponse HTTP `200` de l'URL publique après redémarrage.
+- Aucune commande MariaDB, suppression ou migration de données n'a été exécutée : les comptes et les fiches existantes restent inchangés.
+
 ## 2026-09-10 — Calendrier mensuel visuel
 
 - Ajout de `calendar_view.py`, un composant Streamlit de calendrier mensuel.
