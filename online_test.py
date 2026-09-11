@@ -24,6 +24,9 @@ def get_pages_for_user():
         return [login_page]
     
     role = user.get("role")
+    if role not in {"Admin", "Responsable", "Employe"}:
+        role = "Admin" if user.get("is_admin") else "Responsable"
+        user["role"] = role
     
     if role == "Admin":
         return [profile_page, fiches_page, admin_page]

@@ -16,12 +16,16 @@ if st.button("Se connecter"):
         res = requests.post(f"{API_URL}/login", json={"username": username, "password": password})
         if res.status_code == 200:
             data = res.json()
+            role = data.get("role")
+            if role not in {"Admin", "Responsable", "Employe"}:
+                role = "Admin" if data.get("is_admin") else "Responsable"
 
             st.session_state["user"] = {
-            "name": data["username"],
-            "email": data["email"],
-            "role": data["role"],
-            "data": {}
+                "name": data["username"],
+                "email": data["email"],
+                "role": role,
+                "is_admin": bool(data.get("is_admin")),
+                "data": {},
             }
 
             st.success("Connexion réussie")

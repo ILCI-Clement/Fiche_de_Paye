@@ -7,6 +7,7 @@
 - Création d'une sauvegarde du code applicatif sur le VPS avant la mise à jour, puis redémarrage contrôlé de `presence-interface.service`.
 - Vérification du service actif et de la réponse HTTP `200` de l'URL publique après redémarrage.
 - Aucune commande MariaDB, suppression ou migration de données n'a été exécutée : les comptes et les fiches existantes restent inchangés.
+- Correction de compatibilité de connexion : l'API historique peut renvoyer `role: null` avec `is_admin`. L'interface déduit désormais le rôle `Admin` ou `Responsable` dans ce cas, sans modifier le compte concerné.
 
 ## 2026-09-10 — Calendrier mensuel visuel
 
