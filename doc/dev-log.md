@@ -5,6 +5,8 @@
 - Ajout d'une vue de réinitialisation dédiée : un lien contenant le paramètre `token` affiche désormais les champs de nouveau mot de passe et de confirmation au lieu de revenir au formulaire de connexion.
 - Validation locale de la confirmation et de la longueur minimale, puis appel de l'API `POST /reset-password` avec gestion explicite des liens invalides ou expirés.
 - Après succès, le token est retiré de l'URL avant le retour à la connexion afin de ne pas pouvoir être réutilisé dans le navigateur.
+- Publication du commit `5e7e165` sur l'interface Presence après sauvegarde du code applicatif ; `presence-interface.service` est actif.
+- Migration des identifiants de l'API Presence active vers un fichier d'environnement protégé sur le VPS, chargé par `presence-app.service`. Les données MariaDB n'ont pas été modifiées ; l'API a été redémarrée et son point de contrôle a répondu `200`.
 
 ## 2026-09-11 — Publication du calendrier de présence
 
