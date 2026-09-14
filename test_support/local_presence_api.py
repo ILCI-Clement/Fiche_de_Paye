@@ -19,6 +19,7 @@ USERS = {
     },
 }
 CONFIGS: dict[str, dict] = {}
+RESET_TOKEN = "local-reset-token"
 
 
 class LocalPresenceHandler(BaseHTTPRequestHandler):
@@ -76,6 +77,13 @@ class LocalPresenceHandler(BaseHTTPRequestHandler):
             return
         if path == "/forgot-password":
             self._write_json(HTTPStatus.OK, {"message": "Local test request accepted"})
+            return
+        if path == "/reset-password":
+            if payload.get("token") != RESET_TOKEN or not payload.get("new_password"):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"detail": "Token invalide ou expiré"})
+                return
+            USERS["LocalTester"]["password"] = payload["new_password"]
+            self._write_json(HTTPStatus.OK, {"message": "Local password reset"})
             return
         self._write_json(HTTPStatus.NOT_FOUND, {"detail": "Unknown local test route"})
 

@@ -91,4 +91,5 @@ The presence form must offer a clear monthly calendar view inspired by Google Ca
 - The user interface is primarily French, with English as a secondary language where useful.
 - Source code identifiers, code comments and technical names are written in English; Chinese text must not be introduced into the project files.
 - Preserve the current authentication flow and the MariaDB/Presence API data contract unless an explicit migration is designed and tested.
+- Password recovery links must open a dedicated password-reset view. The view validates the password confirmation locally, submits the URL token and new password to the Presence API, handles expired or invalid links without exposing account information, and clears the token from the browser URL after a successful reset.
 - Every change to persistence, generation or export must be covered by a regression test before production deployment.

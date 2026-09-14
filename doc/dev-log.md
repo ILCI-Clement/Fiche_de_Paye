@@ -1,5 +1,11 @@
 # Journal de développement
 
+## 2026-09-14 — Réinitialisation de mot de passe
+
+- Ajout d'une vue de réinitialisation dédiée : un lien contenant le paramètre `token` affiche désormais les champs de nouveau mot de passe et de confirmation au lieu de revenir au formulaire de connexion.
+- Validation locale de la confirmation et de la longueur minimale, puis appel de l'API `POST /reset-password` avec gestion explicite des liens invalides ou expirés.
+- Après succès, le token est retiré de l'URL avant le retour à la connexion afin de ne pas pouvoir être réutilisé dans le navigateur.
+
 ## 2026-09-11 — Publication du calendrier de présence
 
 - Publication du calendrier mensuel visuel et du mode de modification groupée sur la branche `main` du dépôt GitHub.
