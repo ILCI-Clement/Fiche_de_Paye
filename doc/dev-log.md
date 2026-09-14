@@ -7,6 +7,7 @@
 - Après succès, le token est retiré de l'URL avant le retour à la connexion afin de ne pas pouvoir être réutilisé dans le navigateur.
 - Publication du commit `5e7e165` sur l'interface Presence après sauvegarde du code applicatif ; `presence-interface.service` est actif.
 - Migration des identifiants de l'API Presence active vers un fichier d'environnement protégé sur le VPS, chargé par `presence-app.service`. Les données MariaDB n'ont pas été modifiées ; l'API a été redémarrée et son point de contrôle a répondu `200`.
+- Le script planifié de notifications a également été adapté pour lire le même fichier d'environnement protégé, afin de ne pas conserver une seconde copie des identifiants dans le code.
 
 ## 2026-09-11 — Publication du calendrier de présence
 
