@@ -13,6 +13,7 @@
 - Remplacement du schéma organisationnel dessiné par une présentation Streamlit native : `Direction générale`, départements repliables et tableaux lisibles. Cette présentation évite les chevauchements ou débordements liés aux noms longs.
 - Clarification de la structure : un Responsable apparaît dans le département qu'il gère, même s'il n'en est pas membre; la fonction est affichée séparément des étiquettes et la Direction générale est reconnue avec ou sans le préfixe `Groupe`.
 - Refonte de la structure en vue hiérarchique par responsable direct : cartes natives imbriquées, étiquettes colorées de département et affectation d'un Employé existant directement depuis la carte de son responsable.
+- Refonte de l'administration autour de la fiche utilisateur : tableau de sélection des comptes, sections repliables pour les informations, les étiquettes, les départements et la relation hiérarchique, avec création compacte des comptes et départements.
 
 ### Vérifications locales
 
