@@ -16,6 +16,7 @@
 - Refonte de l'administration autour de la fiche utilisateur : tableau de sélection des comptes, sections repliables pour les informations, les étiquettes, les départements et la relation hiérarchique, avec création compacte des comptes et départements.
 - Clarification des départements : les départements de travail et les départements gérés sont indépendants et peuvent être attribués simultanément.
 - Ajout de l'option « Rester connecté sur cet appareil » : un jeton persistant, expirant après 30 jours, évite de se reconnecter lors d'un simple rafraîchissement. Il est invalidé à la déconnexion, lors d'une réinitialisation de mot de passe ou d'un changement de mot de passe.
+- Correction des départements de travail : ils peuvent désormais être attribués à toute personne, y compris lorsqu'elle possède les étiquettes `Admin` et/ou `Responsable`.
 
 ### Vérifications locales
 

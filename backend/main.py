@@ -526,10 +526,10 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
                 INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
-                (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type if "Employe" in tags else None, manager_username if "Employe" in tags else None),
+                (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type, manager_username if "Employe" in tags else None),
             )
             cursor.execute("UPDATE users SET role_tags = %s WHERE username = %s", (json.dumps(tags), username))
-            replace_memberships(cursor, username, "member", group_ids if "Employe" in tags else [])
+            replace_memberships(cursor, username, "member", group_ids)
             replace_memberships(cursor, username, "manager", managed_group_ids if "Responsable" in tags else [])
         connection.commit()
         return {"status": "success", "message": f"Utilisateur {username} créé."}
@@ -596,7 +596,6 @@ def update_user_organization(
                 elif "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
                     raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
                 elif tags == ["Admin"]:
-                    group_ids = []
                     managed_group_ids = []
                     manager_username = None
 
@@ -609,12 +608,12 @@ def update_user_organization(
                     tags[0],
                     json.dumps(tags),
                     "Admin" in tags,
-                    employee_type if "Employe" in tags else None,
+                    employee_type,
                     manager_username if "Employe" in tags else None,
                     target_username,
                 ),
             )
-            replace_memberships(cursor, target_username, "member", group_ids if "Employe" in tags else [])
+            replace_memberships(cursor, target_username, "member", group_ids)
             replace_memberships(cursor, target_username, "manager", managed_group_ids if "Responsable" in tags else [])
             updated = load_user(cursor, target_username)
         connection.commit()
