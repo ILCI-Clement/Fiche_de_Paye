@@ -1,9 +1,9 @@
 import streamlit as st
 import requests
+from api_client import api_url, authenticated_headers
 
-headers = {
-    "Authorization": f"Bearer {st.secrets['PRESENCE_TOKEN']}"
-}
+headers = authenticated_headers()
+API_URL = api_url()
 
 st.title("Mes Infos Personnelles")
 
@@ -39,12 +39,13 @@ with st.form("form_profile"):
             }
             
             try:
-                res = requests.put(f"{st.secrets['URL_PRESENCE']}/update_profile/{current_user}", json=payload, headers=headers)
+                res = requests.put(f"{API_URL}/update_profile/{current_user}", json=payload, headers=headers, timeout=15)
                 if res.status_code == 200:
                     data = res.json()
                     st.success(data["message"])
                     # Mise à jour de la session locale avec le nouveau nom
                     st.session_state["user"]["name"] = data["username"]
+                    st.session_state["user"]["auth_token"] = data.get("auth_token", st.session_state["user"].get("auth_token"))
                     st.rerun()
                 else:
                     st.error(res.json().get("detail", "Une erreur est survenue."))

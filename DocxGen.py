@@ -19,7 +19,10 @@ def generer_docx_stagiaire(data_stagiaire, mois, annee):
     
     total_general = round(total_stage + total_transport, 2)
 
-    mois_string = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+    mois_string = ["Janvier", "Février", "Mars",
+                   "Avril", "Mai", "Juin",
+                   "Juillet", "Août", "Septembre",
+                   "Octobre", "Novembre", "Décembre"]
     
     # Conversion du total en lettres (Français)
     total_lettres = num2words(total_general, lang='fr', to='currency')

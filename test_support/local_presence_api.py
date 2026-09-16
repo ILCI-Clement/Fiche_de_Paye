@@ -20,6 +20,7 @@ USERS = {
 }
 CONFIGS: dict[str, dict] = {}
 RESET_TOKEN = "local-reset-token"
+GROUPS = [{"id": 1, "name": "Groupe de test", "is_active": True}]
 
 
 class LocalPresenceHandler(BaseHTTPRequestHandler):
@@ -54,8 +55,26 @@ class LocalPresenceHandler(BaseHTTPRequestHandler):
         if path == "/list-users":
             self._write_json(
                 HTTPStatus.OK,
-                {"users": [{"username": name, "email": user["email"], "role": user["role"]} for name, user in USERS.items()]},
+                {
+                    "users": [
+                        {
+                            "id": name,
+                            "username": name,
+                            "email": user["email"],
+                            "role": user["role"],
+                            "is_admin": False,
+                            "employee_type": "salarie",
+                            "manager_id": None,
+                            "group_ids": [],
+                            "managed_group_ids": [1] if user["role"] == "Responsable" else [],
+                        }
+                        for name, user in USERS.items()
+                    ]
+                },
             )
+            return
+        if path == "/groups":
+            self._write_json(HTTPStatus.OK, {"groups": GROUPS})
             return
         self._write_json(HTTPStatus.NOT_FOUND, {"detail": "Unknown local test route"})
 
@@ -66,7 +85,18 @@ class LocalPresenceHandler(BaseHTTPRequestHandler):
             username = str(payload.get("username", ""))
             user = USERS.get(username)
             if user and payload.get("password") == user["password"]:
-                self._write_json(HTTPStatus.OK, {"username": username, "email": user["email"], "role": user["role"]})
+                self._write_json(
+                    HTTPStatus.OK,
+                    {
+                        "username": username,
+                        "id": username,
+                        "email": user["email"],
+                        "role": user["role"],
+                        "managed_group_ids": [1] if user["role"] == "Responsable" else [],
+                        "group_ids": [],
+                        "auth_token": "local-session-token",
+                    },
+                )
             else:
                 self._write_json(HTTPStatus.UNAUTHORIZED, {"detail": "Invalid local test credentials"})
             return

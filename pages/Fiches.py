@@ -7,18 +7,15 @@ from ExcelGen import remplir_fiche_paie
 from calendar_view import render_monthly_calendar
 import zipfile
 import io
+from api_client import api_url, authenticated_headers
 
 # Secrets de streamlit
-TOKEN = st.secrets["PRESENCE_TOKEN"]
-API_URL = st.secrets["URL_PRESENCE"]
+API_URL = api_url()
 HORAIRES = [f"{h:02d}:{m:02d}" for h in range(7, 21) for m in (0, 30)]
 HORAIRES.insert(0, "") # Option vide pour les jours non travaillés
 
 # Configuration du header pour les requêtes
-headers = {
-    "Authorization": f"Bearer {TOKEN}",
-    "Content-Type": "application/json"
-}
+headers = authenticated_headers()
 
 # Les dates sont transformées en chaînes de caractères (ISO format).
 def serialize_dates(data):
@@ -88,7 +85,7 @@ if "employes_data" not in user_store:
     user_store["employes_data"] = []
 
 # Bouton pour ajouter un employé à la fin de la liste
-if st.button("Ajouter un employé / stagiaire", use_container_width=True):
+if st.button("Ajouter un employé / stagiaire", width="stretch"):
     user_store["employes_data"].append({
         "id": int(time.time() * 1000),
         "type": "Salarié",
@@ -368,7 +365,7 @@ if user_store["employes_data"]:
 
 # BOUTON DE SAUVEGARDE SUR LE VPS
 st.divider()
-if st.button("Sauvegarder", use_container_width=True):
+if st.button("Sauvegarder", width="stretch"):
     try:
         # On prépare les données (conversion des dates en texte)
         data_to_send = serialize_dates(user_store)
@@ -508,5 +505,5 @@ if st.button("Générer toutes les fiches", type="primary"):
             data=zip_buffer,
             file_name=f"fiches_presence_{user_store['mois']}_{user_store['annee']}.zip",
             mime="application/zip",
-            use_container_width=True
+            width="stretch"
         )

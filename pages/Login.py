@@ -1,9 +1,10 @@
 import streamlit as st
 import requests
+from access_control import normalize_role
+from api_client import api_url
 
 # Secrets de streamlit
-TOKEN = st.secrets["PRESENCE_TOKEN"]
-API_URL = st.secrets["URL_PRESENCE"]
+API_URL = api_url()
 
 st.title("Page de Connexion")
 
@@ -50,15 +51,20 @@ if st.button("Se connecter"):
         res = requests.post(f"{API_URL}/login", json={"username": username, "password": password}, timeout=10)
         if res.status_code == 200:
             data = res.json()
-            role = data.get("role")
-            if role not in {"Admin", "Responsable", "Employe"}:
-                role = "Admin" if data.get("is_admin") else "Responsable"
+            role = normalize_role(data)
+            if role is None:
+                st.error("Le rôle de ce compte n'est pas reconnu.")
+                st.stop()
 
             st.session_state["user"] = {
                 "name": data["username"],
                 "email": data["email"],
                 "role": role,
                 "is_admin": bool(data.get("is_admin")),
+                "id": data.get("id", data.get("user_id")),
+                "managed_group_ids": data.get("managed_group_ids", data.get("groups", [])),
+                "group_ids": data.get("group_ids", []),
+                "auth_token": data.get("auth_token"),
                 "data": {},
             }
 

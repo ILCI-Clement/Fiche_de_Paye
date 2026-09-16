@@ -1,101 +1,50 @@
-# Fiche de Paye / Fiches de présence
+# Fiches de présence
 
-## 1. 项目概况
+## Objectif
 
-这是一个面向员工、实习生、负责人和管理员的 Streamlit Web 应用。应用通过远程 Presence API 完成登录、用户管理和个人配置持久化，再根据用户输入生成月度考勤 Excel、实习生补偿 Word 文档，或将多份结果打包成 ZIP 下载。
+Cette application Streamlit permet de préparer des fiches mensuelles de présence pour des salariés et des stagiaires. Elle propose un calendrier par demi-journée, l'export des documents et une administration des comptes. L'interface est en français; le code et les identifiants techniques sont en anglais.
 
-当前仓库主要由以下部分组成：
+## Composants
 
-- `online_test.py`：应用入口，配置 Streamlit 页面导航和基于角色的页面可见性。
-- `pages/Login.py`：登录和忘记密码入口。
-- `pages/Fiches.py`：员工/实习生资料、排班、假期和缺勤录入，以及文件生成和保存。
-- `pages/Profile.py`：修改用户名、邮箱和密码。
-- `pages/Admin.py`：创建、查看和删除用户。
-- `ExcelGen.py`：使用 Excel 模板生成员工月度考勤表。
-- `DocxGen.py`：使用 Word 模板生成实习生月度补偿单。
-- `Fiche_Exemple.xlsx`、`template_stagiaire.docx`：文件生成模板。
+- `online_test.py` : point d'entrée et navigation selon le rôle.
+- `pages/Login.py` : connexion, demande et confirmation de réinitialisation du mot de passe.
+- `pages/Fiches.py` : création des fiches, calendrier, sauvegarde et exports.
+- `pages/Profile.py` : modification du profil connecté.
+- `pages/Admin.py` : administration des comptes et des groupes.
+- `pages/People.py` : vue opérationnelle du personnel accessible aux responsables autorisés.
+- `backend/main.py` : API FastAPI versionnée qui applique l'authentification et les autorisations.
+- `ExcelGen.py` et `DocxGen.py` : génération des exports Excel et Word.
+- `calendar_view.py` : calendrier mensuel et sélection groupée de demi-journées.
 
-## 2. 当前功能
+## Fonctionnement métier
 
-### 用户与权限
+Une fiche est créée pour un mois et une année, à partir d'une personne existante ou d'une fiche vide. Les horaires par défaut de chaque personne remplissent le calendrier; les samedis et dimanches sont des jours de repos par défaut pour les nouveaux plannings. Chaque matin et après-midi peut être défini comme travail, congé payé, absence, arrêt maladie, férié ou autre. Une modification ne change que la fiche du mois concerné, jamais le planning par défaut de la personne.
 
-- 通过 Presence API 登录，取得用户名、邮箱和角色，并保存到 Streamlit session state。
-- 支持 `Admin`、`Responsable`、`Employe` 三种角色。
-- 未登录用户只能看到登录页；管理员可以访问个人信息、 fiches 和管理页；负责人可以访问个人信息和 fiches；普通员工只能访问个人信息。
-- 支持忘记密码请求。
-- 用户可以修改用户名、专业邮箱和密码，修改密码时要求输入当前密码并确认新密码。
-- 管理员可以创建用户、选择角色、查看用户列表和删除其他用户。
+Le calendrier possède un mode consultation et un mode `Modifier`. Dans ce dernier, plusieurs demi-journées peuvent être sélectionnées par clic ou glissement de souris, puis recevoir un statut en une action. Les séquences adjacentes de même statut sont affichées sous forme de barres continues à extrémités arrondies.
 
-### 考勤与资料录入
+Les fiches peuvent être conservées dans une file, archivées volontairement, restaurées, mises à la corbeille et récupérées pendant 60 jours. Les exports Word, PDF et Excel sont proposés séparément. Un export groupé peut produire une fiche par page ou par fichier, avec des noms incluant la personne, le mois et l'année. Les fiches archivées restent figées, sauf modification volontaire suivie d'un retour dans la file.
 
-- 按月份和年份编辑数据。
-- 动态增加、删除员工或实习生档案。
-- 员工档案支持姓名、负责人、负责人邮箱、合同起止日期和 CDI 标记。
-- 实习生档案支持姓名、负责人、实习起止日期、日工作时长、日数、小时费率、月度发票、交通信息和交通报销比例。
-- 支持按星期配置工作日、上午/下午上下班时间，适用于非全日制排班。
-- 支持记录带上午/下午粒度的带薪休假、一般缺勤和病假；带薪休假还支持“考试交替”标记。
-- 将日期序列合并成连续区间，写入 Excel 底部的休假、缺勤和病假摘要。
+## Utilisateurs et accès
 
-### 文件生成
+L'API délivre à la connexion un jeton de session signé et limité dans le temps. Les appels sensibles utilisent ce jeton; le contrôle d'accès est appliqué par l'API, pas uniquement par le menu Streamlit.
 
-- 员工：从 `Fiche_Exemple.xlsx` 模板生成月度考勤表。
-- 自动识别法国公共假日，填充月份日历、周工时和月度总工时。
-- 实习生：从 `template_stagiaire.docx` 模板生成 Word 补偿单。
-- 自动计算实习总额、交通补贴、总金额，并将总金额转换为法语文字。
-- 支持单独生成并下载一份 Excel/Word。
-- 支持批量生成所有档案，并下载 ZIP 文件。
-- 保存前将日期序列化为 ISO 字符串，读取配置时再转换回 `date` 对象。
+| Rôle | Accès |
+| --- | --- |
+| `Admin` | Tous les comptes, groupes, fiches et paramètres d'organisation. |
+| `Responsable` | Sa propre fiche et les employés qui lui sont rattachés directement ou qui appartiennent à au moins un groupe qu'il gère. |
+| `Employe` | Son profil et sa propre consultation; il ne peut ni gérer des personnes ni enregistrer une fiche pour autrui. |
 
-## 3. 核心框架和依赖
+Les groupes sont créés et activés par un administrateur. Un employé peut appartenir à plusieurs groupes; un responsable peut gérer plusieurs groupes. Ces relations, le responsable direct et le type `salarie` ou `stagiaire` sont enregistrés dans MariaDB.
 
-- **Python**：主要开发语言。
-- **Streamlit**：Web UI、表单组件、页面导航、session state 和下载控件。
-- **Requests**：调用远程 Presence API。
-- **openpyxl**：读取 Excel 模板、填充单元格、合并单元格和保存生成结果。
-- **docxtpl**：根据 Word 模板和上下文变量渲染文档。
-- **num2words**：将法语金额转换为文字。
-- **holidays**：计算法国公共假日。
-- **标准库**：`datetime`、`calendar`、`io`、`zipfile` 等用于日期、内存文件和压缩包处理。
-- **配置方式**：依赖 `st.secrets["PRESENCE_TOKEN"]` 和 `st.secrets["URL_PRESENCE"]`；远程后端负责账号和配置数据，前端代码本身没有数据库层。
+## Stockage et déploiement
 
-## 4. 已确认的缺陷和风险
+MariaDB conserve les comptes dans `users` et les configurations de fiches dans `Presence`. Les migrations d'organisation sont additives : elles ajoutent des colonnes facultatives à `users` et créent `organization_groups` ainsi que `user_group_memberships`. Elles ne suppriment ni comptes ni fiches existantes.
 
-### 高风险
+En production, l'API tourne sur `127.0.0.1:8001` sous `presence-app.service`, et l'interface Streamlit sous `presence-interface.service`. Les secrets sont lus depuis le fichier d'environnement protégé du serveur et ne doivent jamais être ajoutés au dépôt.
 
-1. **日期字段没有完整校验**：新增档案时休假、缺勤和病假的日期初始值为 `None`，生成前只检查是否选择了上午/下午，没有检查日期是否为空。`ExcelGen.py` 后续会尝试按 `%Y-%m-%d` 解析日期，可能在生成时抛出 `ValueError`。
+## Vérification avant publication
 
-2. **权限主要由前端页面导航控制**：`online_test.py` 根据 session 中的角色隐藏页面，但客户端状态不是可靠的安全边界。必须确保 Presence API 的每个接口也在服务端验证身份、角色和资源归属，否则用户可能直接调用 API 越权读取或修改数据。
-
-3. **外部 HTTP 请求没有超时和统一错误处理**：多个 `requests` 调用没有设置 `timeout`，网络异常时可能长时间阻塞；部分请求（例如忘记密码、管理员操作）也没有统一的异常和响应 JSON 校验。
-
-4. **Python 版本兼容性未声明**：`pages/Admin.py` 用户列表使用了同类引号嵌套在 f-string 表达式中的写法，当前环境编译通过，但依赖 Python 3.12+ 的 f-string 解析行为。若部署环境低于 3.12，应改用交替引号或先提取字段，并在项目中明确 Python 版本要求。
-
-### 功能正确性问题
-
-5. **跨午夜班次计算错误**：`ExcelGen.py` 使用 `timedelta.seconds` 计算结束时间减开始时间。结束时间早于开始时间时会被解释为接近 24 小时，而不是跨午夜的正向时长，也没有对非法时段进行提示。
-
-6. **下午半天标注疑似错误**：缺勤和病假仅选择下午时，生成文本仍写成 `09:00 à 12:00`，应与实际下午时段一致，通常应为 `13:00 à 17:00`（具体时间应由业务规则确认）。
-
-7. **生成器依赖相对工作目录**：`DocxGen.py` 和 `ExcelGen.py` 直接使用模板文件名，例如 `template_stagiaire.docx`、`Fiche_Exemple.xlsx`。从不同目录启动 Streamlit 时可能找不到模板，建议基于项目文件位置构造绝对路径。
-
-8. **表单字段存在重复和状态同步风险**：Streamlit 控件大量依赖动态 key，并直接修改嵌套字典；改名、切换合同类型或删除档案后，旧 widget state 可能与 `user_store` 不一致，需要专门测试增删、切换类型和重新加载配置的场景。
-
-9. **生成逻辑缺少边界校验**：费率、天数、每日小时数、交通比例、排班起止时间等数值可以输入不合理值；当前只做了少量必填校验，未限制负数、时间顺序、重复日期或合同/实习日期范围。
-
-### 工程质量与维护性
-
-10. **缺少自动化测试**：仓库中没有针对金额计算、日期转换、连续区间合并、工时汇总、公共假日和文件生成的单元测试，也没有接口集成测试。
-
-11. **异常处理过于宽泛**：`ExcelGen.py` 中存在裸 `except` 并静默忽略解析错误，可能生成不完整或错误的考勤表而不提示用户。应捕获具体异常，并在界面返回可定位的错误信息。
-
-12. **业务逻辑和 UI 高度耦合**：`pages/Fiches.py` 同时负责表单、状态管理、校验、API 持久化和 ZIP 生成，文件较长且难以独立测试。可以逐步把数据模型、验证和生成协调逻辑拆到独立模块。
-
-13. **配置与敏感信息依赖运行环境**：应用启动时直接读取 Streamlit secrets，缺失配置会导致页面导入失败；建议提供示例配置、启动检查和清晰的错误提示，并确认生产环境始终使用 HTTPS。
-
-## 5. 建议的后续处理顺序
-
-1. 明确项目最低 Python 版本，或将 `pages/Admin.py` 的 f-string 改为兼容旧版本的写法，并运行全项目编译检查。
-2. 在生成前集中校验日期、时间、数值范围和重复日期，避免生成器接收不完整数据。
-3. 给所有 API 请求增加超时、状态码处理和统一的异常提示；同时在后端落实角色和资源权限校验。
-4. 把 `ExcelGen.py` 和 `DocxGen.py` 的纯计算函数补上单元测试，覆盖半天、公共假日、跨午夜、空日期和金额舍入。
-5. 使用基于 `__file__` 的模板路径，并提供明确的本地启动命令和 secrets 示例。
+1. Compiler les modules Python modifiés et exécuter les tests unitaires disponibles.
+2. Sauvegarder le code de l'API et exporter la base MariaDB avant toute migration.
+3. Déployer l'API et l'interface dans la même fenêtre de maintenance courte, puis redémarrer les deux services.
+4. Vérifier l'état des services, la page publique, la connexion d'un administrateur et l'absence de perte de comptes ou de fiches.
