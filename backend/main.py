@@ -69,6 +69,10 @@ class GroupRequest(BaseModel):
     is_active: bool = True
 
 
+class DirectManagerRequest(BaseModel):
+    manager_id: str
+
+
 def get_db_connection() -> pymysql.Connection:
     return pymysql.connect(**DB_CONFIG)
 
@@ -255,6 +259,23 @@ def user_can_manage(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], targe
 def is_valid_direct_manager(user: dict[str, Any] | None) -> bool:
     """An administrator can also be assigned as an employee's direct manager."""
     return bool(user and ({"Admin", "Responsable"} & set(user["role_tags"])))
+
+
+def would_create_management_cycle(
+    cursor: pymysql.cursors.Cursor,
+    employee_username: str,
+    manager_username: str,
+) -> bool:
+    """Return whether assigning the manager would create a direct-manager cycle."""
+    current_username: str | None = manager_username
+    visited: set[str] = set()
+    while current_username and current_username not in visited:
+        if current_username == employee_username:
+            return True
+        visited.add(current_username)
+        current_user = load_user(cursor, current_username)
+        current_username = current_user.get("manager_username") if current_user else None
+    return False
 
 
 def requested_role_tags(payload: dict[str, Any], fallback: list[str] | None = None) -> list[str]:
@@ -531,6 +552,37 @@ def update_user_organization(
             )
             replace_memberships(cursor, target_username, "member", group_ids if "Employe" in tags else [])
             replace_memberships(cursor, target_username, "manager", managed_group_ids if "Responsable" in tags else [])
+            updated = load_user(cursor, target_username)
+        connection.commit()
+        return {"status": "success", "user": public_user(updated)}
+    finally:
+        connection.close()
+
+
+@app.patch("/users/{target_username}/direct-manager")
+def assign_direct_manager(
+    target_username: str,
+    payload: DirectManagerRequest,
+    actor: dict[str, Any] = Depends(require_roles("Admin")),
+) -> dict[str, Any]:
+    """Assign an existing employee to a direct manager without changing their other metadata."""
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            target = load_user(cursor, target_username)
+            manager = load_user(cursor, payload.manager_id)
+            if not target:
+                raise HTTPException(status_code=404, detail="Employé introuvable.")
+            if "Employe" not in target["role_tags"]:
+                raise HTTPException(status_code=400, detail="Seul un Employé peut être affecté à un responsable.")
+            if not is_valid_direct_manager(manager):
+                raise HTTPException(status_code=400, detail="Le responsable sélectionné est invalide.")
+            if target_username == payload.manager_id or would_create_management_cycle(cursor, target_username, payload.manager_id):
+                raise HTTPException(status_code=400, detail="Cette affectation créerait une boucle hiérarchique.")
+            cursor.execute(
+                "UPDATE users SET manager_username = %s WHERE username = %s",
+                (payload.manager_id, target_username),
+            )
             updated = load_user(cursor, target_username)
         connection.commit()
         return {"status": "success", "user": public_user(updated)}

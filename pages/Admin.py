@@ -49,6 +49,7 @@ users = fetch_users()
 group_names = {int(group["id"]): str(group["name"]) for group in groups}
 active_group_ids = [int(group["id"]) for group in groups if group.get("is_active")]
 active_group_id_set = set(active_group_ids)
+DEPARTMENT_BADGE_COLORS = ("blue", "green", "violet", "orange", "yellow", "red")
 
 
 def user_tags(member: dict) -> set[str]:
@@ -66,65 +67,114 @@ def organization_function(member: dict) -> str:
     return "—"
 
 
-def organization_rows(members: list[dict]) -> list[dict[str, str]]:
-    return [
+def department_ids(member: dict) -> list[int]:
+    return sorted(
         {
-            "Personne": member["username"],
-            "Étiquettes": ", ".join(member.get("role_tags", [member["role"]])),
-            "Responsable direct": member.get("manager_id") or "—",
-            "Fonction": organization_function(member),
+            *(int(group_id) for group_id in (member.get("group_ids") or [])),
+            *(int(group_id) for group_id in (member.get("managed_group_ids") or [])),
         }
-        for member in members
-    ]
+    )
 
 
-def is_general_management_group(group: dict) -> bool:
-    name = str(group.get("name", "")).casefold()
-    return "direction générale" in name or "direction generale" in name
+def department_labels(member: dict) -> list[tuple[int, str]]:
+    return [(group_id, group_names[group_id]) for group_id in department_ids(member) if group_id in group_names]
 
 
-def users_assigned_to_group(group_id: int) -> list[dict]:
-    return [
-        user
-        for user in users
-        if group_id in {
-            *{int(member_group_id) for member_group_id in (user.get("group_ids") or [])},
-            *{int(managed_group_id) for managed_group_id in (user.get("managed_group_ids") or [])},
-        }
-    ]
+def can_supervise(member: dict) -> bool:
+    return bool({"Admin", "Responsable"} & user_tags(member))
+
+
+users_by_name = {user["username"]: user for user in users}
+reports_by_manager: dict[str, list[dict]] = {}
+for candidate in users:
+    manager_name = candidate.get("manager_id")
+    if manager_name:
+        reports_by_manager.setdefault(str(manager_name), []).append(candidate)
+
+
+def available_employees(manager: dict) -> list[dict]:
+    return sorted(
+        [
+            employee
+            for employee in users
+            if employee["username"] != manager["username"] and "Employe" in user_tags(employee)
+        ],
+        key=lambda employee: employee["username"].casefold(),
+    )
+
+
+def render_person_card(member: dict, ancestry: set[str]) -> None:
+    member_name = member["username"]
+    if member_name in ancestry:
+        st.error(f"Boucle hiérarchique détectée pour {member_name}.")
+        return
+
+    with st.container(border=True):
+        details, actions = st.columns([4, 1], vertical_alignment="center")
+        with details:
+            st.markdown(f"**{member_name}**")
+            st.caption(f"{organization_function(member)} · {', '.join(member.get('role_tags', [member['role']]))}")
+            with st.container(horizontal=True, gap="small"):
+                for group_id, label in department_labels(member):
+                    st.badge(label, color=DEPARTMENT_BADGE_COLORS[group_id % len(DEPARTMENT_BADGE_COLORS)])
+        if can_supervise(member):
+            with actions:
+                with st.popover("Ajouter un employé", icon=":material/person_add:", key=f"assign_{member_name}"):
+                    candidates = available_employees(member)
+                    if not candidates:
+                        st.caption("Aucun Employé existant ne peut être affecté.")
+                    else:
+                        candidate_names = [candidate["username"] for candidate in candidates]
+                        selected_name = st.selectbox(
+                            "Employé existant",
+                            candidate_names,
+                            key=f"assign_employee_{member_name}",
+                        )
+                        selected_employee = users_by_name[selected_name]
+                        current_manager = selected_employee.get("manager_id") or "Aucun responsable"
+                        st.caption(f"Responsable actuel : {current_manager}")
+                        if st.button("Affecter", type="primary", key=f"confirm_assign_{member_name}"):
+                            response = requests.patch(
+                                f"{API_URL}/users/{selected_name}/direct-manager",
+                                headers=HEADERS,
+                                json={"manager_id": member_name},
+                                timeout=10,
+                            )
+                            if response.status_code == 200:
+                                st.success("Employé affecté au responsable.")
+                                st.rerun()
+                            else:
+                                st.error(api_error(response))
+
+        reports = reports_by_manager.get(member_name, [])
+        for report in sorted(reports, key=lambda person: person["username"].casefold()):
+            render_person_card(report, ancestry | {member_name})
 
 
 with st.expander("Structure des équipes", expanded=True):
-    st.caption("Affichage complet par département, responsable direct et responsabilité de département.")
-    general_groups = [group for group in groups if is_general_management_group(group)]
-    general_ids = {int(group["id"]) for group in general_groups}
-    st.subheader("Direction générale")
-    general_member_names = {
-        user["username"]
-        for group_id in general_ids
-        for user in users_assigned_to_group(group_id)
-    }
-    general_members = [user for user in users if user["username"] in general_member_names]
-    if general_members:
-        st.dataframe(organization_rows(general_members), width="stretch", hide_index=True)
-    else:
-        st.info("Attribuez un responsable ou un membre au Groupe Direction générale pour l'afficher ici.")
+    st.caption("La structure suit le responsable direct. Les Groupes sont affichés comme départements de travail.")
+    with st.container(border=True):
+        st.subheader("Direction générale")
+        root_managers = [
+            user
+            for user in users
+            if can_supervise(user) and not user.get("manager_id")
+        ]
+        if root_managers:
+            for manager in sorted(root_managers, key=lambda person: person["username"].casefold()):
+                render_person_card(manager, set())
+        else:
+            st.info("Attribuez au moins un Responsable ou Administrateur pour afficher la structure.")
 
-    st.subheader("Départements")
-    department_groups = [group for group in groups if int(group["id"]) not in general_ids]
-    for group in department_groups:
-        group_id = int(group["id"])
-        members = users_assigned_to_group(group_id)
-        with st.expander(f"{group['name']} · {len(members)} personne(s)", expanded=False):
-            if members:
-                st.dataframe(organization_rows(members), width="stretch", hide_index=True)
-            else:
-                st.caption("Aucune personne n'est encore attribuée à ce département.")
-
-    unassigned_members = [user for user in users if not user.get("group_ids")]
-    if unassigned_members:
-        with st.expander(f"Sans département · {len(unassigned_members)} personne(s)", expanded=False):
-            st.dataframe(organization_rows(unassigned_members), width="stretch", hide_index=True)
+    employees_without_manager = [
+        user
+        for user in users
+        if "Employe" in user_tags(user) and not user.get("manager_id")
+    ]
+    if employees_without_manager:
+        with st.expander(f"Sans responsable direct · {len(employees_without_manager)} personne(s)", expanded=False):
+            for employee in sorted(employees_without_manager, key=lambda person: person["username"].casefold()):
+                render_person_card(employee, set())
 
 with st.expander("Groupes", expanded=False):
     with st.form("create_group_form", clear_on_submit=True):

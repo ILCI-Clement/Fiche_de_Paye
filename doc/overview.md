@@ -10,7 +10,7 @@ Cette application Streamlit permet de préparer des fiches mensuelles de présen
 - `pages/Login.py` : connexion, demande et confirmation de réinitialisation du mot de passe.
 - `pages/Fiches.py` : création des fiches, calendrier, sauvegarde et exports.
 - `pages/Profile.py` : modification du profil connecté.
-- `pages/Admin.py` : administration des comptes et des Groupes, avec une structure native par département, les étiquettes, le responsable direct et le type de personnel.
+- `pages/Admin.py` : administration des comptes et des Groupes, avec une structure native hiérarchisée par responsable direct, des étiquettes de département et une affectation rapide des Employés existants.
 - `pages/People.py` : vue opérationnelle du personnel accessible aux responsables autorisés.
 - `backend/main.py` : API FastAPI versionnée qui applique l'authentification et les autorisations.
 - `ExcelGen.py` et `DocxGen.py` : génération des exports Excel et Word.

@@ -12,6 +12,7 @@
 - Remplacement du rôle unique par des étiquettes combinables (`Admin`, `Responsable`, `Employe`); une personne Admin peut donc aussi être rattachée comme Employé à un responsable et à un Groupe.
 - Remplacement du schéma organisationnel dessiné par une présentation Streamlit native : `Direction générale`, départements repliables et tableaux lisibles. Cette présentation évite les chevauchements ou débordements liés aux noms longs.
 - Clarification de la structure : un Responsable apparaît dans le département qu'il gère, même s'il n'en est pas membre; la fonction est affichée séparément des étiquettes et la Direction générale est reconnue avec ou sans le préfixe `Groupe`.
+- Refonte de la structure en vue hiérarchique par responsable direct : cartes natives imbriquées, étiquettes colorées de département et affectation d'un Employé existant directement depuis la carte de son responsable.
 
 ### Vérifications locales
 
