@@ -1,6 +1,6 @@
 import unittest
 
-from organization_chart import build_organization_chart
+from organization_chart import build_organization_chart, build_organization_svg
 
 
 class OrganizationChartTests(unittest.TestCase):
@@ -20,6 +20,15 @@ class OrganizationChartTests(unittest.TestCase):
     def test_escapes_user_provided_text(self):
         dot = build_organization_chart([{"username": 'A " user', "role": "Admin"}], {})
         self.assertIn('A \\" user', dot)
+
+    def test_svg_uses_only_orthogonal_connector_segments(self):
+        svg = build_organization_svg(
+            [{"username": "manager", "role": "Responsable"}, {"username": "employee", "role": "Employe", "manager_id": "manager", "group_ids": [2]}],
+            {2: "R&D"},
+        )
+        self.assertIn(' V ', svg)
+        self.assertIn(' H ', svg)
+        self.assertIn('Département : R&amp;D', svg)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import requests
 import streamlit as st
 
 from api_client import api_url, authenticated_headers
-from organization_chart import build_organization_chart
+from organization_chart import build_organization_svg
 
 
 API_URL = api_url()
@@ -55,7 +55,7 @@ with st.expander("Structure des équipes", expanded=True):
         st.caption("La hiérarchie suit le Responsable direct. Les Groupes sont affichés dans les fiches des Employés.")
         if users:
             chart_height = min(900, max(420, 150 + len(users) * 85))
-            st.graphviz_chart(build_organization_chart(users, group_names), width="stretch", height=chart_height)
+            st.html(build_organization_svg(users, group_names), width="stretch")
         else:
             st.info("La structure apparaîtra après la création du premier compte.")
 
