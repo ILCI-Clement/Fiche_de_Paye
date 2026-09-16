@@ -1,6 +1,6 @@
 import unittest
 
-from organization_chart import build_organization_chart, build_organization_svg
+from organization_chart import build_organization_chart, build_organization_png, build_organization_svg
 
 
 class OrganizationChartTests(unittest.TestCase):
@@ -29,6 +29,10 @@ class OrganizationChartTests(unittest.TestCase):
         self.assertIn(' V ', svg)
         self.assertIn(' H ', svg)
         self.assertIn('Département : R&amp;D', svg)
+
+    def test_png_chart_is_generated(self):
+        image = build_organization_png([{"username": "admin", "role": "Admin"}], {})
+        self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))
 
 
 if __name__ == "__main__":

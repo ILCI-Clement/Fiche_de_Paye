@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from html import escape
+from io import BytesIO
+
+from PIL import Image, ImageDraw, ImageFont
 
 
 ROLE_COLORS = {
@@ -125,3 +128,59 @@ def build_organization_svg(users: list[Mapping[str, object]], group_names: Mappi
 .connector{{stroke:#94A3B8;stroke-width:3;fill:none}} .card{{stroke:#94A3B8;stroke-width:2}} .admin{{fill:#7C3AED}} .responsable{{fill:#2563EB}} .employe{{fill:#16A34A}}
 .line{{fill:#fff;text-anchor:middle;font-family:Arial,sans-serif;font-size:17px}} .line-0{{font-size:13px;fill:#E2E8F0}} .line-1{{font-size:20px;font-weight:700}}
 </style>{''.join(paths)}{''.join(cards)}</svg>'''
+
+
+def build_organization_png(users: list[Mapping[str, object]], group_names: Mapping[int, str]) -> bytes:
+    """Render a dependable raster organization chart with orthogonal connectors."""
+    indexed = {str(user["username"]): user for user in users if user.get("username")}
+    parents = {name: str(user.get("manager_id")) if str(user.get("manager_id") or "") in indexed else None for name, user in indexed.items()}
+
+    def depth(name: str, seen: set[str] | None = None) -> int:
+        seen = seen or set()
+        parent = parents[name]
+        return 0 if not parent or parent in seen else depth(parent, seen | {name}) + 1
+
+    levels: dict[int, list[str]] = {}
+    for name in sorted(indexed):
+        levels.setdefault(depth(name), []).append(name)
+    card_width, card_height, gap, top = 250, 126, 34, 38
+    max_count = max((len(level) for level in levels.values()), default=1)
+    width = max(820, max_count * (card_width + gap) + gap)
+    height = top + (max(levels, default=0) + 1) * 190
+    positions: dict[str, tuple[float, float]] = {}
+    for level, names in levels.items():
+        start_x = (width - (len(names) * card_width + (len(names) - 1) * gap)) / 2
+        for index, name in enumerate(names):
+            positions[name] = (start_x + index * (card_width + gap), top + level * 190)
+
+    image = Image.new("RGB", (width, height), "#0E1117")
+    draw = ImageDraw.Draw(image)
+    try:
+        normal_font = ImageFont.truetype("DejaVuSans.ttf", 16)
+        title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 20)
+        caption_font = ImageFont.truetype("DejaVuSans.ttf", 13)
+    except OSError:
+        normal_font = title_font = caption_font = ImageFont.load_default()
+    for name, parent in parents.items():
+        if parent:
+            parent_x, parent_y = positions[parent]
+            child_x, child_y = positions[name]
+            parent_center, child_center = parent_x + card_width / 2, child_x + card_width / 2
+            middle_y = parent_y + card_height + (child_y - parent_y - card_height) / 2
+            draw.line([(parent_center, parent_y + card_height), (parent_center, middle_y), (child_center, middle_y), (child_center, child_y)], fill="#94A3B8", width=3)
+    for name in sorted(indexed):
+        user = indexed[name]
+        x, y = positions[name]
+        tags = [str(tag) for tag in user.get("role_tags", [user.get("role") or "Employe"])]
+        primary = next((tag for tag in ("Admin", "Responsable", "Employe") if tag in tags), "Employe")
+        color = {"Admin": "#7C3AED", "Responsable": "#2563EB", "Employe": "#16A34A"}[primary]
+        departments = [group_names.get(int(group_id), str(group_id)) for group_id in user.get("group_ids", [])]
+        draw.rounded_rectangle((x, y, x + card_width, y + card_height), radius=18, fill=color, outline="#94A3B8", width=2)
+        lines = [f"Département : {', '.join(departments) if departments else 'Non attribué'}", name, " · ".join(tags) + (f" · {user.get('employee_type') or 'salarie'}" if "Employe" in tags else "")]
+        fonts = [caption_font, title_font, normal_font]
+        for index, (line, font) in enumerate(zip(lines, fonts)):
+            box = draw.textbbox((0, 0), line, font=font)
+            draw.text((x + (card_width - (box[2] - box[0])) / 2, y + 18 + index * 34), line, font=font, fill="#FFFFFF")
+    result = BytesIO()
+    image.save(result, format="PNG")
+    return result.getvalue()

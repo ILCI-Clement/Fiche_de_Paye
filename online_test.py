@@ -13,6 +13,9 @@ st.set_page_config(page_title="Fiches de présences", layout="wide")
 if "user" not in st.session_state:
     st.session_state.user = None
 
+if not st.session_state["user"]:
+    st.markdown("<style>[data-testid='stSidebar']{display:none;}</style>", unsafe_allow_html=True)
+
 login_page = st.Page("pages/Login.py", title="Connexion")
 fiches_page = st.Page("pages/Fiches.py", title="Création de Fiches")
 profile_page = st.Page("pages/Profile.py", title="Infos Personnelles")
