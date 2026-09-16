@@ -8,7 +8,8 @@ fiches et les rôles existants.
 
 ## Rôles et types de personnel
 
-- `Admin` : gère tous les comptes, Groupes et fiches.
+- `Admin` : étiquette de permission système; elle peut être combinée à
+  `Responsable` et/ou `Employe`.
 - `Responsable` : gère uniquement les Employés dont il est le responsable direct
   ou qui appartiennent à au moins un Groupe qu'il gère.
 - `Employe` : consulte uniquement son profil et ses résultats autorisés ; il ne
@@ -16,8 +17,9 @@ fiches et les rôles existants.
 - Un `Employe` porte le type `salarie` ou `stagiaire`. Ce type ne constitue pas
   un rôle supplémentaire.
 
-Les rôles historiques `Admin`, `Responsable` et `Employe` sont conservés. Un
-ancien compte sans type de personnel est interprété comme `salarie`.
+Les étiquettes historiques `Admin`, `Responsable` et `Employe` sont conservées.
+Un compte peut en porter plusieurs. Un ancien compte sans type de personnel est
+interprété comme `salarie`.
 
 ## Modèle organisationnel
 

@@ -9,6 +9,7 @@
 - Suppression des artefacts Python et traduction de la documentation fonctionnelle en français.
 - Ajustement du modèle : l'appartenance à un Groupe devient facultative pour un Employé; un Admin peut être choisi comme responsable direct.
 - Ajout d'une structure hiérarchique Graphviz dans Administration; les Groupes sont conservés comme informations de nœud afin de garder un arbre lisible.
+- Remplacement du rôle unique par des étiquettes combinables (`Admin`, `Responsable`, `Employe`); une personne Admin peut donc aussi être rattachée comme Employé à un responsable et à un Groupe.
 
 ### Vérifications locales
 

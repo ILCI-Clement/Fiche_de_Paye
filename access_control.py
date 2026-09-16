@@ -6,16 +6,24 @@ from collections.abc import Mapping
 
 
 VALID_ROLES = {"Admin", "Responsable", "Employe"}
+ROLE_PRIORITY = ("Admin", "Responsable", "Employe")
+
+
+def role_tags(user: Mapping[str, object]) -> set[str]:
+    tags = user.get("role_tags")
+    if isinstance(tags, (list, tuple, set)):
+        recognized = {str(tag) for tag in tags if str(tag) in VALID_ROLES}
+        if recognized:
+            return recognized
+    role = user.get("role")
+    if role in VALID_ROLES:
+        return {str(role)}
+    return {"Admin"} if user.get("is_admin") else {"Responsable"}
 
 
 def normalize_role(user: Mapping[str, object]) -> str | None:
     """Return the existing role name, with compatibility for legacy is_admin data."""
-    role = user.get("role")
-    if role in VALID_ROLES:
-        return str(role)
-    if user.get("is_admin"):
-        return "Admin"
-    return "Responsable" if role is None else None
+    return next((role for role in ROLE_PRIORITY if role in role_tags(user)), None)
 
 
 def managed_group_ids(user: Mapping[str, object]) -> set[str]:

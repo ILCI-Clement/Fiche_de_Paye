@@ -31,11 +31,12 @@ def build_organization_chart(users: list[Mapping[str, object]], group_names: Map
 
     for username in sorted(indexed_users):
         user = indexed_users[username]
-        role = str(user.get("role") or "Employe")
+        tags = [str(tag) for tag in user.get("role_tags", [user.get("role") or "Employe"])]
+        role = next((candidate for candidate in ("Admin", "Responsable", "Employe") if candidate in tags), "Employe")
         group_labels = [group_names.get(int(group_id), str(group_id)) for group_id in user.get("group_ids", [])]
-        detail_lines = [role]
-        if role == "Employe":
-            detail_lines = [f"{role} · {user.get('employee_type') or 'salarie'}"]
+        detail_lines = [" · ".join(tags)]
+        if "Employe" in tags:
+            detail_lines = [f"{' · '.join(tags)} · {user.get('employee_type') or 'salarie'}"]
         if group_labels:
             detail_lines.append(f"Groupes : {', '.join(group_labels)}")
         label = "\\n".join([_escape(username), *(_escape(line) for line in detail_lines)])

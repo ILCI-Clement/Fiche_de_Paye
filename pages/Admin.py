@@ -98,7 +98,7 @@ else:
 
 st.divider()
 st.subheader("Créer un utilisateur")
-new_role = st.selectbox("Rôle", ["Employe", "Responsable", "Admin"], key="admin_new_role")
+new_role_tags = st.multiselect("Étiquettes d'identité", ["Admin", "Responsable", "Employe"], default=["Employe"], key="admin_new_role_tags")
 with st.form("create_user_form", clear_on_submit=True):
     new_username = st.text_input("Nom d'utilisateur")
     new_email = st.text_input("E-mail professionnel")
@@ -107,7 +107,7 @@ with st.form("create_user_form", clear_on_submit=True):
     group_ids: list[int] = []
     managed_group_ids: list[int] = []
     manager_id: str | None = None
-    if new_role == "Employe":
+    if "Employe" in new_role_tags:
         employee_type = st.selectbox("Type de personnel", ["salarie", "stagiaire"])
         group_ids = st.multiselect(
             "Groupes d'appartenance (facultatif)", active_group_ids, format_func=lambda group_id: group_names[group_id]
@@ -121,7 +121,7 @@ with st.form("create_user_form", clear_on_submit=True):
             index=None,
             placeholder="Sélectionnez un Responsable ou un Administrateur",
         )
-    elif new_role == "Responsable":
+    if "Responsable" in new_role_tags:
         managed_group_ids = st.multiselect(
             "Groupes gérés", active_group_ids, format_func=lambda group_id: group_names[group_id]
         )
@@ -130,7 +130,7 @@ with st.form("create_user_form", clear_on_submit=True):
             "new_username": new_username,
             "new_mail": new_email,
             "new_password": new_password,
-            "new_role": new_role,
+            "role_tags": new_role_tags,
             "employee_type": employee_type,
             "group_ids": group_ids,
             "managed_group_ids": managed_group_ids,
@@ -151,8 +151,8 @@ if users:
         rows.append(
             {
                 "Utilisateur": user["username"],
-                "Rôle": user["role"],
-                "Type": user.get("employee_type") if user["role"] == "Employe" else "",
+                "Étiquettes": ", ".join(user.get("role_tags", [user["role"]])),
+                "Type": user.get("employee_type") if "Employe" in user.get("role_tags", [user["role"]]) else "",
                 "Responsable": user.get("manager_id") or "",
                 "Groupes": ", ".join(group_names.get(int(group_id), str(group_id)) for group_id in user.get("group_ids", [])),
                 "Groupes gérés": ", ".join(group_names.get(int(group_id), str(group_id)) for group_id in user.get("managed_group_ids", [])),
@@ -163,10 +163,10 @@ if users:
 
     selected_username = st.selectbox("Modifier l'organisation d'un utilisateur", [user["username"] for user in users])
     selected_user = next(user for user in users if user["username"] == selected_username)
-    updated_role = st.selectbox(
-        "Rôle attribué",
+    updated_role_tags = st.multiselect(
+        "Étiquettes attribuées",
         ["Employe", "Responsable", "Admin"],
-        index=["Employe", "Responsable", "Admin"].index(selected_user["role"]),
+        default=selected_user.get("role_tags", [selected_user["role"]]),
         key="admin_updated_role",
     )
     with st.form("update_user_organization_form"):
@@ -174,7 +174,7 @@ if users:
         updated_group_ids = selected_user.get("group_ids", [])
         updated_managed_group_ids = selected_user.get("managed_group_ids", [])
         updated_manager_id = selected_user.get("manager_id")
-        if updated_role == "Employe":
+        if "Employe" in updated_role_tags:
             updated_employee_type = st.selectbox(
                 "Type de personnel", ["salarie", "stagiaire"], index=["salarie", "stagiaire"].index(updated_employee_type)
             )
@@ -191,7 +191,7 @@ if users:
                 index=manager_index,
                 placeholder="Sélectionnez un Responsable ou un Administrateur",
             )
-        elif updated_role == "Responsable":
+        if "Responsable" in updated_role_tags:
             updated_managed_group_ids = st.multiselect(
                 "Groupes gérés", active_group_ids, default=updated_managed_group_ids, format_func=lambda group_id: group_names[group_id]
             )
@@ -200,7 +200,7 @@ if users:
                 f"{API_URL}/users/{selected_username}/organization",
                 headers=HEADERS,
                 json={
-                    "role": updated_role,
+                    "role_tags": updated_role_tags,
                     "employee_type": updated_employee_type,
                     "group_ids": updated_group_ids,
                     "managed_group_ids": updated_managed_group_ids,

@@ -60,6 +60,7 @@ if st.button("Se connecter"):
                 "name": data["username"],
                 "email": data["email"],
                 "role": role,
+                "role_tags": data.get("role_tags", [role]),
                 "is_admin": bool(data.get("is_admin")),
                 "id": data.get("id", data.get("user_id")),
                 "managed_group_ids": data.get("managed_group_ids", data.get("groups", [])),

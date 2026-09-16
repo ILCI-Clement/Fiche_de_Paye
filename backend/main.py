@@ -27,6 +27,7 @@ from pydantic import BaseModel, EmailStr
 
 app = FastAPI(title="Presence API")
 VALID_ROLES = {"Admin", "Responsable", "Employe"}
+ROLE_PRIORITY = ("Admin", "Responsable", "Employe")
 VALID_EMPLOYEE_TYPES = {"salarie", "stagiaire"}
 SESSION_DURATION_SECONDS = 8 * 60 * 60
 PASSWORD_RESET_DURATION_MINUTES = 15
@@ -133,6 +134,8 @@ def ensure_organization_schema() -> None:
                 cursor.execute("ALTER TABLE users ADD COLUMN employee_type VARCHAR(20) NULL")
             if "manager_username" not in columns:
                 cursor.execute("ALTER TABLE users ADD COLUMN manager_username VARCHAR(50) NULL")
+            if "role_tags" not in columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN role_tags TEXT NULL")
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS organization_groups (
@@ -169,7 +172,7 @@ def migrate_database() -> None:
 def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] | None:
     cursor.execute(
         """
-        SELECT username, email, password_hash, is_admin, role, employee_type, manager_username, created_at
+        SELECT username, email, password_hash, is_admin, role, role_tags, employee_type, manager_username, created_at
         FROM users WHERE username = %s
         """,
         (username,),
@@ -177,7 +180,14 @@ def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] |
     user = cursor.fetchone()
     if not user:
         return None
-    user["role"] = normalize_role(user)
+    raw_tags = user.get("role_tags")
+    try:
+        tags = {str(tag) for tag in json.loads(raw_tags)} if raw_tags else set()
+    except (TypeError, json.JSONDecodeError):
+        tags = set()
+    tags = tags & VALID_ROLES or {normalize_role(user)}
+    user["role_tags"] = [role for role in ROLE_PRIORITY if role in tags]
+    user["role"] = user["role_tags"][0]
     user["employee_type"] = user.get("employee_type") or "salarie"
     cursor.execute(
         "SELECT group_id FROM user_group_memberships WHERE username = %s AND relation = 'member' ORDER BY group_id",
@@ -198,6 +208,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "username": user["username"],
         "email": user["email"],
         "role": user["role"],
+        "role_tags": user["role_tags"],
         "is_admin": bool(user.get("is_admin")),
         "employee_type": user.get("employee_type") or "salarie",
         "manager_id": user.get("manager_username"),
@@ -224,7 +235,7 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict[s
 
 def require_roles(*roles: str):
     def validate(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-        if user["role"] not in roles:
+        if not (set(roles) & set(user["role_tags"])):
             raise HTTPException(status_code=403, detail="Autorisation insuffisante.")
         return user
 
@@ -232,9 +243,9 @@ def require_roles(*roles: str):
 
 
 def user_can_manage(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], target: dict[str, Any]) -> bool:
-    if actor["role"] == "Admin":
+    if "Admin" in actor["role_tags"]:
         return True
-    if actor["role"] != "Responsable" or target["role"] != "Employe":
+    if "Responsable" not in actor["role_tags"] or "Employe" not in target["role_tags"]:
         return False
     if target.get("manager_username") == actor["username"]:
         return True
@@ -243,7 +254,15 @@ def user_can_manage(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], targe
 
 def is_valid_direct_manager(user: dict[str, Any] | None) -> bool:
     """An administrator can also be assigned as an employee's direct manager."""
-    return bool(user and user["role"] in {"Admin", "Responsable"})
+    return bool(user and ({"Admin", "Responsable"} & set(user["role_tags"])))
+
+
+def requested_role_tags(payload: dict[str, Any], fallback: list[str] | None = None) -> list[str]:
+    raw_tags = payload.get("role_tags", fallback or [payload.get("new_role", "Employe")])
+    tags = {str(tag) for tag in (raw_tags or [])}
+    if not tags or not tags.issubset(VALID_ROLES):
+        raise HTTPException(status_code=400, detail="Les étiquettes d'identité sont invalides.")
+    return [role for role in ROLE_PRIORITY if role in tags]
 
 
 def validate_group_ids(cursor: pymysql.cursors.Cursor, group_ids: list[Any], *, active_only: bool = True) -> list[int]:
@@ -273,7 +292,7 @@ def require_target_access(cursor: pymysql.cursors.Cursor, actor: dict[str, Any],
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
     if target_username == actor["username"]:
-        if edit and actor["role"] == "Employe":
+        if edit and not ({"Admin", "Responsable"} & set(actor["role_tags"])):
             raise HTTPException(status_code=403, detail="Un employé ne peut pas modifier sa fiche de présence.")
         return target
     if user_can_manage(cursor, actor, target):
@@ -329,7 +348,7 @@ def list_groups(actor: dict[str, Any] = Depends(require_roles("Admin", "Responsa
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            if actor["role"] == "Admin":
+            if "Admin" in actor["role_tags"]:
                 cursor.execute("SELECT id, name, is_active FROM organization_groups ORDER BY name")
             else:
                 groups = actor["managed_group_ids"]
@@ -387,13 +406,13 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
     username = str(payload.get("new_username", "")).strip()
     email = str(payload.get("new_mail", "")).strip()
     password = str(payload.get("new_password", ""))
-    requested_role = str(payload.get("new_role", "Employe"))
+    tags = requested_role_tags(payload)
     employee_type = str(payload.get("employee_type") or "salarie")
     if not username or not email or len(password) < 8:
         raise HTTPException(status_code=400, detail="Nom, e-mail et mot de passe de 8 caractères minimum sont obligatoires.")
-    if requested_role not in VALID_ROLES or employee_type not in VALID_EMPLOYEE_TYPES:
-        raise HTTPException(status_code=400, detail="Rôle ou type de personnel invalide.")
-    if actor["role"] == "Responsable" and requested_role != "Employe":
+    if employee_type not in VALID_EMPLOYEE_TYPES:
+        raise HTTPException(status_code=400, detail="Type de personnel invalide.")
+    if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"] and tags != ["Employe"]:
         raise HTTPException(status_code=403, detail="Un Responsable peut uniquement créer un Employé.")
 
     connection = get_db_connection()
@@ -402,19 +421,19 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
             group_ids = validate_group_ids(cursor, list(payload.get("group_ids") or []))
             managed_group_ids = validate_group_ids(cursor, list(payload.get("managed_group_ids") or []))
             manager_username = payload.get("manager_id")
-            if actor["role"] == "Responsable":
+            if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"]:
                 allowed = set(actor["managed_group_ids"])
                 if not set(group_ids).issubset(allowed):
                     raise HTTPException(status_code=403, detail="Les Groupes choisis doivent être gérés par ce Responsable.")
                 manager_username = actor["username"]
                 managed_group_ids = []
-            elif requested_role == "Employe":
+            elif "Employe" in tags:
                 if not manager_username:
                     raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
                 manager = load_user(cursor, str(manager_username))
                 if not is_valid_direct_manager(manager):
                     raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
-            elif requested_role == "Responsable" and not managed_group_ids:
+            elif "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
                 raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
 
             cursor.execute(
@@ -422,10 +441,11 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
                 INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
-                (username, email, hash_password(password), requested_role == "Admin", requested_role, employee_type if requested_role == "Employe" else None, manager_username if requested_role == "Employe" else None),
+                (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type if "Employe" in tags else None, manager_username if "Employe" in tags else None),
             )
-            replace_memberships(cursor, username, "member", group_ids if requested_role == "Employe" else [])
-            replace_memberships(cursor, username, "manager", managed_group_ids if requested_role == "Responsable" else [])
+            cursor.execute("UPDATE users SET role_tags = %s WHERE username = %s", (json.dumps(tags), username))
+            replace_memberships(cursor, username, "member", group_ids if "Employe" in tags else [])
+            replace_memberships(cursor, username, "manager", managed_group_ids if "Responsable" in tags else [])
         connection.commit()
         return {"status": "success", "message": f"Utilisateur {username} créé."}
     except pymysql.err.IntegrityError:
@@ -441,9 +461,9 @@ def list_users(actor: dict[str, Any] = Depends(get_current_user)) -> dict[str, A
         with connection.cursor() as cursor:
             cursor.execute("SELECT username FROM users ORDER BY username")
             candidates = [load_user(cursor, row["username"]) for row in cursor.fetchall()]
-            if actor["role"] == "Admin":
+            if "Admin" in actor["role_tags"]:
                 visible = candidates
-            elif actor["role"] == "Responsable":
+            elif "Responsable" in actor["role_tags"]:
                 visible = [user for user in candidates if user and user_can_manage(cursor, actor, user)]
             else:
                 visible = [user for user in candidates if user and user["username"] == actor["username"]]
@@ -463,12 +483,12 @@ def update_user_organization(
     try:
         with connection.cursor() as cursor:
             target = require_target_access(cursor, actor, target_username, edit=True)
-            requested_role = str(payload.get("role", target["role"]))
+            tags = requested_role_tags(payload, target["role_tags"])
             employee_type = str(payload.get("employee_type", target["employee_type"]))
-            if requested_role not in VALID_ROLES or employee_type not in VALID_EMPLOYEE_TYPES:
-                raise HTTPException(status_code=400, detail="Rôle ou type de personnel invalide.")
-            if actor["role"] == "Responsable":
-                if target["role"] != "Employe" or requested_role != "Employe":
+            if employee_type not in VALID_EMPLOYEE_TYPES:
+                raise HTTPException(status_code=400, detail="Type de personnel invalide.")
+            if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"]:
+                if "Employe" not in target["role_tags"] or tags != ["Employe"]:
                     raise HTTPException(status_code=403, detail="Un Responsable peut uniquement modifier un Employé de son périmètre.")
                 group_ids = validate_group_ids(cursor, list(payload.get("group_ids", target["group_ids"])))
                 if not set(group_ids).issubset(set(actor["managed_group_ids"])):
@@ -482,34 +502,35 @@ def update_user_organization(
                     list(payload.get("managed_group_ids", target["managed_group_ids"])),
                 )
                 manager_username = payload.get("manager_id", target.get("manager_username"))
-                if requested_role == "Employe":
+                if "Employe" in tags:
                     if not manager_username:
                         raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
                     manager = load_user(cursor, str(manager_username))
                     if not is_valid_direct_manager(manager):
                         raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
-                elif requested_role == "Responsable" and not managed_group_ids:
+                elif "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
                     raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
-                elif requested_role == "Admin":
+                elif tags == ["Admin"]:
                     group_ids = []
                     managed_group_ids = []
                     manager_username = None
 
             cursor.execute(
                 """
-                UPDATE users SET role = %s, is_admin = %s, employee_type = %s, manager_username = %s
+                UPDATE users SET role = %s, role_tags = %s, is_admin = %s, employee_type = %s, manager_username = %s
                 WHERE username = %s
                 """,
                 (
-                    requested_role,
-                    requested_role == "Admin",
-                    employee_type if requested_role == "Employe" else None,
-                    manager_username if requested_role == "Employe" else None,
+                    tags[0],
+                    json.dumps(tags),
+                    "Admin" in tags,
+                    employee_type if "Employe" in tags else None,
+                    manager_username if "Employe" in tags else None,
                     target_username,
                 ),
             )
-            replace_memberships(cursor, target_username, "member", group_ids if requested_role == "Employe" else [])
-            replace_memberships(cursor, target_username, "manager", managed_group_ids if requested_role == "Responsable" else [])
+            replace_memberships(cursor, target_username, "member", group_ids if "Employe" in tags else [])
+            replace_memberships(cursor, target_username, "manager", managed_group_ids if "Responsable" in tags else [])
             updated = load_user(cursor, target_username)
         connection.commit()
         return {"status": "success", "user": public_user(updated)}
@@ -525,7 +546,7 @@ def delete_user(username_to_delete: str, actor: dict[str, Any] = Depends(require
     try:
         with connection.cursor() as cursor:
             target = require_target_access(cursor, actor, username_to_delete, edit=True)
-            if actor["role"] == "Responsable" and target["role"] != "Employe":
+            if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"] and "Employe" not in target["role_tags"]:
                 raise HTTPException(status_code=403, detail="Un Responsable ne peut supprimer qu'un Employé.")
             cursor.execute("UPDATE users SET manager_username = NULL WHERE manager_username = %s", (username_to_delete,))
             cursor.execute("DELETE FROM user_group_memberships WHERE username = %s", (username_to_delete,))
