@@ -120,7 +120,7 @@ def build_organization_svg(users: list[Mapping[str, object]], group_names: Mappi
         )
         cards.append(f'<g><rect x="{x:.0f}" y="{y:.0f}" width="{card_width}" height="{card_height}" rx="18" class="card {primary.lower()}"/>{text}</g>')
 
-    return f'''<svg viewBox="0 0 {width} {height}" width="100%" role="img" aria-label="Structure des équipes">
+    return f'''<svg viewBox="0 0 {width} {height}" width="100%" height="{height}" role="img" aria-label="Structure des équipes">
 <style>
 .connector{{stroke:#94A3B8;stroke-width:3;fill:none}} .card{{stroke:#94A3B8;stroke-width:2}} .admin{{fill:#7C3AED}} .responsable{{fill:#2563EB}} .employe{{fill:#16A34A}}
 .line{{fill:#fff;text-anchor:middle;font-family:Arial,sans-serif;font-size:17px}} .line-0{{font-size:13px;fill:#E2E8F0}} .line-1{{font-size:20px;font-weight:700}}
