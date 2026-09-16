@@ -1,5 +1,5 @@
 import streamlit as st
-from access_control import normalize_role
+from access_control import normalize_role, role_tags
 # from datetime import date, datetime
 # import requests
 # import time
@@ -29,17 +29,18 @@ def get_pages_for_user():
         return [login_page]
     
     role = normalize_role(user)
+    tags = role_tags(user)
     if role is None:
         return [login_page]
     user["role"] = role
     
-    if role == "Admin":
+    if "Admin" in tags:
         return [profile_page, fiches_page, people_page, admin_page]
 
-    elif role == "Responsable":
+    if "Responsable" in tags:
         return [profile_page, fiches_page, people_page]
     
-    elif role == "Employe":
+    if "Employe" in tags:
         return [profile_page]
     
     return [login_page]

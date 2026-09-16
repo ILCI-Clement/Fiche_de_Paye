@@ -7,6 +7,9 @@ class AccessControlTests(unittest.TestCase):
     def test_legacy_admin_flag_keeps_admin_role(self):
         self.assertEqual(normalize_role({"is_admin": True}), "Admin")
 
+    def test_admin_tag_remains_authoritative_with_employee_tag(self):
+        self.assertEqual(normalize_role({"role": "Employe", "role_tags": ["Admin", "Employe"]}), "Admin")
+
     def test_admin_manages_any_employee(self):
         self.assertTrue(can_manage_employee({"role": "Admin"}, {"group_ids": ["other"]}))
 

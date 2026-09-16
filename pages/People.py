@@ -5,6 +5,7 @@ from __future__ import annotations
 import requests
 import streamlit as st
 
+from access_control import role_tags
 from api_client import api_url, authenticated_headers
 
 
@@ -12,7 +13,9 @@ API_URL = api_url()
 HEADERS = authenticated_headers()
 USER = st.session_state.get("user")
 
-if not USER or USER.get("role") not in {"Admin", "Responsable"}:
+USER_TAGS = role_tags(USER) if USER else set()
+
+if not USER or not ({"Admin", "Responsable"} & USER_TAGS):
     st.error("Cette page est réservée aux administrateurs et responsables.")
     st.stop()
 
@@ -38,7 +41,7 @@ group_ids = list(group_names)
 st.title("Personnel")
 st.caption("Les utilisateurs affichés appartiennent à votre périmètre de responsabilité.")
 
-if USER["role"] == "Admin":
+if "Admin" in USER_TAGS:
     st.info("La gestion complète des comptes et des Groupes est disponible dans Administration.")
 
 st.subheader("Employés gérés")
@@ -53,7 +56,7 @@ if users:
                 "E-mail": person["email"],
             }
             for person in users
-            if person.get("role") == "Employe"
+            if "Employe" in set(person.get("role_tags", [person.get("role")]))
         ],
         width="stretch",
         hide_index=True,
@@ -61,7 +64,7 @@ if users:
 else:
     st.info("Aucun Employé ne fait actuellement partie de votre périmètre.")
 
-if USER["role"] == "Responsable":
+if "Responsable" in USER_TAGS and "Admin" not in USER_TAGS:
     st.divider()
     st.subheader("Créer un Employé")
     if not group_ids:

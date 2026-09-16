@@ -11,6 +11,7 @@
 - Ajout d'une structure hiérarchique Graphviz dans Administration; les Groupes sont conservés comme informations de nœud afin de garder un arbre lisible.
 - Remplacement du rôle unique par des étiquettes combinables (`Admin`, `Responsable`, `Employe`); une personne Admin peut donc aussi être rattachée comme Employé à un responsable et à un Groupe.
 - Remplacement du schéma organisationnel dessiné par une présentation Streamlit native : `Direction générale`, départements repliables et tableaux lisibles. Cette présentation évite les chevauchements ou débordements liés aux noms longs.
+- Clarification de la structure : un Responsable apparaît dans le département qu'il gère, même s'il n'en est pas membre; la fonction est affichée séparément des étiquettes et la Direction générale est reconnue avec ou sans le préfixe `Groupe`.
 
 ### Vérifications locales
 

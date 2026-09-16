@@ -5,6 +5,7 @@ from __future__ import annotations
 import requests
 import streamlit as st
 
+from access_control import role_tags
 from api_client import api_url, authenticated_headers
 
 
@@ -12,7 +13,7 @@ API_URL = api_url()
 HEADERS = authenticated_headers()
 CURRENT_USER = st.session_state.get("user")
 
-if not CURRENT_USER or CURRENT_USER.get("role") != "Admin":
+if not CURRENT_USER or "Admin" not in role_tags(CURRENT_USER):
     st.error("Cette page est réservée aux administrateurs.")
     st.stop()
 
@@ -50,40 +51,70 @@ active_group_ids = [int(group["id"]) for group in groups if group.get("is_active
 active_group_id_set = set(active_group_ids)
 
 
+def user_tags(member: dict) -> set[str]:
+    return set(member.get("role_tags", [member.get("role")]))
+
+
+def organization_function(member: dict) -> str:
+    tags = user_tags(member)
+    if "Responsable" in tags:
+        return "Responsable"
+    if "Employe" in tags:
+        return f"Employé · {member.get('employee_type') or 'salarie'}"
+    if "Admin" in tags:
+        return "Administrateur"
+    return "—"
+
+
 def organization_rows(members: list[dict]) -> list[dict[str, str]]:
     return [
         {
             "Personne": member["username"],
             "Étiquettes": ", ".join(member.get("role_tags", [member["role"]])),
             "Responsable direct": member.get("manager_id") or "—",
-            "Type": member.get("employee_type") if "Employe" in member.get("role_tags", [member["role"]]) else "—",
+            "Fonction": organization_function(member),
         }
         for member in members
     ]
 
 
+def is_general_management_group(group: dict) -> bool:
+    name = str(group.get("name", "")).casefold()
+    return "direction générale" in name or "direction generale" in name
+
+
+def users_assigned_to_group(group_id: int) -> list[dict]:
+    return [
+        user
+        for user in users
+        if group_id in {
+            *{int(member_group_id) for member_group_id in (user.get("group_ids") or [])},
+            *{int(managed_group_id) for managed_group_id in (user.get("managed_group_ids") or [])},
+        }
+    ]
+
+
 with st.expander("Structure des équipes", expanded=True):
-    st.caption("Affichage par département et responsable direct. Les Groupes existants servent de départements.")
-    general_groups = [group for group in groups if str(group["name"]).casefold() in {"direction générale", "direction generale"}]
+    st.caption("Affichage complet par département, responsable direct et responsabilité de département.")
+    general_groups = [group for group in groups if is_general_management_group(group)]
     general_ids = {int(group["id"]) for group in general_groups}
     st.subheader("Direction générale")
-    general_members = [
-        user for user in users
-        if general_ids & {int(group_id) for group_id in (user.get("group_ids") or [])}
-    ]
+    general_member_names = {
+        user["username"]
+        for group_id in general_ids
+        for user in users_assigned_to_group(group_id)
+    }
+    general_members = [user for user in users if user["username"] in general_member_names]
     if general_members:
         st.dataframe(organization_rows(general_members), width="stretch", hide_index=True)
     else:
-        st.info("Créez le Groupe « Direction générale » puis attribuez-y ses membres pour les afficher ici.")
+        st.info("Attribuez un responsable ou un membre au Groupe Direction générale pour l'afficher ici.")
 
     st.subheader("Départements")
     department_groups = [group for group in groups if int(group["id"]) not in general_ids]
     for group in department_groups:
         group_id = int(group["id"])
-        members = [
-            user for user in users
-            if group_id in {int(member_group_id) for member_group_id in (user.get("group_ids") or [])}
-        ]
+        members = users_assigned_to_group(group_id)
         with st.expander(f"{group['name']} · {len(members)} personne(s)", expanded=False):
             if members:
                 st.dataframe(organization_rows(members), width="stretch", hide_index=True)
@@ -182,7 +213,7 @@ if users:
             {
                 "Utilisateur": user["username"],
                 "Étiquettes": ", ".join(user.get("role_tags", [user["role"]])),
-                "Type": user.get("employee_type") if "Employe" in user.get("role_tags", [user["role"]]) else "",
+                "Fonction": organization_function(user),
                 "Responsable": user.get("manager_id") or "",
                 "Groupes": ", ".join(group_names.get(int(group_id), str(group_id)) for group_id in user.get("group_ids", [])),
                 "Groupes gérés": ", ".join(group_names.get(int(group_id), str(group_id)) for group_id in user.get("managed_group_ids", [])),
