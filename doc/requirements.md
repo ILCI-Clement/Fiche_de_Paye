@@ -22,8 +22,9 @@ ancien compte sans type de personnel est interprété comme `salarie`.
 ## Modèle organisationnel
 
 - Un Groupe possède un nom unique et un état actif/inactif.
-- Un Employé appartient à un ou plusieurs Groupes et possède un seul Responsable
-  direct.
+- Un Employé possède un seul responsable direct, qui peut avoir le rôle
+  `Responsable` ou `Admin`. Son appartenance à un ou plusieurs Groupes est
+  facultative.
 - Un Responsable gère un ou plusieurs Groupes.
 - Un Groupe inactif ne supprime ni utilisateurs ni fiches historiques. Il ne peut
   plus être attribué à un nouveau compte.
@@ -36,14 +37,14 @@ ancien compte sans type de personnel est interprété comme `salarie`.
 
 - Crée, modifie et supprime les comptes.
 - Crée, renomme, active ou désactive les Groupes.
-- Assigne les Groupes gérés aux Responsables, puis les Groupes et le Responsable
-  direct aux Employés.
+- Assigne les Groupes gérés aux Responsables, puis les Groupes facultatifs et le
+  responsable direct (Responsable ou Admin) aux Employés.
 - Accède à toutes les fiches de présence.
 
 ### Responsable
 
-- Crée uniquement des comptes `Employe` dans ses propres Groupes ; il devient
-  automatiquement leur Responsable direct.
+- Crée uniquement des comptes `Employe` ; il devient automatiquement leur
+  Responsable direct. Les Groupes attribués restent limités à ses propres Groupes.
 - Voit, modifie et supprime uniquement les Employés de son périmètre.
 - Ne peut ni créer ni modifier un Admin, un autre Responsable ou un Groupe.
 - Ne peut pas attribuer un Groupe qu'il ne gère pas.

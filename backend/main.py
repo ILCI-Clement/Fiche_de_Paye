@@ -241,6 +241,11 @@ def user_can_manage(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], targe
     return bool(set(actor["managed_group_ids"]) & set(target["group_ids"]))
 
 
+def is_valid_direct_manager(user: dict[str, Any] | None) -> bool:
+    """An administrator can also be assigned as an employee's direct manager."""
+    return bool(user and user["role"] in {"Admin", "Responsable"})
+
+
 def validate_group_ids(cursor: pymysql.cursors.Cursor, group_ids: list[Any], *, active_only: bool = True) -> list[int]:
     normalized = sorted({int(group_id) for group_id in group_ids})
     if not normalized:
@@ -399,16 +404,16 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
             manager_username = payload.get("manager_id")
             if actor["role"] == "Responsable":
                 allowed = set(actor["managed_group_ids"])
-                if not group_ids or not set(group_ids).issubset(allowed):
+                if not set(group_ids).issubset(allowed):
                     raise HTTPException(status_code=403, detail="Les Groupes choisis doivent être gérés par ce Responsable.")
                 manager_username = actor["username"]
                 managed_group_ids = []
             elif requested_role == "Employe":
-                if not group_ids or not manager_username:
-                    raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct et au moins un Groupe.")
+                if not manager_username:
+                    raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
                 manager = load_user(cursor, str(manager_username))
-                if not manager or manager["role"] != "Responsable":
-                    raise HTTPException(status_code=400, detail="Le Responsable direct est invalide.")
+                if not is_valid_direct_manager(manager):
+                    raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
             elif requested_role == "Responsable" and not managed_group_ids:
                 raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
 
@@ -466,7 +471,7 @@ def update_user_organization(
                 if target["role"] != "Employe" or requested_role != "Employe":
                     raise HTTPException(status_code=403, detail="Un Responsable peut uniquement modifier un Employé de son périmètre.")
                 group_ids = validate_group_ids(cursor, list(payload.get("group_ids", target["group_ids"])))
-                if not group_ids or not set(group_ids).issubset(set(actor["managed_group_ids"])):
+                if not set(group_ids).issubset(set(actor["managed_group_ids"])):
                     raise HTTPException(status_code=403, detail="Les Groupes choisis doivent être gérés par ce Responsable.")
                 manager_username = actor["username"]
                 managed_group_ids: list[int] = []
@@ -478,11 +483,11 @@ def update_user_organization(
                 )
                 manager_username = payload.get("manager_id", target.get("manager_username"))
                 if requested_role == "Employe":
-                    if not group_ids or not manager_username:
-                        raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct et au moins un Groupe.")
+                    if not manager_username:
+                        raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
                     manager = load_user(cursor, str(manager_username))
-                    if not manager or manager["role"] != "Responsable":
-                        raise HTTPException(status_code=400, detail="Le Responsable direct est invalide.")
+                    if not is_valid_direct_manager(manager):
+                        raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
                 elif requested_role == "Responsable" and not managed_group_ids:
                     raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
                 elif requested_role == "Admin":

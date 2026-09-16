@@ -7,6 +7,7 @@
 - Ajout des pages `Administration` et `Personnel` : un administrateur peut créer des groupes et attribuer les personnes; un responsable ne voit que son périmètre autorisé.
 - La configuration des fiches reste conservée dans `Presence`; aucune migration ne supprime les comptes ou les fiches existantes.
 - Suppression des artefacts Python et traduction de la documentation fonctionnelle en français.
+- Ajustement du modèle : l'appartenance à un Groupe devient facultative pour un Employé; un Admin peut être choisi comme responsable direct.
 
 ### Vérifications locales
 

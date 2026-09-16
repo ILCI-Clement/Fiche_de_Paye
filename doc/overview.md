@@ -34,7 +34,7 @@ L'API délivre à la connexion un jeton de session signé et limité dans le tem
 | `Responsable` | Sa propre fiche et les employés qui lui sont rattachés directement ou qui appartiennent à au moins un groupe qu'il gère. |
 | `Employe` | Son profil et sa propre consultation; il ne peut ni gérer des personnes ni enregistrer une fiche pour autrui. |
 
-Les groupes sont créés et activés par un administrateur. Un employé peut appartenir à plusieurs groupes; un responsable peut gérer plusieurs groupes. Ces relations, le responsable direct et le type `salarie` ou `stagiaire` sont enregistrés dans MariaDB.
+Les groupes sont créés et activés par un administrateur. Un employé peut appartenir à plusieurs groupes, sans que cela soit obligatoire; son responsable direct peut être un `Responsable` ou un `Admin`. Un responsable peut gérer plusieurs groupes. Ces relations et le type `salarie` ou `stagiaire` sont enregistrés dans MariaDB.
 
 ## Stockage et déploiement
 

@@ -65,30 +65,29 @@ if USER["role"] == "Responsable":
     st.divider()
     st.subheader("Créer un Employé")
     if not group_ids:
-        st.warning("Aucun Groupe actif ne vous est attribué. Demandez à un administrateur de configurer votre périmètre.")
-    else:
-        with st.form("manager_create_employee", clear_on_submit=True):
-            username = st.text_input("Nom d'utilisateur")
-            email = st.text_input("E-mail professionnel")
-            password = st.text_input("Mot de passe", type="password")
-            employee_type = st.selectbox("Type de personnel", ["salarie", "stagiaire"])
-            selected_groups = st.multiselect("Groupes d'appartenance", group_ids, format_func=lambda group_id: group_names[group_id])
-            if st.form_submit_button("Créer l'Employé", type="primary"):
-                response = requests.post(
-                    f"{API_URL}/create-user",
-                    headers=HEADERS,
-                    json={
-                        "new_username": username,
-                        "new_mail": email,
-                        "new_password": password,
-                        "new_role": "Employe",
-                        "employee_type": employee_type,
-                        "group_ids": selected_groups,
-                    },
-                    timeout=10,
-                )
-                if response.status_code == 200:
-                    st.success("Employé créé.")
-                    st.rerun()
-                else:
-                    st.error(detail(response))
+        st.caption("Aucun Groupe actif ne vous est attribué. Vous pouvez créer l'Employé sans Groupe; vous serez son Responsable direct.")
+    with st.form("manager_create_employee", clear_on_submit=True):
+        username = st.text_input("Nom d'utilisateur")
+        email = st.text_input("E-mail professionnel")
+        password = st.text_input("Mot de passe", type="password")
+        employee_type = st.selectbox("Type de personnel", ["salarie", "stagiaire"])
+        selected_groups = st.multiselect("Groupes d'appartenance (facultatif)", group_ids, format_func=lambda group_id: group_names[group_id])
+        if st.form_submit_button("Créer l'Employé", type="primary"):
+            response = requests.post(
+                f"{API_URL}/create-user",
+                headers=HEADERS,
+                json={
+                    "new_username": username,
+                    "new_mail": email,
+                    "new_password": password,
+                    "new_role": "Employe",
+                    "employee_type": employee_type,
+                    "group_ids": selected_groups,
+                },
+                timeout=10,
+            )
+            if response.status_code == 200:
+                st.success("Employé créé.")
+                st.rerun()
+            else:
+                st.error(detail(response))

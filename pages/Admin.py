@@ -100,10 +100,17 @@ with st.form("create_user_form", clear_on_submit=True):
     if new_role == "Employe":
         employee_type = st.selectbox("Type de personnel", ["salarie", "stagiaire"])
         group_ids = st.multiselect(
-            "Groupes d'appartenance", active_group_ids, format_func=lambda group_id: group_names[group_id]
+            "Groupes d'appartenance (facultatif)", active_group_ids, format_func=lambda group_id: group_names[group_id]
         )
-        managers = [user["username"] for user in users if user.get("role") == "Responsable"]
-        manager_id = st.selectbox("Responsable direct", managers, index=None, placeholder="Sélectionnez un Responsable")
+        if not active_group_ids:
+            st.caption("Aucun Groupe actif n'est encore créé. L'attribution à un Groupe est facultative.")
+        managers = [user["username"] for user in users if user.get("role") in {"Responsable", "Admin"}]
+        manager_id = st.selectbox(
+            "Responsable direct",
+            managers,
+            index=None,
+            placeholder="Sélectionnez un Responsable ou un Administrateur",
+        )
     elif new_role == "Responsable":
         managed_group_ids = st.multiselect(
             "Groupes gérés", active_group_ids, format_func=lambda group_id: group_names[group_id]
@@ -162,11 +169,18 @@ if users:
                 "Type de personnel", ["salarie", "stagiaire"], index=["salarie", "stagiaire"].index(updated_employee_type)
             )
             updated_group_ids = st.multiselect(
-                "Groupes d'appartenance", active_group_ids, default=updated_group_ids, format_func=lambda group_id: group_names[group_id]
+                "Groupes d'appartenance (facultatif)", active_group_ids, default=updated_group_ids, format_func=lambda group_id: group_names[group_id]
             )
-            manager_options = [user["username"] for user in users if user.get("role") == "Responsable"]
+            if not active_group_ids:
+                st.caption("Aucun Groupe actif n'est encore créé. L'attribution à un Groupe est facultative.")
+            manager_options = [user["username"] for user in users if user.get("role") in {"Responsable", "Admin"}]
             manager_index = manager_options.index(updated_manager_id) if updated_manager_id in manager_options else None
-            updated_manager_id = st.selectbox("Responsable direct", manager_options, index=manager_index, placeholder="Sélectionnez un Responsable")
+            updated_manager_id = st.selectbox(
+                "Responsable direct",
+                manager_options,
+                index=manager_index,
+                placeholder="Sélectionnez un Responsable ou un Administrateur",
+            )
         elif updated_role == "Responsable":
             updated_managed_group_ids = st.multiselect(
                 "Groupes gérés", active_group_ids, default=updated_managed_group_ids, format_func=lambda group_id: group_names[group_id]
