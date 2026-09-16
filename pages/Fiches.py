@@ -102,9 +102,20 @@ if not user_store["employes_data"]:
     st.info("Aucun employé ou stagiaire configuré. Cliquez sur le bouton ci-dessus pour commencer.")
 
 if user_store["employes_data"]:
-    # Génération dynamique des titres des onglets (affiche le nom de l'employé s'il existe)
+    def fiche_tab_label(employee: dict, index: int) -> str:
+        """Return the clearest available label for an attendance sheet tab."""
+        if employee.get("type") == "Stagiaire":
+            name = " ".join(
+                part.strip()
+                for part in (str(employee.get("prenom_stagiaire") or ""), str(employee.get("nom_stagiaire") or ""))
+                if part.strip()
+            )
+        else:
+            name = str(employee.get("prenom") or employee.get("nom") or "").strip()
+        return name or f"Employé {index + 1}"
+
     labels_onglets = [
-        f"Employé {idx+1}" for idx in range(len(user_store["employes_data"]))
+        fiche_tab_label(employee, index) for index, employee in enumerate(user_store["employes_data"])
     ]
     
     # Création des onglets pour chaque employé
