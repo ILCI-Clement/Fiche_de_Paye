@@ -49,52 +49,45 @@ users = fetch_users()
 group_names = {int(group["id"]): str(group["name"]) for group in groups}
 active_group_ids = [int(group["id"]) for group in groups if group.get("is_active")]
 
-st.subheader("Structure des équipes")
-with st.container(border=True):
-    st.caption("La hiérarchie suit le Responsable direct. Les Groupes sont affichés dans les fiches des Employés.")
-    if users:
-        chart_height = min(900, max(420, 150 + len(users) * 85))
-        st.graphviz_chart(build_organization_chart(users, group_names), width="stretch", height=chart_height)
-    else:
-        st.info("La structure apparaîtra après la création du premier compte.")
-
-st.subheader("Groupes")
-with st.form("create_group_form", clear_on_submit=True):
-    new_group_name = st.text_input("Nom du nouveau Groupe")
-    submitted_group = st.form_submit_button("Créer le Groupe", type="primary")
-    if submitted_group:
-        response = requests.post(f"{API_URL}/groups", headers=HEADERS, json={"name": new_group_name}, timeout=10)
-        if response.status_code == 200:
-            st.success("Groupe créé.")
-            st.rerun()
+with st.expander("Structure des équipes", expanded=True):
+    with st.container(border=True):
+        st.caption("La hiérarchie suit le Responsable direct. Les Groupes sont affichés dans les fiches des Employés.")
+        if users:
+            chart_height = min(900, max(420, 150 + len(users) * 85))
+            st.graphviz_chart(build_organization_chart(users, group_names), width="stretch", height=chart_height)
         else:
-            st.error(api_error(response))
+            st.info("La structure apparaîtra après la création du premier compte.")
 
-if groups:
-    selected_group_id = st.selectbox(
-        "Modifier un Groupe",
-        options=[int(group["id"]) for group in groups],
-        format_func=lambda group_id: group_names[group_id],
-        key="admin_selected_group",
-    )
-    selected_group = next(group for group in groups if int(group["id"]) == selected_group_id)
-    with st.form("update_group_form"):
-        edited_group_name = st.text_input("Nom", value=str(selected_group["name"]))
-        edited_group_active = st.checkbox("Groupe actif", value=bool(selected_group["is_active"]))
-        if st.form_submit_button("Enregistrer le Groupe"):
-            response = requests.put(
-                f"{API_URL}/groups/{selected_group_id}",
-                headers=HEADERS,
-                json={"name": edited_group_name, "is_active": edited_group_active},
-                timeout=10,
-            )
+with st.expander("Groupes", expanded=False):
+    with st.form("create_group_form", clear_on_submit=True):
+        new_group_name = st.text_input("Nom du nouveau Groupe")
+        submitted_group = st.form_submit_button("Créer le Groupe", type="primary")
+        if submitted_group:
+            response = requests.post(f"{API_URL}/groups", headers=HEADERS, json={"name": new_group_name}, timeout=10)
             if response.status_code == 200:
-                st.success("Groupe mis à jour.")
+                st.success("Groupe créé.")
                 st.rerun()
             else:
                 st.error(api_error(response))
-else:
-    st.info("Créez au moins un Groupe avant d'attribuer des Responsables ou des Employés.")
+
+    if groups:
+        selected_group_id = st.selectbox(
+            "Modifier un Groupe", options=[int(group["id"]) for group in groups],
+            format_func=lambda group_id: group_names[group_id], key="admin_selected_group",
+        )
+        selected_group = next(group for group in groups if int(group["id"]) == selected_group_id)
+        with st.form("update_group_form"):
+            edited_group_name = st.text_input("Nom", value=str(selected_group["name"]))
+            edited_group_active = st.checkbox("Groupe actif", value=bool(selected_group["is_active"]))
+            if st.form_submit_button("Enregistrer le Groupe"):
+                response = requests.put(f"{API_URL}/groups/{selected_group_id}", headers=HEADERS, json={"name": edited_group_name, "is_active": edited_group_active}, timeout=10)
+                if response.status_code == 200:
+                    st.success("Groupe mis à jour.")
+                    st.rerun()
+                else:
+                    st.error(api_error(response))
+    else:
+        st.info("Créez un Groupe lorsque vous souhaitez structurer une équipe.")
 
 st.divider()
 st.subheader("Créer un utilisateur")
