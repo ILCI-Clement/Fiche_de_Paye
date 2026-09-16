@@ -512,13 +512,13 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
                     raise HTTPException(status_code=403, detail="Les Groupes choisis doivent être gérés par ce Responsable.")
                 manager_username = actor["username"]
                 managed_group_ids = []
-            elif "Employe" in tags:
-                if not manager_username:
-                    raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
+            elif manager_username:
                 manager = load_user(cursor, str(manager_username))
                 if not is_valid_direct_manager(manager):
                     raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
-            elif "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
+            if "Employe" in tags and not manager_username:
+                raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
+            if "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
                 raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
 
             cursor.execute(
@@ -526,7 +526,7 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
                 INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
-                (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type, manager_username if "Employe" in tags else None),
+                (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type, manager_username),
             )
             cursor.execute("UPDATE users SET role_tags = %s WHERE username = %s", (json.dumps(tags), username))
             replace_memberships(cursor, username, "member", group_ids)
@@ -587,17 +587,18 @@ def update_user_organization(
                     list(payload.get("managed_group_ids", target["managed_group_ids"])),
                 )
                 manager_username = payload.get("manager_id", target.get("manager_username"))
-                if "Employe" in tags:
-                    if not manager_username:
-                        raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
+                if manager_username:
                     manager = load_user(cursor, str(manager_username))
                     if not is_valid_direct_manager(manager):
                         raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
-                elif "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
+                    if target_username == manager_username or would_create_management_cycle(cursor, target_username, manager_username):
+                        raise HTTPException(status_code=400, detail="Cette affectation créerait une boucle hiérarchique.")
+                if "Employe" in tags and not manager_username:
+                    raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
+                if "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
                     raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
-                elif tags == ["Admin"]:
+                if tags == ["Admin"]:
                     managed_group_ids = []
-                    manager_username = None
 
             cursor.execute(
                 """
@@ -609,7 +610,7 @@ def update_user_organization(
                     json.dumps(tags),
                     "Admin" in tags,
                     employee_type,
-                    manager_username if "Employe" in tags else None,
+                    manager_username,
                     target_username,
                 ),
             )
@@ -628,16 +629,14 @@ def assign_direct_manager(
     payload: DirectManagerRequest,
     actor: dict[str, Any] = Depends(require_roles("Admin")),
 ) -> dict[str, Any]:
-    """Assign an existing employee to a direct manager without changing their other metadata."""
+    """Assign any existing person to a direct manager without changing other metadata."""
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             target = load_user(cursor, target_username)
             manager = load_user(cursor, payload.manager_id)
             if not target:
-                raise HTTPException(status_code=404, detail="Employé introuvable.")
-            if "Employe" not in target["role_tags"]:
-                raise HTTPException(status_code=400, detail="Seul un Employé peut être affecté à un responsable.")
+                raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
             if not is_valid_direct_manager(manager):
                 raise HTTPException(status_code=400, detail="Le responsable sélectionné est invalide.")
             if target_username == payload.manager_id or would_create_management_cycle(cursor, target_username, payload.manager_id):

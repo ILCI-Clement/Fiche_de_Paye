@@ -17,6 +17,7 @@
 - Clarification des départements : les départements de travail et les départements gérés sont indépendants et peuvent être attribués simultanément.
 - Ajout de l'option « Rester connecté sur cet appareil » : un jeton persistant, expirant après 30 jours, évite de se reconnecter lors d'un simple rafraîchissement. Il est invalidé à la déconnexion, lors d'une réinitialisation de mot de passe ou d'un changement de mot de passe.
 - Correction des départements de travail : ils peuvent désormais être attribués à toute personne, y compris lorsqu'elle possède les étiquettes `Admin` et/ou `Responsable`.
+- Extension de la relation hiérarchique : toute personne, y compris un Responsable ou un Admin, peut recevoir un responsable direct. Les contrôles empêchent l'auto-affectation et les boucles hiérarchiques.
 
 ### Vérifications locales
 

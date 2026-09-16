@@ -241,9 +241,26 @@ if selected_username:
     with st.expander("Organisation", expanded=False):
         direct_manager = selected_user.get("manager_id") or "Sans responsable direct"
         st.markdown(f"**Responsable direct :** {direct_manager}")
+        with st.form(f"direct_manager_{selected_username}"):
+            manager_choices: list[str | None] = [None, *manager_options(selected_username)]
+            current_manager = selected_user.get("manager_id")
+            manager_index = manager_choices.index(current_manager) if current_manager in manager_choices else 0
+            edited_manager = st.selectbox(
+                "Modifier le responsable direct",
+                manager_choices,
+                index=manager_index,
+                format_func=lambda manager: manager or "Aucun responsable direct",
+            )
+            if st.form_submit_button("Enregistrer le responsable", type="primary"):
+                manager_payload = organization_payload(selected_user)
+                manager_payload["manager_id"] = edited_manager
+                save_organization(
+                    selected_username,
+                    manager_payload,
+                )
         direct_reports = [user for user in users if user.get("manager_id") == selected_username]
         if direct_reports:
-            st.markdown("**Employés sous responsabilité :**")
+            st.markdown("**Personnes sous responsabilité :**")
             st.dataframe(
                 [
                     {
