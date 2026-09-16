@@ -6,7 +6,6 @@ import requests
 import streamlit as st
 
 from api_client import api_url, authenticated_headers
-from organization_chart import build_organization_png
 
 
 API_URL = api_url()
@@ -50,14 +49,51 @@ group_names = {int(group["id"]): str(group["name"]) for group in groups}
 active_group_ids = [int(group["id"]) for group in groups if group.get("is_active")]
 active_group_id_set = set(active_group_ids)
 
+
+def organization_rows(members: list[dict]) -> list[dict[str, str]]:
+    return [
+        {
+            "Personne": member["username"],
+            "Étiquettes": ", ".join(member.get("role_tags", [member["role"]])),
+            "Responsable direct": member.get("manager_id") or "—",
+            "Type": member.get("employee_type") if "Employe" in member.get("role_tags", [member["role"]]) else "—",
+        }
+        for member in members
+    ]
+
+
 with st.expander("Structure des équipes", expanded=True):
-    with st.container(border=True):
-        st.caption("La hiérarchie suit le Responsable direct. Les Groupes sont affichés dans les fiches des Employés.")
-        if users:
-            chart_height = min(900, max(420, 150 + len(users) * 85))
-            st.image(build_organization_png(users, group_names), width="stretch")
-        else:
-            st.info("La structure apparaîtra après la création du premier compte.")
+    st.caption("Affichage par département et responsable direct. Les Groupes existants servent de départements.")
+    general_groups = [group for group in groups if str(group["name"]).casefold() in {"direction générale", "direction generale"}]
+    general_ids = {int(group["id"]) for group in general_groups}
+    st.subheader("Direction générale")
+    general_members = [
+        user for user in users
+        if general_ids & {int(group_id) for group_id in (user.get("group_ids") or [])}
+    ]
+    if general_members:
+        st.dataframe(organization_rows(general_members), width="stretch", hide_index=True)
+    else:
+        st.info("Créez le Groupe « Direction générale » puis attribuez-y ses membres pour les afficher ici.")
+
+    st.subheader("Départements")
+    department_groups = [group for group in groups if int(group["id"]) not in general_ids]
+    for group in department_groups:
+        group_id = int(group["id"])
+        members = [
+            user for user in users
+            if group_id in {int(member_group_id) for member_group_id in (user.get("group_ids") or [])}
+        ]
+        with st.expander(f"{group['name']} · {len(members)} personne(s)", expanded=False):
+            if members:
+                st.dataframe(organization_rows(members), width="stretch", hide_index=True)
+            else:
+                st.caption("Aucune personne n'est encore attribuée à ce département.")
+
+    unassigned_members = [user for user in users if not user.get("group_ids")]
+    if unassigned_members:
+        with st.expander(f"Sans département · {len(unassigned_members)} personne(s)", expanded=False):
+            st.dataframe(organization_rows(unassigned_members), width="stretch", hide_index=True)
 
 with st.expander("Groupes", expanded=False):
     with st.form("create_group_form", clear_on_submit=True):
