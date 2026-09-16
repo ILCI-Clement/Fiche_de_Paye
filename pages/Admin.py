@@ -49,12 +49,14 @@ def user_tags(user: dict) -> set[str]:
 def organization_function(user: dict) -> str:
     tags = user_tags(user)
     if "Responsable" in tags:
-        return "Responsable"
-    if "Employe" in tags:
-        return f"Employé · {user.get('employee_type') or 'salarie'}"
-    if "Admin" in tags:
-        return "Administrateur"
-    return "—"
+        function = "Responsable"
+    elif "Employe" in tags:
+        function = f"Employé · {user.get('employee_type') or 'salarie'}"
+    elif "Admin" in tags:
+        function = "Administrateur"
+    else:
+        function = "—"
+    return f"{function} · Admin" if "Admin" in tags and function != "Administrateur" else function
 
 
 st.title("Administration")
