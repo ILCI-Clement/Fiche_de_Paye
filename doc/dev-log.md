@@ -8,6 +8,7 @@
 - La configuration des fiches reste conservée dans `Presence`; aucune migration ne supprime les comptes ou les fiches existantes.
 - Suppression des artefacts Python et traduction de la documentation fonctionnelle en français.
 - Ajustement du modèle : l'appartenance à un Groupe devient facultative pour un Employé; un Admin peut être choisi comme responsable direct.
+- Ajout d'une structure hiérarchique Graphviz dans Administration; les Groupes sont conservés comme informations de nœud afin de garder un arbre lisible.
 
 ### Vérifications locales
 

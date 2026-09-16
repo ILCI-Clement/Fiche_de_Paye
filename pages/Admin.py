@@ -6,6 +6,7 @@ import requests
 import streamlit as st
 
 from api_client import api_url, authenticated_headers
+from organization_chart import build_organization_chart
 
 
 API_URL = api_url()
@@ -47,6 +48,15 @@ groups = fetch_groups()
 users = fetch_users()
 group_names = {int(group["id"]): str(group["name"]) for group in groups}
 active_group_ids = [int(group["id"]) for group in groups if group.get("is_active")]
+
+st.subheader("Structure des équipes")
+with st.container(border=True):
+    st.caption("La hiérarchie suit le Responsable direct. Les Groupes sont affichés dans les fiches des Employés.")
+    if users:
+        chart_height = min(900, max(420, 150 + len(users) * 85))
+        st.graphviz_chart(build_organization_chart(users, group_names), width="stretch", height=chart_height)
+    else:
+        st.info("La structure apparaîtra après la création du premier compte.")
 
 st.subheader("Groupes")
 with st.form("create_group_form", clear_on_submit=True):

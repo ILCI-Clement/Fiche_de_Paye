@@ -11,6 +11,7 @@ Cette application Streamlit permet de préparer des fiches mensuelles de présen
 - `pages/Fiches.py` : création des fiches, calendrier, sauvegarde et exports.
 - `pages/Profile.py` : modification du profil connecté.
 - `pages/Admin.py` : administration des comptes et des groupes.
+- `organization_chart.py` : génération de la structure hiérarchique affichée aux administrateurs.
 - `pages/People.py` : vue opérationnelle du personnel accessible aux responsables autorisés.
 - `backend/main.py` : API FastAPI versionnée qui applique l'authentification et les autorisations.
 - `ExcelGen.py` et `DocxGen.py` : génération des exports Excel et Word.
@@ -35,6 +36,8 @@ L'API délivre à la connexion un jeton de session signé et limité dans le tem
 | `Employe` | Son profil et sa propre consultation; il ne peut ni gérer des personnes ni enregistrer une fiche pour autrui. |
 
 Les groupes sont créés et activés par un administrateur. Un employé peut appartenir à plusieurs groupes, sans que cela soit obligatoire; son responsable direct peut être un `Responsable` ou un `Admin`. Un responsable peut gérer plusieurs groupes. Ces relations et le type `salarie` ou `stagiaire` sont enregistrés dans MariaDB.
+
+La page Administration affiche une structure en arbre : `Organisation` au sommet, suivie des responsables directs et de leurs employés. Les Groupes sont affichés dans les nœuds des employés, sans devenir des parents supplémentaires dans l'arbre.
 
 ## Stockage et déploiement
 
