@@ -217,6 +217,7 @@ if selected_username:
 
     with st.expander("Départements", expanded=False):
         with st.form(f"departments_{selected_username}"):
+            st.caption("Les départements de travail et les départements gérés sont indépendants et peuvent être attribués simultanément.")
             edited_group_ids = st.multiselect(
                 "Départements de travail", active_group_ids,
                 default=active_memberships(selected_user, "member"),

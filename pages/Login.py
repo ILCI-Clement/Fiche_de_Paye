@@ -44,11 +44,16 @@ if reset_token:
 
 username = st.text_input("Nom d'utilisateur", width=400)
 password = st.text_input("Mot de passe", type="password", width=400)
+remember_me = st.checkbox("Rester connecté sur cet appareil", value=True)
 
 if st.button("Se connecter"):
     try:
         # Request account authentication from the Presence API.
-        res = requests.post(f"{API_URL}/login", json={"username": username, "password": password}, timeout=10)
+        res = requests.post(
+            f"{API_URL}/login",
+            json={"username": username, "password": password, "remember_me": remember_me},
+            timeout=10,
+        )
         if res.status_code == 200:
             data = res.json()
             role = normalize_role(data)
@@ -66,8 +71,11 @@ if st.button("Se connecter"):
                 "managed_group_ids": data.get("managed_group_ids", data.get("groups", [])),
                 "group_ids": data.get("group_ids", []),
                 "auth_token": data.get("auth_token"),
+                "remember_token": data.get("remember_token"),
                 "data": {},
             }
+            if not remember_me:
+                st.session_state["clear_remembered_login"] = True
 
             st.success("Connexion réussie")
             st.rerun()

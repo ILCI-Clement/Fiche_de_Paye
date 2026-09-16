@@ -14,6 +14,8 @@
 - Clarification de la structure : un Responsable apparaît dans le département qu'il gère, même s'il n'en est pas membre; la fonction est affichée séparément des étiquettes et la Direction générale est reconnue avec ou sans le préfixe `Groupe`.
 - Refonte de la structure en vue hiérarchique par responsable direct : cartes natives imbriquées, étiquettes colorées de département et affectation d'un Employé existant directement depuis la carte de son responsable.
 - Refonte de l'administration autour de la fiche utilisateur : tableau de sélection des comptes, sections repliables pour les informations, les étiquettes, les départements et la relation hiérarchique, avec création compacte des comptes et départements.
+- Clarification des départements : les départements de travail et les départements gérés sont indépendants et peuvent être attribués simultanément.
+- Ajout de l'option « Rester connecté sur cet appareil » : un jeton persistant, expirant après 30 jours, évite de se reconnecter lors d'un simple rafraîchissement. Il est invalidé à la déconnexion, lors d'une réinitialisation de mot de passe ou d'un changement de mot de passe.
 
 ### Vérifications locales
 

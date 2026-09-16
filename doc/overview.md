@@ -8,6 +8,7 @@ Cette application Streamlit permet de préparer des fiches mensuelles de présen
 
 - `online_test.py` : point d'entrée et navigation selon le rôle.
 - `pages/Login.py` : connexion, demande et confirmation de réinitialisation du mot de passe.
+- `remember_me.py` : synchronisation contrôlée du jeton de connexion persistant dans le navigateur.
 - `pages/Fiches.py` : création des fiches, calendrier, sauvegarde et exports.
 - `pages/Profile.py` : modification du profil connecté.
 - `pages/Admin.py` : administration centrée sur la fiche utilisateur, avec sélection des comptes, sections repliables, départements, étiquettes et affectation hiérarchique directe.
@@ -26,7 +27,7 @@ Les fiches peuvent être conservées dans une file, archivées volontairement, r
 
 ## Utilisateurs et accès
 
-L'API délivre à la connexion un jeton de session signé et limité dans le temps. Les appels sensibles utilisent ce jeton; le contrôle d'accès est appliqué par l'API, pas uniquement par le menu Streamlit.
+L'API délivre à la connexion un jeton de session signé et limité dans le temps. L'option « Rester connecté sur cet appareil » ajoute un jeton persistant opaque, stocké dans un cookie `Secure` (en HTTPS) et `SameSite=Strict`, qui expire après 30 jours. Il ne contient pas le mot de passe et est invalidé à la déconnexion ou lors d'un changement de mot de passe. Les appels sensibles utilisent le jeton de session; le contrôle d'accès est appliqué par l'API, pas uniquement par le menu Streamlit.
 
 | Rôle | Accès |
 | --- | --- |

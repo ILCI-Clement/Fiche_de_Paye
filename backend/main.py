@@ -30,6 +30,7 @@ VALID_ROLES = {"Admin", "Responsable", "Employe"}
 ROLE_PRIORITY = ("Admin", "Responsable", "Employe")
 VALID_EMPLOYEE_TYPES = {"salarie", "stagiaire"}
 SESSION_DURATION_SECONDS = 8 * 60 * 60
+REMEMBER_SESSION_DURATION_DAYS = 30
 PASSWORD_RESET_DURATION_MINUTES = 15
 
 
@@ -73,6 +74,10 @@ class DirectManagerRequest(BaseModel):
     manager_id: str
 
 
+class RememberSessionRequest(BaseModel):
+    remember_token: str
+
+
 def get_db_connection() -> pymysql.Connection:
     return pymysql.connect(**DB_CONFIG)
 
@@ -86,6 +91,20 @@ def normalize_role(user: dict[str, Any]) -> str:
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def hash_remember_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_remember_token(cursor: pymysql.cursors.Cursor, username: str) -> str:
+    token = secrets.token_urlsafe(48)
+    expires_at = datetime.now() + timedelta(days=REMEMBER_SESSION_DURATION_DAYS)
+    cursor.execute(
+        "UPDATE users SET remember_token_hash = %s, remember_token_expires = %s WHERE username = %s",
+        (hash_remember_token(token), expires_at, username),
+    )
+    return token
 
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -140,6 +159,10 @@ def ensure_organization_schema() -> None:
                 cursor.execute("ALTER TABLE users ADD COLUMN manager_username VARCHAR(50) NULL")
             if "role_tags" not in columns:
                 cursor.execute("ALTER TABLE users ADD COLUMN role_tags TEXT NULL")
+            if "remember_token_hash" not in columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN remember_token_hash CHAR(64) NULL")
+            if "remember_token_expires" not in columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN remember_token_expires DATETIME NULL")
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS organization_groups (
@@ -359,9 +382,50 @@ def login(payload: dict[str, Any]) -> dict[str, Any]:
         response = public_user(user)
         response["status"] = "success"
         response["auth_token"] = create_session_token(username)
+        if bool(payload.get("remember_me")):
+            with connection.cursor() as cursor:
+                response["remember_token"] = create_remember_token(cursor, username)
+            connection.commit()
         return response
     finally:
         connection.close()
+
+
+@app.post("/restore-session")
+def restore_session(payload: RememberSessionRequest) -> dict[str, Any]:
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT username FROM users WHERE remember_token_hash = %s AND remember_token_expires > %s",
+                (hash_remember_token(payload.remember_token), datetime.now()),
+            )
+            row = cursor.fetchone()
+            user = load_user(cursor, row["username"]) if row else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Session persistante expirée.")
+        response = public_user(user)
+        response["status"] = "success"
+        response["auth_token"] = create_session_token(user["username"])
+        return response
+    finally:
+        connection.close()
+
+
+@app.post("/forget-session")
+def forget_session(payload: RememberSessionRequest) -> dict[str, str]:
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE users SET remember_token_hash = NULL, remember_token_expires = NULL "
+                "WHERE remember_token_hash = %s",
+                (hash_remember_token(payload.remember_token),),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    return {"status": "success"}
 
 
 @app.get("/groups")
@@ -638,6 +702,11 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                 params.append(hash_password(payload.new_password))
             if updates:
                 cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE username = %s", (*params, username))
+                if payload.new_password:
+                    cursor.execute(
+                        "UPDATE users SET remember_token_hash = NULL, remember_token_expires = NULL WHERE username = %s",
+                        (target_username,),
+                    )
                 if target_username != username:
                     cursor.execute("UPDATE Presence SET user_id = %s WHERE user_id = %s", (target_username, username))
                     cursor.execute("UPDATE user_group_memberships SET username = %s WHERE username = %s", (target_username, username))
@@ -694,7 +763,8 @@ def reset_password(payload: dict[str, Any]) -> dict[str, str]:
             if not user:
                 raise HTTPException(status_code=400, detail="Token invalide ou expiré.")
             cursor.execute(
-                "UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expires = NULL WHERE username = %s",
+                "UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expires = NULL, "
+                "remember_token_hash = NULL, remember_token_expires = NULL WHERE username = %s",
                 (hash_password(new_password), user["username"]),
             )
         connection.commit()
