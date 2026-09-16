@@ -19,6 +19,7 @@
 - Correction des départements de travail : ils peuvent désormais être attribués à toute personne, y compris lorsqu'elle possède les étiquettes `Admin` et/ou `Responsable`.
 - Extension de la relation hiérarchique : toute personne, y compris un Responsable ou un Admin, peut recevoir un responsable direct. Les contrôles empêchent l'auto-affectation et les boucles hiérarchiques.
 - Visibilité des droits : l'étiquette `Admin` reste affichée dans les tableaux, même lorsqu'une personne occupe aussi une fonction de Responsable ou d'Employé.
+- Ajout de l'envoi individuel d'une fiche générée par e-mail : l'adresse du salarié ou du stagiaire est enregistrée dans les données de la fiche et réutilisée lors des envois suivants. L'envoi est réservé aux Admins et Responsables et les pièces jointes sont validées côté API.
 
 ### Vérifications locales
 

@@ -7,6 +7,7 @@ MariaDB schema migration for groups and enforces access server-side.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -15,6 +16,7 @@ import secrets
 import smtplib
 import time
 from datetime import datetime, timedelta
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
@@ -32,6 +34,7 @@ VALID_EMPLOYEE_TYPES = {"salarie", "stagiaire"}
 SESSION_DURATION_SECONDS = 8 * 60 * 60
 REMEMBER_SESSION_DURATION_DAYS = 30
 PASSWORD_RESET_DURATION_MINUTES = 15
+MAX_FICHE_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
 def required_env(name: str) -> str:
@@ -76,6 +79,15 @@ class DirectManagerRequest(BaseModel):
 
 class RememberSessionRequest(BaseModel):
     remember_token: str
+
+
+class SendFicheRequest(BaseModel):
+    recipient_email: EmailStr
+    employee_name: str
+    month: int
+    year: int
+    filename: str
+    file_b64: str
 
 
 def get_db_connection() -> pymysql.Connection:
@@ -367,6 +379,65 @@ def send_password_reset_email(email: str, token: str) -> bool:
         return True
     except smtplib.SMTPException:
         return False
+
+
+@app.post("/send-fiche")
+def send_fiche(
+    payload: SendFicheRequest,
+    _: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
+) -> dict[str, str]:
+    """Send a generated attendance sheet to the selected employee."""
+    try:
+        if not payload.filename or payload.filename != payload.filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]:
+            raise HTTPException(status_code=400, detail="Le nom du fichier joint est invalide.")
+        file_bytes = base64.b64decode(payload.file_b64, validate=True)
+        if not file_bytes or len(file_bytes) > MAX_FICHE_ATTACHMENT_BYTES:
+            raise HTTPException(status_code=400, detail="Le fichier joint est vide ou dépasse 10 Mo.")
+
+        message = MIMEMultipart()
+        message["From"] = SMTP_USER
+        message["To"] = payload.recipient_email
+        message["Subject"] = (
+            f"Fiche de présence - {payload.employee_name} "
+            f"({payload.month:02d}/{payload.year})"
+        )
+
+        body_text = f"""Bonjour {payload.employee_name},
+
+Veuillez trouver ci-joint votre fiche de présence pour le mois {payload.month:02d}/{payload.year}.
+
+Cordialement,
+L'équipe RH / Administration"""
+
+        message.attach(MIMEText(body_text, "plain"))
+
+        attachment = MIMEApplication(file_bytes, Name=payload.filename)
+        attachment.add_header(
+            "Content-Disposition",
+            "attachment",
+            filename=payload.filename,
+        )
+        message.attach(attachment)
+
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, payload.recipient_email, message.as_string())
+
+        return {
+            "status": "success",
+            "message": f"Fiche envoyée avec succès à {payload.recipient_email}.",
+        }
+    except HTTPException:
+        raise
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Le fichier joint est invalide.") from None
+    except smtplib.SMTPException:
+        raise HTTPException(
+            status_code=502,
+            detail="Le serveur de messagerie n'a pas pu envoyer la fiche.",
+        ) from None
+    except Exception:
+        raise HTTPException(status_code=500, detail="L'envoi de la fiche a échoué.") from None
 
 
 @app.post("/login")

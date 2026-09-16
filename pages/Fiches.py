@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import date, datetime
 import requests
 import time
+import base64
 from DocxGen import generer_docx_stagiaire
 from ExcelGen import remplir_fiche_paie
 from calendar_view import render_monthly_calendar
@@ -89,7 +90,7 @@ if st.button("Ajouter un employé / stagiaire", width="stretch"):
     user_store["employes_data"].append({
         "id": int(time.time() * 1000),
         "type": "Salarié",
-        "nom": "", "responsable": "", "email_responsable": "", "ddc": None, "fdc": None, "cdi": False,
+        "nom": "", "email_employe": "", "responsable": "", "email_responsable": "", "ddc": None, "fdc": None, "cdi": False,
         "vacances": [], "absences": [], "arret": [],
         "calendar_overrides": {},
         "planning_detail": {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": j not in ("Samedi", "Dimanche")} for j in ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]}
@@ -119,8 +120,8 @@ if user_store["employes_data"]:
 
             emp_id = emp["id"]
 
-            # --- BOUTON DE SUPPRESSION DE CE TAB PRÉCIS ---
-            c_space, c_gen, c_del = st.columns([4, 1, 1])
+            # --- BOUTON DE SUPPRESSION ET D'ENVOI DANS LE TAB ---
+            c_space, c_gen, c_send, c_del = st.columns([3, 1, 1, 1])
             with c_space:
                 st.subheader(f"Fiche de {emp['nom']}" if emp["nom"] else f"Fiche d'employé")
             with c_del:
@@ -176,6 +177,66 @@ if user_store["employes_data"]:
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 key=f"dl_solo_docx_{emp_id}"
                             )
+            with c_send:
+                if st.button("Envoyer à l'employé", key=f"send_solo_btn_{emp_id}", help="Envoie la fiche directement à l'employé par e-mail"):
+                    target_email = emp.get("email_employe", "").strip()
+                    if not target_email:
+                        st.error("Veuillez renseigner l'adresse e-mail de l'employé dans le formulaire.")
+                    else:
+                        erreur_type_solo = None
+                        nom_employe_text = emp.get("nom") or emp.get("nom_stagiaire") or f"Employé {h+1}"
+                        nom_propre = nom_employe_text.replace(" ", "_")
+
+                        file_bytes = None
+                        filename = ""
+
+                        if emp.get("type") == "Salarié":
+                            if not emp.get("fdc"): erreur_type_solo = "du fin de contrat"
+                            if not emp.get("ddc"): erreur_type_solo = "du début de contrat"
+                            if emp.get("responsable") == "": erreur_type_solo = "du responsable"
+                            if emp.get("nom") == "": erreur_type_solo = "du nom"
+
+                            if not erreur_type_solo:
+                                excel_buf = remplir_fiche_paie(user_store["mois"], user_store["annee"], emp)
+                                file_bytes = excel_buf.getvalue()
+                                filename = f"fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx"
+                        else:
+                            if not emp.get("fds"): erreur_type_solo = "de la fin de stage"
+                            if not emp.get("dds"): erreur_type_solo = "du début de stage"
+                            if emp.get("nom_stagiaire") == "": erreur_type_solo = "du nom"
+
+                            if not erreur_type_solo:
+                                docx_buf = generer_docx_stagiaire(emp, user_store['mois'], user_store['annee'])
+                                file_bytes = docx_buf.getvalue()
+                                filename = f"Fiche_Stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx"
+
+                        if erreur_type_solo:
+                            st.error(f"Impossible d'envoyer : il manque l'information {erreur_type_solo} !")
+                        elif file_bytes:
+                            # Encode the generated file before sending it to the API.
+                            file_b64 = base64.b64encode(file_bytes).decode("utf-8")
+                            payload = {
+                                "recipient_email": target_email,
+                                "employee_name": nom_employe_text,
+                                "month": int(user_store["mois"]),
+                                "year": int(user_store["annee"]),
+                                "filename": filename,
+                                "file_b64": file_b64
+                            }
+                            try:
+                                resp = requests.post(
+                                    f"{API_URL}/send-fiche",
+                                    headers=headers,
+                                    json=payload,
+                                    timeout=30,
+                                )
+                                if resp.status_code == 200:
+                                    st.success(f"Fiche envoyée avec succès à {target_email} !")
+                                else:
+                                    detail = resp.json().get("detail", resp.text)
+                                    st.error(f"Erreur lors de l'envoi : {detail}")
+                            except Exception as ex:
+                                st.error(f"Erreur de communication avec le serveur : {ex}")
 
             # Sélection du type de contrat
             type_contrat = st.radio(
@@ -203,6 +264,7 @@ if user_store["employes_data"]:
             if type_contrat == "Salarié":
                 st.subheader("Informations Employé")
                 emp["nom"] = st.text_input("NOM Prénom (Employé)", key=f"{username}_employe_nom_{emp_id}", value=emp["nom"])
+                emp["email_employe"] = st.text_input("E-mail de l'employé", placeholder="employe@univ-ilci.fr", key=f"{username}_emp_mail_{emp_id}", value=emp.get("email_employe", ""), help="L'adresse e-mail à laquelle la fiche de présence sera envoyée.")
                 emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{emp_id}", value=emp["responsable"])
                 emp["email_responsable"] = st.text_input("Email du responsable", placeholder="responsable@univ-ilci.fr", key=f"{username}_resp_mail_{emp_id}", value=emp.get("email_responsable", ""), help="Un mail sera envoyé au responsable un mois avant la fin du contrat de l'employé.")
                 c1, c2 = st.columns(2)
@@ -217,16 +279,11 @@ if user_store["employes_data"]:
                         st.write("Fin de contrat : N/A")
                 
                 # SECTION PLANNINGS ET CONGES
-                # Note : Le code utilise des boucles 'while' pour synchroniser le nombre de jours saisis avec le contenu du dictionnaire 'user_store'.
-
-                # Section Planning pour les temps partiels
                 with st.expander("Temps partiel / Planning hebdomadaire"):
                     st.write("Indiquez les horaires pour chaque jour (décochez si non travaillé) :")
                     
-                    # On définit les jours de la semaine
                     jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
                     
-                    # On initialise la structure si besoin
                     if "planning_detail" not in emp:
                         emp["planning_detail"] = {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": j not in ("Samedi", "Dimanche")} for j in jours}
 
@@ -350,6 +407,7 @@ if user_store["employes_data"]:
                 c1, c2 = st.columns(2)
                 with c1:
                     emp["nom_stagiaire"] = st.text_input("Nom du stagiaire", key=f"st_nom_{emp_id}", value=emp.get("nom_stagiaire", ""))
+                    emp["email_employe"] = st.text_input("E-mail du stagiaire", placeholder="stagiaire@univ-ilci.fr", key=f"{username}_emp_mail_{emp_id}", value=emp.get("email_employe", ""), help="L'adresse e-mail à laquelle la fiche de présence sera envoyée.")
                     emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{emp_id}", value=emp["responsable"])
                     emp["dds"] = st.date_input("Début de stage", key=f"dds_{emp_id}", value=emp.get("dds"), format="DD/MM/YYYY")
                     emp["nb_jours"] = st.number_input("Nombre de jours", key=f"st_nj_{emp_id}", value=emp.get("nb_jours", 0))
@@ -377,7 +435,7 @@ if st.button("Sauvegarder", width="stretch"):
         )
         
         if response.status_code == 200:
-            st.success("Données synchronisées avec succès !")
+            st.success("Données synchronisées avec succès ! L'e-mail de l'employé est mémorisé pour les prochains envois.")
         else:
             st.error(f"Erreur lors de la sauvegarde: {response.status_code}")
     except Exception as e:
