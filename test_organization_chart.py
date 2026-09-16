@@ -14,7 +14,8 @@ class OrganizationChartTests(unittest.TestCase):
         )
         self.assertIn('root -> person_0;', dot)
         self.assertIn('person_0 -> person_1;', dot)
-        self.assertIn('Groupes : Paris', dot)
+        self.assertIn('Département : Paris', dot)
+        self.assertIn('splines="ortho"', dot)
 
     def test_escapes_user_provided_text(self):
         dot = build_organization_chart([{"username": 'A " user', "role": "Admin"}], {})

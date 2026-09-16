@@ -23,7 +23,7 @@ def build_organization_chart(users: list[Mapping[str, object]], group_names: Map
     lines = [
         "digraph organization {",
         "rankdir=TB;",
-        'graph [pad="0.3", nodesep="0.35", ranksep="0.6", bgcolor="transparent"];',
+        'graph [pad="0.3", nodesep="0.35", ranksep="0.6", bgcolor="transparent", splines="ortho"];',
         'node [shape=box, style="rounded,filled", fontname="sans-serif", fontcolor="white", color="#64748B", margin="0.18,0.12"];',
         'edge [color="#94A3B8", penwidth="1.4"];',
         'root [label="Organisation", fillcolor="#334155", color="#94A3B8"];',
@@ -34,12 +34,14 @@ def build_organization_chart(users: list[Mapping[str, object]], group_names: Map
         tags = [str(tag) for tag in user.get("role_tags", [user.get("role") or "Employe"])]
         role = next((candidate for candidate in ("Admin", "Responsable", "Employe") if candidate in tags), "Employe")
         group_labels = [group_names.get(int(group_id), str(group_id)) for group_id in user.get("group_ids", [])]
-        detail_lines = [" · ".join(tags)]
-        if "Employe" in tags:
-            detail_lines = [f"{' · '.join(tags)} · {user.get('employee_type') or 'salarie'}"]
+        detail_lines = []
         if group_labels:
-            detail_lines.append(f"Groupes : {', '.join(group_labels)}")
-        label = "\\n".join([_escape(username), *(_escape(line) for line in detail_lines)])
+            detail_lines.append(f"Département : {', '.join(group_labels)}")
+        detail_lines.append(username)
+        detail_lines.append(" · ".join(tags))
+        if "Employe" in tags:
+            detail_lines[-1] = f"{' · '.join(tags)} · {user.get('employee_type') or 'salarie'}"
+        label = "\\n".join(_escape(line) for line in detail_lines)
         lines.append(
             f'{node_ids[username]} [label="{label}", fillcolor="{ROLE_COLORS.get(role, "#475569")}"];'
         )

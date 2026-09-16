@@ -48,6 +48,7 @@ groups = fetch_groups()
 users = fetch_users()
 group_names = {int(group["id"]): str(group["name"]) for group in groups}
 active_group_ids = [int(group["id"]) for group in groups if group.get("is_active")]
+active_group_id_set = set(active_group_ids)
 
 with st.expander("Structure des équipes", expanded=True):
     with st.container(border=True):
@@ -164,8 +165,8 @@ if users:
     )
     with st.form("update_user_organization_form"):
         updated_employee_type = selected_user.get("employee_type") or "salarie"
-        updated_group_ids = selected_user.get("group_ids", [])
-        updated_managed_group_ids = selected_user.get("managed_group_ids", [])
+        updated_group_ids = [group_id for group_id in selected_user.get("group_ids", []) if group_id in active_group_id_set]
+        updated_managed_group_ids = [group_id for group_id in selected_user.get("managed_group_ids", []) if group_id in active_group_id_set]
         updated_manager_id = selected_user.get("manager_id")
         if "Employe" in updated_role_tags:
             updated_employee_type = st.selectbox(
