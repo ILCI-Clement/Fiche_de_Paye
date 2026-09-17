@@ -131,123 +131,109 @@ if user_store["employes_data"]:
 
             emp_id = emp["id"]
 
-            # --- BOUTON DE SUPPRESSION ET D'ENVOI DANS LE TAB ---
-            c_space, c_gen, c_send, c_del = st.columns([3, 1, 1, 1])
+            generated_file_key = f"generated_fiche_{emp_id}"
+
+            c_space, c_gen, c_del = st.columns([4, 1, 1])
             with c_space:
                 st.subheader(f"Fiche de {emp['nom']}" if emp["nom"] else f"Fiche d'employé")
             with c_del:
-                # Un bouton rouge aligné à droite pour supprimer l'employé courant
                 if st.button("Supprimer cette fiche", key=f"del_btn_{emp_id}", type="secondary", help="Supprime définitivement cet employé de la liste"):
-                    user_store["employes_data"].pop(h) # Supprime précisément l'index h
+                    user_store["employes_data"].pop(h)
+                    st.session_state.pop(generated_file_key, None)
                     st.success("Fiche supprimée ! Sauvegardez pour appliquer les changements sur le serveur.")
-                    st.rerun() # Recharge l'interface sans l'onglet supprimé
+                    st.rerun()
             with c_gen:
                 if st.button("Générer cette fiche", key=f"gen_solo_btn_{emp_id}", type="primary", help="Charge uniquement la fiche de cet employé"):
                     erreur_type_solo = None
-                    nom_propre = emp.get("nom", f"Fiche_{h+1}").replace(" ", "_")
-                    
+                    nom_employe_text = emp.get("nom") or emp.get("nom_stagiaire") or f"Employé {h + 1}"
+                    nom_propre = nom_employe_text.replace(" ", "_")
+
                     if emp.get("type") == "Salarié":
-                        # Validation Salarié
                         if not emp.get("fdc"): erreur_type_solo = "du fin de contrat"
                         if not emp.get("ddc"): erreur_type_solo = "du début de contrat"
                         if emp.get("responsable") == "": erreur_type_solo = "du responsable"
                         if emp.get("nom") == "": erreur_type_solo = "du nom"
-                        
+
                         if erreur_type_solo:
                             st.error(f"Impossible de générer : il manque l'information {erreur_type_solo} !")
                         else:
-                            # Génération de l'Excel unique
                             excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"], emp)
-                            
-                            # On propose le téléchargement immédiat de cet Excel
-                            st.download_button(
-                                label="Télécharger l'Excel",
-                                data=excel_buffer,
-                                file_name=f"fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key=f"dl_solo_excel_{emp_id}"
-                            )
-                            
+                            st.session_state[generated_file_key] = {
+                                "data": excel_buffer.getvalue(),
+                                "filename": f"fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
+                                "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                "download_label": "Télécharger l'Excel",
+                                "employee_name": nom_employe_text,
+                            }
+                            st.rerun()
                     else:
-                        # Validation Stagiaire
                         if not emp.get("fds"): erreur_type_solo = "de la fin de stage"
                         if not emp.get("dds"): erreur_type_solo = "du début de stage"
                         if emp.get("nom_stagiaire") == "": erreur_type_solo = "du nom"
-                        
+
                         if erreur_type_solo:
                             st.error(f"Impossible de générer : il manque l'information {erreur_type_solo} !")
                         else:
-                            # Génération du Word unique
                             docx_buffer = generer_docx_stagiaire(emp, user_store['mois'], user_store['annee'])
-                            
-                            # On propose le téléchargement immédiat de ce Word
-                            st.download_button(
-                                label="Télécharger le Word",
-                                data=docx_buffer,
-                                file_name=f"Fiche_Stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx",
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                key=f"dl_solo_docx_{emp_id}"
-                            )
-            with c_send:
-                if st.button("Envoyer à l'employé", key=f"send_solo_btn_{emp_id}", help="Envoie la fiche directement à l'employé par e-mail"):
-                    target_email = emp.get("email_employe", "").strip()
-                    if not target_email:
-                        st.error("Veuillez renseigner l'adresse e-mail de l'employé dans le formulaire.")
-                    else:
-                        erreur_type_solo = None
-                        nom_employe_text = emp.get("nom") or emp.get("nom_stagiaire") or f"Employé {h+1}"
-                        nom_propre = nom_employe_text.replace(" ", "_")
+                            st.session_state[generated_file_key] = {
+                                "data": docx_buffer.getvalue(),
+                                "filename": f"Fiche_Stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx",
+                                "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                "download_label": "Télécharger le Word",
+                                "employee_name": nom_employe_text,
+                            }
+                            st.rerun()
 
-                        file_bytes = None
-                        filename = ""
-
-                        if emp.get("type") == "Salarié":
-                            if not emp.get("fdc"): erreur_type_solo = "du fin de contrat"
-                            if not emp.get("ddc"): erreur_type_solo = "du début de contrat"
-                            if emp.get("responsable") == "": erreur_type_solo = "du responsable"
-                            if emp.get("nom") == "": erreur_type_solo = "du nom"
-
-                            if not erreur_type_solo:
-                                excel_buf = remplir_fiche_paie(user_store["mois"], user_store["annee"], emp)
-                                file_bytes = excel_buf.getvalue()
-                                filename = f"fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx"
+            generated_file = st.session_state.get(generated_file_key)
+            c_download, c_send, _ = st.columns([1, 1, 4])
+            if generated_file:
+                st.caption("Fichier généré. Générez à nouveau la fiche après toute modification avant de l'envoyer.")
+                with c_download:
+                    st.download_button(
+                        label=generated_file["download_label"],
+                        data=generated_file["data"],
+                        file_name=generated_file["filename"],
+                        mime=generated_file["mime"],
+                        key=f"dl_solo_{emp_id}",
+                    )
+                with c_send:
+                    if st.button("Envoyer à l'employé", key=f"send_solo_btn_{emp_id}", type="primary"):
+                        target_email = emp.get("email_employe", "").strip()
+                        if not target_email:
+                            st.error("Veuillez renseigner l'adresse e-mail de l'employé dans le formulaire.")
                         else:
-                            if not emp.get("fds"): erreur_type_solo = "de la fin de stage"
-                            if not emp.get("dds"): erreur_type_solo = "du début de stage"
-                            if emp.get("nom_stagiaire") == "": erreur_type_solo = "du nom"
-
-                            if not erreur_type_solo:
-                                docx_buf = generer_docx_stagiaire(emp, user_store['mois'], user_store['annee'])
-                                file_bytes = docx_buf.getvalue()
-                                filename = f"Fiche_Stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx"
-
-                        if erreur_type_solo:
-                            st.error(f"Impossible d'envoyer : il manque l'information {erreur_type_solo} !")
-                        elif file_bytes:
-                            # Encode the generated file before sending it to the API.
-                            file_b64 = base64.b64encode(file_bytes).decode("utf-8")
                             payload = {
                                 "recipient_email": target_email,
-                                "employee_name": nom_employe_text,
+                                "employee_name": generated_file["employee_name"],
                                 "month": int(user_store["mois"]),
                                 "year": int(user_store["annee"]),
-                                "filename": filename,
-                                "file_b64": file_b64
+                                "filename": generated_file["filename"],
+                                "file_b64": base64.b64encode(generated_file["data"]).decode("utf-8"),
                             }
                             try:
-                                resp = requests.post(
+                                response = requests.post(
                                     f"{API_URL}/send-fiche",
                                     headers=headers,
                                     json=payload,
                                     timeout=30,
                                 )
-                                if resp.status_code == 200:
+                                if response.status_code == 200:
                                     st.success(f"Fiche envoyée avec succès à {target_email} !")
                                 else:
-                                    detail = resp.json().get("detail", resp.text)
+                                    detail = response.json().get("detail", response.text)
                                     st.error(f"Erreur lors de l'envoi : {detail}")
-                            except Exception as ex:
-                                st.error(f"Erreur de communication avec le serveur : {ex}")
+                            except requests.RequestException as error:
+                                st.error(f"Erreur de communication avec le serveur : {error}")
+            else:
+                with c_download:
+                    st.caption("Générez la fiche pour activer l'envoi.")
+                with c_send:
+                    st.button(
+                        "Envoyer à l'employé",
+                        key=f"send_solo_btn_{emp_id}",
+                        disabled=True,
+                        help="Générez d'abord la fiche à envoyer.",
+                    )
 
             # Sélection du type de contrat
             type_contrat = st.radio(
