@@ -28,11 +28,25 @@ def calculer_heures(ws, ligne_debut, ligne_fin, col_heure_debut, col_heure_fin, 
             ws.cell(row=row, column=col_resultat, value="")
 
 # Pour regrouper plusieurs jours de congés, d'absences ou d'arret maladies qui se suivent
-def regrouper_plages(vacances):
-    if not vacances:
+def regrouper_plages(jours):
+    if not jours:
         return []
 
-    dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in vacances.keys()])
+    # Les anciennes fiches peuvent contenir une ligne de saisie vide. Elle ne
+    # correspond à aucune absence et ne doit pas empêcher la génération.
+    dates = []
+    for valeur in jours:
+        if not isinstance(valeur, str):
+            continue
+        try:
+            dates.append(datetime.strptime(valeur, "%Y-%m-%d").date())
+        except ValueError:
+            continue
+
+    if not dates:
+        return []
+
+    dates.sort()
     plages = []
 
     debut = dates[0]
@@ -249,9 +263,20 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
 
 def convertir_jours(liste):
     dictionnaire_jours = {}
-    for j in liste:
+    for j in liste or []:
+        if not isinstance(j, dict):
+            continue
+
+        valeur_date = j.get("date")
+        if valeur_date is None or valeur_date == "":
+            continue
+
         # Formatage de la date en string YYYY-MM-DD pour correspondre à ton calendrier
-        date_str = j["date"].strftime("%Y-%m-%d") if hasattr(j["date"], "strftime") else str(j["date"])
+        date_str = valeur_date.strftime("%Y-%m-%d") if hasattr(valeur_date, "strftime") else str(valeur_date)
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
         
         dictionnaire_jours[date_str] = {
             "matin": j.get("matin", False),
