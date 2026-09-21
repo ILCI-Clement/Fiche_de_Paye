@@ -498,7 +498,7 @@ def submit_to_clawshow(
     if not api_key:
         raise HTTPException(status_code=503, detail="La signature électronique n'est pas configurée sur le serveur.")
     body = {
-        "namespace": os.getenv("CLAWSHOW_ESIGN_NAMESPACE", "ilci-presence"),
+        "namespace": os.getenv("CLAWSHOW_ESIGN_NAMESPACE", "ilci"),
         "file_url": document_url,
         "signers": [{"name": employee_name, "email": employee_email, "order": 1, "role": "student"}],
         "reference_id": f"presence-{year}-{month:02d}-{secrets.token_hex(8)}",
