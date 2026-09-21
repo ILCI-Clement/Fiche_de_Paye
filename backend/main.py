@@ -572,7 +572,7 @@ def send_fiche_for_signature(
         document_token, pdf_name = store_esign_pdf(pdf_bytes, pdf_filename)
         try:
             result = submit_to_clawshow(
-                document_url=f"{e_sign_public_base_url()}/api/esign/documents/{document_token}",
+                document_url=f"{e_sign_public_base_url()}/esign/documents/{document_token}",
                 employee_name=payload.employee_name.strip(),
                 employee_email=str(payload.recipient_email),
                 month=payload.month,
