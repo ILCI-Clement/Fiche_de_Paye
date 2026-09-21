@@ -34,6 +34,7 @@
 - Validation locale de la confirmation et de la longueur minimale, puis appel de l'API `POST /reset-password` avec gestion explicite des liens invalides ou expirés.
 - Après succès, le token est retiré de l'URL avant le retour à la connexion afin de ne pas pouvoir être réutilisé dans le navigateur.
 - Migration des identifiants de l'API vers un fichier d'environnement protégé sur le VPS, chargé par `presence-app.service`. Les données MariaDB n'ont pas été modifiées.
+- Les fiches peuvent désormais être converties en PDF et envoyées à un salarié ou un stagiaire pour signature via ClawShow eSign. Le PDF n'est exposé que par un lien aléatoire valable 24 heures; la clé ClawShow reste exclusivement dans l'environnement protégé du serveur.
 
 ## 2026-09-11 — Publication du calendrier de présence
 

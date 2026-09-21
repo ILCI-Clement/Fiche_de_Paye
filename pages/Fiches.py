@@ -197,7 +197,7 @@ if user_store["employes_data"]:
                         key=f"dl_solo_{emp_id}",
                     )
                 with c_send:
-                    if st.button("Envoyer à l'employé", key=f"send_solo_btn_{emp_id}", type="primary"):
+                    if st.button("Envoyer pour signature", key=f"send_solo_btn_{emp_id}", type="primary"):
                         target_email = emp.get("email_employe", "").strip()
                         if not target_email:
                             st.error("Veuillez renseigner l'adresse e-mail de l'employé dans le formulaire.")
@@ -218,7 +218,7 @@ if user_store["employes_data"]:
                                     timeout=30,
                                 )
                                 if response.status_code == 200:
-                                    st.success(f"Fiche envoyée avec succès à {target_email} !")
+                                    st.success(f"Demande de signature envoyée à {target_email} !")
                                 else:
                                     detail = response.json().get("detail", response.text)
                                     st.error(f"Erreur lors de l'envoi : {detail}")
@@ -229,10 +229,10 @@ if user_store["employes_data"]:
                     st.caption("Générez la fiche pour activer l'envoi.")
                 with c_send:
                     st.button(
-                        "Envoyer à l'employé",
+                        "Envoyer pour signature",
                         key=f"send_solo_btn_{emp_id}",
                         disabled=True,
-                        help="Générez d'abord la fiche à envoyer.",
+                        help="Générez d'abord la fiche au format PDF à signer.",
                     )
 
             # Sélection du type de contrat

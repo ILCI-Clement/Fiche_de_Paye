@@ -14,16 +14,22 @@ import json
 import os
 import secrets
 import smtplib
+import shutil
+import subprocess
+import tempfile
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 from typing import Any
 
 import bcrypt
 import pymysql
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr
 
 
@@ -35,6 +41,8 @@ SESSION_DURATION_SECONDS = 8 * 60 * 60
 REMEMBER_SESSION_DURATION_DAYS = 30
 PASSWORD_RESET_DURATION_MINUTES = 15
 MAX_FICHE_ATTACHMENT_BYTES = 10 * 1024 * 1024
+ESIGN_DOCUMENT_DURATION_HOURS = 24
+CLAWSHOW_CREATE_URL = "https://esign.clawshow.ai/esign/create"
 
 
 def required_env(name: str) -> str:
@@ -58,6 +66,9 @@ SMTP_PORT = int(required_env("PRESENCE_SMTP_PORT"))
 SMTP_USER = required_env("PRESENCE_SMTP_USER")
 SMTP_PASSWORD = required_env("PRESENCE_SMTP_PASSWORD")
 STREAMLIT_APP_URL = required_env("PRESENCE_APP_URL")
+ESIGN_DOCUMENTS_DIR = Path(
+    os.getenv("PRESENCE_ESIGN_DOCUMENTS_DIR", "/var/lib/presence-app/esign-documents")
+)
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -81,7 +92,7 @@ class RememberSessionRequest(BaseModel):
     remember_token: str
 
 
-class SendFicheRequest(BaseModel):
+class ESignFicheRequest(BaseModel):
     recipient_email: EmailStr
     employee_name: str
     month: int
@@ -381,63 +392,207 @@ def send_password_reset_email(email: str, token: str) -> bool:
         return False
 
 
+def e_sign_public_base_url() -> str:
+    """Return the public HTTPS origin used by ClawShow to retrieve a PDF."""
+    public_url = os.getenv("PRESENCE_ESIGN_PUBLIC_URL", "").rstrip("/")
+    if not public_url.startswith("https://"):
+        raise HTTPException(
+            status_code=503,
+            detail="L'URL publique de signature électronique n'est pas configurée sur le serveur.",
+        )
+    return public_url
+
+
+def clean_expired_esign_documents() -> None:
+    """Remove expired private PDFs and their metadata without touching other paths."""
+    if not ESIGN_DOCUMENTS_DIR.is_dir():
+        return
+    now = time.time()
+    for metadata_path in ESIGN_DOCUMENTS_DIR.glob("*.json"):
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if float(metadata.get("expires_at", 0)) > now:
+                continue
+            pdf_name = str(metadata.get("pdf_name", ""))
+            if pdf_name.endswith(".pdf") and "/" not in pdf_name and "\\" not in pdf_name:
+                (ESIGN_DOCUMENTS_DIR / pdf_name).unlink(missing_ok=True)
+            metadata_path.unlink(missing_ok=True)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            # A malformed metadata file must not stop a signature request.
+            continue
+
+
+def convert_fiche_to_pdf(file_bytes: bytes, filename: str) -> bytes:
+    """Convert a generated Excel or Word attendance sheet with LibreOffice."""
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".xlsx", ".docx"}:
+        raise HTTPException(status_code=400, detail="Seuls les fichiers Excel et Word peuvent être signés.")
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        raise HTTPException(
+            status_code=503,
+            detail="La génération PDF pour la signature n'est pas encore disponible sur le serveur.",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="presence-esign-") as temporary_dir:
+        source_path = Path(temporary_dir) / f"fiche{suffix}"
+        source_path.write_bytes(file_bytes)
+        profile_path = Path(temporary_dir) / "libreoffice-profile"
+        profile_path.mkdir()
+        try:
+            result = subprocess.run(
+                [
+                    soffice,
+                    f"-env:UserInstallation={profile_path.as_uri()}",
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    temporary_dir,
+                    str(source_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise HTTPException(status_code=502, detail="La conversion de la fiche en PDF a échoué.") from error
+        pdf_path = source_path.with_suffix(".pdf")
+        if result.returncode != 0 or not pdf_path.is_file():
+            raise HTTPException(status_code=502, detail="La conversion de la fiche en PDF a échoué.")
+        pdf_bytes = pdf_path.read_bytes()
+        if not pdf_bytes:
+            raise HTTPException(status_code=502, detail="Le PDF généré est vide.")
+        return pdf_bytes
+
+
+def store_esign_pdf(pdf_bytes: bytes, original_filename: str) -> tuple[str, str]:
+    """Store a short-lived PDF behind an unguessable public token."""
+    ESIGN_DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    document_token = secrets.token_urlsafe(32)
+    pdf_name = f"{document_token}.pdf"
+    expires_at = time.time() + ESIGN_DOCUMENT_DURATION_HOURS * 3600
+    (ESIGN_DOCUMENTS_DIR / pdf_name).write_bytes(pdf_bytes)
+    (ESIGN_DOCUMENTS_DIR / f"{document_token}.json").write_text(
+        json.dumps({"pdf_name": pdf_name, "expires_at": expires_at, "filename": original_filename}),
+        encoding="utf-8",
+    )
+    return document_token, pdf_name
+
+
+def delete_esign_pdf(document_token: str, pdf_name: str) -> None:
+    (ESIGN_DOCUMENTS_DIR / pdf_name).unlink(missing_ok=True)
+    (ESIGN_DOCUMENTS_DIR / f"{document_token}.json").unlink(missing_ok=True)
+
+
+def submit_to_clawshow(
+    *,
+    document_url: str,
+    employee_name: str,
+    employee_email: str,
+    month: int,
+    year: int,
+) -> dict[str, Any]:
+    api_key = os.getenv("CLAWSHOW_ESIGN_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="La signature électronique n'est pas configurée sur le serveur.")
+    body = {
+        "namespace": os.getenv("CLAWSHOW_ESIGN_NAMESPACE", "ilci-presence"),
+        "file_url": document_url,
+        "signers": [{"name": employee_name, "email": employee_email, "order": 1, "role": "student"}],
+        "reference_id": f"presence-{year}-{month:02d}-{secrets.token_hex(8)}",
+    }
+    request = urllib.request.Request(
+        CLAWSHOW_CREATE_URL,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        try:
+            provider_message = json.loads(error.read().decode("utf-8")).get("detail")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            provider_message = None
+        raise HTTPException(
+            status_code=502,
+            detail=provider_message or "ClawShow n'a pas accepté la demande de signature.",
+        ) from None
+    except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=502, detail="ClawShow est indisponible pour le moment.") from None
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail="ClawShow n'a pas créé la demande de signature.")
+    return result
+
+
+@app.get("/esign/documents/{document_token}")
+def get_esign_document(document_token: str) -> FileResponse:
+    if not document_token or "/" in document_token or "\\" in document_token:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    clean_expired_esign_documents()
+    metadata_path = ESIGN_DOCUMENTS_DIR / f"{document_token}.json"
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        pdf_name = str(metadata["pdf_name"])
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        raise HTTPException(status_code=404, detail="Document introuvable.") from None
+    if not pdf_name.endswith(".pdf") or "/" in pdf_name or "\\" in pdf_name:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    pdf_path = ESIGN_DOCUMENTS_DIR / pdf_name
+    if not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    return FileResponse(pdf_path, media_type="application/pdf", filename=str(metadata.get("filename", "fiche.pdf")))
+
+
 @app.post("/send-fiche")
-def send_fiche(
-    payload: SendFicheRequest,
+def send_fiche_for_signature(
+    payload: ESignFicheRequest,
     _: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
 ) -> dict[str, str]:
-    """Send a generated attendance sheet to the selected employee."""
+    """Convert a generated fiche to PDF and create a ClawShow signature request."""
     try:
         if not payload.filename or payload.filename != payload.filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]:
-            raise HTTPException(status_code=400, detail="Le nom du fichier joint est invalide.")
+            raise HTTPException(status_code=400, detail="Le nom du fichier est invalide.")
+        if not 1 <= payload.month <= 12 or not 2000 <= payload.year <= 2100:
+            raise HTTPException(status_code=400, detail="La période de la fiche est invalide.")
         file_bytes = base64.b64decode(payload.file_b64, validate=True)
         if not file_bytes or len(file_bytes) > MAX_FICHE_ATTACHMENT_BYTES:
-            raise HTTPException(status_code=400, detail="Le fichier joint est vide ou dépasse 10 Mo.")
+            raise HTTPException(status_code=400, detail="Le fichier est vide ou dépasse 10 Mo.")
 
-        message = MIMEMultipart()
-        message["From"] = SMTP_USER
-        message["To"] = payload.recipient_email
-        message["Subject"] = (
-            f"Fiche de présence - {payload.employee_name} "
-            f"({payload.month:02d}/{payload.year})"
-        )
-
-        body_text = f"""Bonjour {payload.employee_name},
-
-Veuillez trouver ci-joint votre fiche de présence pour le mois {payload.month:02d}/{payload.year}.
-
-Cordialement,
-L'équipe RH / Administration"""
-
-        message.attach(MIMEText(body_text, "plain"))
-
-        attachment = MIMEApplication(file_bytes, Name=payload.filename)
-        attachment.add_header(
-            "Content-Disposition",
-            "attachment",
-            filename=payload.filename,
-        )
-        message.attach(attachment)
-
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, payload.recipient_email, message.as_string())
+        clean_expired_esign_documents()
+        pdf_bytes = convert_fiche_to_pdf(file_bytes, payload.filename)
+        pdf_filename = f"{Path(payload.filename).stem}.pdf"
+        document_token, pdf_name = store_esign_pdf(pdf_bytes, pdf_filename)
+        try:
+            result = submit_to_clawshow(
+                document_url=f"{e_sign_public_base_url()}/api/esign/documents/{document_token}",
+                employee_name=payload.employee_name.strip(),
+                employee_email=str(payload.recipient_email),
+                month=payload.month,
+                year=payload.year,
+            )
+        except Exception:
+            delete_esign_pdf(document_token, pdf_name)
+            raise
 
         return {
             "status": "success",
-            "message": f"Fiche envoyée avec succès à {payload.recipient_email}.",
+            "message": f"Demande de signature envoyée à {payload.recipient_email}.",
+            "document_id": str(result.get("document_id", "")),
         }
     except HTTPException:
         raise
     except (binascii.Error, ValueError):
-        raise HTTPException(status_code=400, detail="Le fichier joint est invalide.") from None
-    except smtplib.SMTPException:
-        raise HTTPException(
-            status_code=502,
-            detail="Le serveur de messagerie n'a pas pu envoyer la fiche.",
-        ) from None
+        raise HTTPException(status_code=400, detail="Le fichier est invalide.") from None
     except Exception:
-        raise HTTPException(status_code=500, detail="L'envoi de la fiche a échoué.") from None
+        raise HTTPException(status_code=500, detail="La demande de signature a échoué.") from None
 
 
 @app.post("/login")
