@@ -438,6 +438,100 @@ if st.button("Sauvegarder", width="stretch"):
     except Exception as e:
         st.error(f"Impossible de joindre le serveur : {e}")
 
+# ENVOI GLOBAL POUR SIGNATURE
+if st.button(
+    "Envoyer toutes les fiches pour signature",
+    type="primary",
+    help="Génère chaque fiche puis envoie une demande de signature à l'adresse e-mail enregistrée.",
+):
+    envois_reussis = []
+    erreurs_envoi = []
+    fiches_a_envoyer = user_store["employes_data"]
+
+    if not fiches_a_envoyer:
+        st.warning("Aucune fiche n'est disponible à envoyer.")
+    else:
+        progress = st.progress(0, text="Préparation des demandes de signature…")
+        for index, employe in enumerate(fiches_a_envoyer, start=1):
+            est_stagiaire = employe.get("type") == "Stagiaire"
+            nom = (
+                " ".join(
+                    part.strip()
+                    for part in (str(employe.get("prenom_stagiaire") or ""), str(employe.get("nom_stagiaire") or ""))
+                    if part.strip()
+                )
+                if est_stagiaire
+                else str(employe.get("nom") or "").strip()
+            )
+            email = str(employe.get("email_employe") or "").strip()
+            informations_manquantes = []
+
+            if not nom:
+                informations_manquantes.append("nom")
+            if not email:
+                informations_manquantes.append("e-mail")
+            if est_stagiaire:
+                if not employe.get("dds"):
+                    informations_manquantes.append("début de stage")
+                if not employe.get("fds"):
+                    informations_manquantes.append("fin de stage")
+            else:
+                if not employe.get("ddc"):
+                    informations_manquantes.append("début de contrat")
+                if not employe.get("fdc"):
+                    informations_manquantes.append("fin de contrat")
+                if not str(employe.get("responsable") or "").strip():
+                    informations_manquantes.append("responsable")
+
+            if informations_manquantes:
+                erreurs_envoi.append(
+                    f"{nom or f'Fiche {index}'} : information manquante ({', '.join(informations_manquantes)})."
+                )
+            else:
+                try:
+                    nom_fichier = nom.replace(" ", "_")
+                    if est_stagiaire:
+                        fichier = generer_docx_stagiaire(employe, user_store["mois"], user_store["annee"])
+                        filename = f"Fiche_stage_{nom_fichier}_{user_store['mois']}_{user_store['annee']}.docx"
+                    else:
+                        fichier = remplir_fiche_paie(user_store["mois"], user_store["annee"], employe)
+                        filename = f"fiche_paie_{nom_fichier}_{user_store['mois']}_{user_store['annee']}.xlsx"
+
+                    payload = {
+                        "recipient_email": email,
+                        "employee_name": nom,
+                        "month": int(user_store["mois"]),
+                        "year": int(user_store["annee"]),
+                        "filename": filename,
+                        "file_b64": base64.b64encode(fichier.getvalue()).decode("utf-8"),
+                    }
+                    response = requests.post(
+                        f"{API_URL}/send-fiche",
+                        headers=headers,
+                        json=payload,
+                        timeout=90,
+                    )
+                    if response.status_code == 200:
+                        envois_reussis.append(f"{nom} ({email})")
+                    else:
+                        try:
+                            detail = response.json().get("detail", response.text)
+                        except ValueError:
+                            detail = response.text
+                        erreurs_envoi.append(f"{nom} : {detail}")
+                except requests.RequestException as error:
+                    erreurs_envoi.append(f"{nom} : impossible de joindre le serveur ({error}).")
+                except Exception as error:
+                    erreurs_envoi.append(f"{nom} : impossible de préparer la fiche ({error}).")
+
+            progress.progress(index / len(fiches_a_envoyer), text=f"Traitement de {index}/{len(fiches_a_envoyer)}…")
+
+        progress.empty()
+        if envois_reussis:
+            st.success(f"{len(envois_reussis)} demande(s) de signature envoyée(s) : {', '.join(envois_reussis)}.")
+        if erreurs_envoi:
+            st.error("Certaines fiches n'ont pas été envoyées :\n\n" + "\n\n".join(f"- {erreur}" for erreur in erreurs_envoi))
+
 # GÉNÉRATION EXCEL ET DOCX
 if st.button("Générer toutes les fiches", type="primary"): 
     # On sépare les deux types de contrat
