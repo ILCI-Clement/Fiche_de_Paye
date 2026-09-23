@@ -22,6 +22,7 @@
 - Ajout de l'envoi individuel d'une fiche générée par e-mail : l'adresse du salarié ou du stagiaire est enregistrée dans les données de la fiche et réutilisée lors des envois suivants. L'envoi est réservé aux Admins et Responsables et les pièces jointes sont validées côté API.
 - Amélioration de lisibilité : les onglets des fiches affichent le nom ou le prénom disponible de la personne au lieu d'un numéro générique.
 - Ajustement de l'envoi : les actions de téléchargement et d'envoi sont affichées ensemble uniquement après la génération de la fiche correspondante.
+- Ajout des justificatifs de transport : tout utilisateur peut déposer un PDF, JPG ou PNG pour une personne enregistrée; un employé ne consulte que ses justificatifs, tandis qu'un Admin dispose de la liste complète, du compteur mensuel et de l'archivage unitaire. Les fichiers restent stockés dans un répertoire privé du serveur et sont servis après contrôle d'accès.
 
 ### Vérifications locales
 

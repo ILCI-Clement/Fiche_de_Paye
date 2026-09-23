@@ -17,6 +17,14 @@ behind an unguessable URL for 24 hours, so ClawShow can retrieve the document.
 `PRESENCE_ESIGN_PUBLIC_URL` must be the public FastAPI origin (not the Streamlit
 interface URL), for example `https://presence.example.org`.
 
+## Justificatifs de transport
+
+Transport receipts are stored privately in `PRESENCE_TRANSPORT_RECEIPTS_DIR`
+(default: `/var/lib/presence-app/transport-receipts`). The API accepts one PDF,
+JPG or PNG up to 10 MB at a time. The database stores only file metadata,
+assignment and archive state; downloads remain protected by the authenticated API.
+At startup, the `transport_receipts` table is created if it does not exist.
+
 Before replacing the deployed API, take both a source backup and a MariaDB dump. At startup, the API performs only additive schema migrations: it adds optional organization columns to `users` and creates the group tables if they do not already exist. It does not delete existing user accounts or `Presence` records.
 
 The expected command is:

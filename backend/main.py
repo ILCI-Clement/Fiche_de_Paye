@@ -41,6 +41,7 @@ SESSION_DURATION_SECONDS = 8 * 60 * 60
 REMEMBER_SESSION_DURATION_DAYS = 30
 PASSWORD_RESET_DURATION_MINUTES = 15
 MAX_FICHE_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_TRANSPORT_RECEIPT_BYTES = 10 * 1024 * 1024
 ESIGN_DOCUMENT_DURATION_HOURS = 24
 CLAWSHOW_CREATE_URL = "https://esign.clawshow.ai/esign/create"
 
@@ -68,6 +69,9 @@ SMTP_PASSWORD = required_env("PRESENCE_SMTP_PASSWORD")
 STREAMLIT_APP_URL = required_env("PRESENCE_APP_URL")
 ESIGN_DOCUMENTS_DIR = Path(
     os.getenv("PRESENCE_ESIGN_DOCUMENTS_DIR", "/var/lib/presence-app/esign-documents")
+)
+TRANSPORT_RECEIPTS_DIR = Path(
+    os.getenv("PRESENCE_TRANSPORT_RECEIPTS_DIR", "/var/lib/presence-app/transport-receipts")
 )
 
 
@@ -98,6 +102,12 @@ class ESignFicheRequest(BaseModel):
     month: int
     year: int
     filename: str
+    file_b64: str
+
+
+class TransportReceiptUploadRequest(BaseModel):
+    employee_username: str
+    original_filename: str
     file_b64: str
 
 
@@ -206,6 +216,27 @@ def ensure_organization_schema() -> None:
                     relation VARCHAR(20) NOT NULL,
                     PRIMARY KEY (username, group_id, relation),
                     KEY user_group_memberships_group_index (group_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS transport_receipts (
+                    id INT NOT NULL AUTO_INCREMENT,
+                    employee_username VARCHAR(50) NOT NULL,
+                    uploaded_by VARCHAR(50) NOT NULL,
+                    original_filename VARCHAR(255) NOT NULL,
+                    stored_filename VARCHAR(255) NOT NULL,
+                    mime_type VARCHAR(100) NOT NULL,
+                    size_bytes INT NOT NULL,
+                    archived TINYINT(1) NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    archived_at DATETIME NULL,
+                    archived_by VARCHAR(50) NULL,
+                    PRIMARY KEY (id),
+                    KEY transport_receipts_employee_index (employee_username),
+                    KEY transport_receipts_uploaded_index (uploaded_by),
+                    KEY transport_receipts_archived_index (archived, created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
@@ -484,6 +515,211 @@ def store_esign_pdf(pdf_bytes: bytes, original_filename: str) -> tuple[str, str]
 def delete_esign_pdf(document_token: str, pdf_name: str) -> None:
     (ESIGN_DOCUMENTS_DIR / pdf_name).unlink(missing_ok=True)
     (ESIGN_DOCUMENTS_DIR / f"{document_token}.json").unlink(missing_ok=True)
+
+
+def sanitize_transport_receipt_filename(filename: str) -> str:
+    """Keep only a safe display name for an uploaded transport receipt."""
+    safe_name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not safe_name or len(safe_name) > 255:
+        raise HTTPException(status_code=400, detail="Le nom du fichier est invalide.")
+    return safe_name
+
+
+def validate_transport_receipt_file(file_bytes: bytes, filename: str) -> tuple[str, str]:
+    """Allow only a small, verifiable set of receipt formats."""
+    extension = Path(filename).suffix.lower()
+    valid_files = {
+        ".pdf": ("application/pdf", b"%PDF-"),
+        ".png": ("image/png", b"\x89PNG\r\n\x1a\n"),
+        ".jpg": ("image/jpeg", b"\xff\xd8\xff"),
+        ".jpeg": ("image/jpeg", b"\xff\xd8\xff"),
+    }
+    expected = valid_files.get(extension)
+    if not expected or not file_bytes.startswith(expected[1]):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers PDF, JPG et PNG valides sont acceptés.")
+    return extension, expected[0]
+
+
+def transport_receipt_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "employee_username": str(row["employee_username"]),
+        "uploaded_by": str(row["uploaded_by"]),
+        "original_filename": str(row["original_filename"]),
+        "mime_type": str(row["mime_type"]),
+        "size_bytes": int(row["size_bytes"]),
+        "archived": bool(row["archived"]),
+        "created_at": row["created_at"],
+        "archived_at": row.get("archived_at"),
+        "archived_by": row.get("archived_by"),
+    }
+
+
+def load_transport_receipt(cursor: pymysql.cursors.Cursor, receipt_id: int) -> dict[str, Any]:
+    cursor.execute("SELECT * FROM transport_receipts WHERE id = %s", (receipt_id,))
+    receipt = cursor.fetchone()
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Justificatif introuvable.")
+    return receipt
+
+
+def can_view_transport_receipt(actor: dict[str, Any], receipt: dict[str, Any]) -> bool:
+    return "Admin" in actor["role_tags"] or receipt["employee_username"] == actor["username"]
+
+
+@app.get("/transport-receipts/assignees")
+def list_transport_receipt_assignees(
+    _: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return every registered person so an uploader can assign a receipt."""
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT username FROM users ORDER BY username")
+            return {"users": [str(row["username"]) for row in cursor.fetchall()]}
+    finally:
+        connection.close()
+
+
+@app.post("/transport-receipts")
+def upload_transport_receipt(
+    payload: TransportReceiptUploadRequest,
+    actor: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        employee_username = str(payload.employee_username).strip()
+        if not employee_username:
+            raise HTTPException(status_code=400, detail="Sélectionnez l'employé concerné.")
+        original_filename = sanitize_transport_receipt_filename(payload.original_filename)
+        file_bytes = base64.b64decode(payload.file_b64, validate=True)
+        if not file_bytes or len(file_bytes) > MAX_TRANSPORT_RECEIPT_BYTES:
+            raise HTTPException(status_code=400, detail="Le fichier est vide ou dépasse 10 Mo.")
+        extension, mime_type = validate_transport_receipt_file(file_bytes, original_filename)
+
+        connection = get_db_connection()
+        stored_path: Path | None = None
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM users WHERE username = %s", (employee_username,))
+                if not cursor.fetchone():
+                    raise HTTPException(status_code=400, detail="L'employé sélectionné n'existe pas.")
+
+                TRANSPORT_RECEIPTS_DIR.mkdir(parents=True, exist_ok=True)
+                stored_filename = f"{secrets.token_urlsafe(32)}{extension}"
+                stored_path = TRANSPORT_RECEIPTS_DIR / stored_filename
+                stored_path.write_bytes(file_bytes)
+                cursor.execute(
+                    """
+                    INSERT INTO transport_receipts
+                        (employee_username, uploaded_by, original_filename, stored_filename, mime_type, size_bytes)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (employee_username, actor["username"], original_filename, stored_filename, mime_type, len(file_bytes)),
+                )
+                receipt_id = int(cursor.lastrowid)
+                receipt = load_transport_receipt(cursor, receipt_id)
+            connection.commit()
+            return {"status": "success", "receipt": transport_receipt_response(receipt)}
+        except Exception:
+            connection.rollback()
+            if stored_path:
+                stored_path.unlink(missing_ok=True)
+            raise
+        finally:
+            connection.close()
+    except HTTPException:
+        raise
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Le fichier envoyé est invalide.") from None
+
+
+@app.get("/transport-receipts")
+def list_transport_receipts(
+    include_archived: bool = True,
+    actor: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            conditions: list[str] = []
+            params: list[Any] = []
+            if "Admin" not in actor["role_tags"]:
+                conditions.append("employee_username = %s")
+                params.append(actor["username"])
+            if not include_archived:
+                conditions.append("archived = 0")
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            cursor.execute(f"SELECT * FROM transport_receipts {where} ORDER BY created_at DESC, id DESC", tuple(params))
+            return {"receipts": [transport_receipt_response(row) for row in cursor.fetchall()]}
+    finally:
+        connection.close()
+
+
+@app.get("/transport-receipts/{receipt_id}/file")
+def download_transport_receipt(
+    receipt_id: int,
+    actor: dict[str, Any] = Depends(get_current_user),
+) -> FileResponse:
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            receipt = load_transport_receipt(cursor, receipt_id)
+        if not can_view_transport_receipt(actor, receipt):
+            raise HTTPException(status_code=403, detail="Vous ne pouvez pas consulter ce justificatif.")
+    finally:
+        connection.close()
+
+    stored_name = str(receipt["stored_filename"])
+    if Path(stored_name).name != stored_name:
+        raise HTTPException(status_code=404, detail="Fichier introuvable.")
+    file_path = TRANSPORT_RECEIPTS_DIR / stored_name
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Fichier introuvable.")
+    return FileResponse(file_path, media_type=str(receipt["mime_type"]), filename=str(receipt["original_filename"]))
+
+
+@app.patch("/transport-receipts/{receipt_id}/archive")
+def archive_transport_receipt(
+    receipt_id: int,
+    actor: dict[str, Any] = Depends(require_roles("Admin")),
+) -> dict[str, Any]:
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            receipt = load_transport_receipt(cursor, receipt_id)
+            if not receipt["archived"]:
+                cursor.execute(
+                    "UPDATE transport_receipts SET archived = 1, archived_at = %s, archived_by = %s WHERE id = %s",
+                    (datetime.now(), actor["username"], receipt_id),
+                )
+                receipt = load_transport_receipt(cursor, receipt_id)
+        connection.commit()
+        return {"status": "success", "receipt": transport_receipt_response(receipt)}
+    finally:
+        connection.close()
+
+
+@app.delete("/transport-receipts/{receipt_id}")
+def delete_transport_receipt(
+    receipt_id: int,
+    actor: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, str]:
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            receipt = load_transport_receipt(cursor, receipt_id)
+            can_delete = "Admin" in actor["role_tags"] or receipt["uploaded_by"] == actor["username"]
+            if not can_delete:
+                raise HTTPException(status_code=403, detail="Vous pouvez uniquement supprimer vos propres justificatifs.")
+            cursor.execute("DELETE FROM transport_receipts WHERE id = %s", (receipt_id,))
+        connection.commit()
+    finally:
+        connection.close()
+
+    stored_name = str(receipt["stored_filename"])
+    if Path(stored_name).name == stored_name:
+        (TRANSPORT_RECEIPTS_DIR / stored_name).unlink(missing_ok=True)
+    return {"status": "success", "message": "Justificatif supprimé."}
 
 
 def submit_to_clawshow(
