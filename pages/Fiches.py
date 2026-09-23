@@ -119,7 +119,9 @@ if user_store["employes_data"]:
     ]
     
     # Création des onglets pour chaque employé
-    tabs = st.tabs(labels_onglets)
+    # Les onglets suivis conservent l'employé actif après le rafraîchissement
+    # déclenché par un champ, notamment les sélecteurs de date.
+    tabs = st.tabs(labels_onglets, key="fiche_active_tab", on_change="rerun")
 
     for h, tab in enumerate(tabs):
         with tab:
