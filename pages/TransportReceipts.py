@@ -161,12 +161,38 @@ for receipt in visible_receipts:
                     st.error(response_detail(response))
         with delete_column:
             may_delete = "Admin" in USER_TAGS or receipt["uploaded_by"] == USER["name"]
+            confirm_delete_key = f"confirm_delete_receipt_{receipt_id}"
             if may_delete and st.button("Supprimer", key=f"delete_receipt_{receipt_id}", type="secondary"):
+                st.session_state[confirm_delete_key] = True
+                st.rerun()
+
+        if may_delete and st.session_state.get(confirm_delete_key):
+            st.warning(
+                "Cette action supprimera définitivement ce justificatif. "
+                "Voulez-vous continuer ?"
+            )
+            confirm_column, cancel_column, _ = st.columns([1.5, 1.2, 5])
+            with confirm_column:
+                confirm_delete = st.button(
+                    "Confirmer la suppression",
+                    key=f"confirm_delete_button_{receipt_id}",
+                    type="primary",
+                )
+            with cancel_column:
+                cancel_delete = st.button("Annuler", key=f"cancel_delete_{receipt_id}")
+
+            if cancel_delete:
+                st.session_state.pop(confirm_delete_key, None)
+                st.rerun()
+
+            if confirm_delete:
                 response = requests.delete(
                     f"{API_URL}/transport-receipts/{receipt_id}",
                     headers=HEADERS,
                     timeout=15,
                 )
+                st.session_state.pop(confirm_delete_key, None)
                 if response.status_code == 200:
+                    st.session_state.pop(f"receipt_download_{receipt_id}", None)
                     st.rerun()
                 st.error(response_detail(response))
