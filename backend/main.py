@@ -1171,6 +1171,18 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                     cursor.execute("UPDATE Presence SET user_id = %s WHERE user_id = %s", (target_username, username))
                     cursor.execute("UPDATE user_group_memberships SET username = %s WHERE username = %s", (target_username, username))
                     cursor.execute("UPDATE users SET manager_username = %s WHERE manager_username = %s", (target_username, username))
+                    cursor.execute(
+                        "UPDATE transport_receipts SET employee_username = %s WHERE employee_username = %s",
+                        (target_username, username),
+                    )
+                    cursor.execute(
+                        "UPDATE transport_receipts SET uploaded_by = %s WHERE uploaded_by = %s",
+                        (target_username, username),
+                    )
+                    cursor.execute(
+                        "UPDATE transport_receipts SET archived_by = %s WHERE archived_by = %s",
+                        (target_username, username),
+                    )
         connection.commit()
         return {
             "status": "success",

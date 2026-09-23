@@ -125,24 +125,29 @@ for receipt in visible_receipts:
                 f"{format_created_at(receipt.get('created_at'))} · {status}"
             )
         with download_column:
-            try:
-                file_response = requests.get(
-                    f"{API_URL}/transport-receipts/{receipt_id}/file",
-                    headers=HEADERS,
-                    timeout=30,
+            download_key = f"receipt_download_{receipt_id}"
+            if download_key in st.session_state:
+                st.download_button(
+                    "Télécharger",
+                    data=st.session_state[download_key],
+                    file_name=receipt["original_filename"],
+                    mime=receipt["mime_type"],
+                    key=f"download_receipt_{receipt_id}",
                 )
-                if file_response.status_code == 200:
-                    st.download_button(
-                        "Télécharger",
-                        data=file_response.content,
-                        file_name=receipt["original_filename"],
-                        mime=receipt["mime_type"],
-                        key=f"download_receipt_{receipt_id}",
+            elif st.button("Préparer", key=f"prepare_receipt_{receipt_id}"):
+                try:
+                    file_response = requests.get(
+                        f"{API_URL}/transport-receipts/{receipt_id}/file",
+                        headers=HEADERS,
+                        timeout=30,
                     )
-                else:
-                    st.caption("Fichier indisponible")
-            except requests.RequestException:
-                st.caption("Fichier indisponible")
+                    if file_response.status_code == 200:
+                        st.session_state[download_key] = file_response.content
+                        st.rerun()
+                    else:
+                        st.error(response_detail(file_response))
+                except requests.RequestException:
+                    st.error("Fichier indisponible.")
         if "Admin" in USER_TAGS:
             with archive_column:
                 if not archived and st.button("Archiver", key=f"archive_receipt_{receipt_id}"):
