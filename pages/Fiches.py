@@ -454,6 +454,7 @@ if st.button(
         progress = st.progress(0, text="Préparation des demandes de signature…")
         for index, employe in enumerate(fiches_a_envoyer, start=1):
             est_stagiaire = employe.get("type") == "Stagiaire"
+            emp_id = employe.get("id")
             nom = (
                 " ".join(
                     part.strip()
@@ -463,7 +464,11 @@ if st.button(
                 if est_stagiaire
                 else str(employe.get("nom") or "").strip()
             )
-            email = str(employe.get("email_employe") or "").strip()
+            # Lire la valeur du widget en priorité : elle peut être plus récente
+            # que la copie de la fiche en mémoire au moment du clic groupé.
+            email_widget_key = f"{username}_emp_mail_{emp_id}"
+            email = str(st.session_state.get(email_widget_key, employe.get("email_employe") or "")).strip()
+            employe["email_employe"] = email
             informations_manquantes = []
 
             if not nom:
