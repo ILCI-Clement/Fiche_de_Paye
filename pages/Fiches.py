@@ -3,6 +3,7 @@ from datetime import date, datetime
 import requests
 import time
 import base64
+import os
 from DocxGen import generer_docx_stagiaire
 from ExcelGen import remplir_fiche_paie
 from calendar_view import render_monthly_calendar
@@ -165,6 +166,7 @@ if user_store["employes_data"]:
             emp_id = emp["id"]
 
             generated_file_key = f"generated_fiche_{emp_id}"
+            generated_pdf_key = f"{generated_file_key}_pdf"
 
             c_space, c_gen, c_del = st.columns([4, 1, 1])
             with c_space:
@@ -173,6 +175,7 @@ if user_store["employes_data"]:
                 if st.button("Supprimer cette fiche", key=f"del_btn_{emp_id}", type="secondary", help="Supprime définitivement cet employé de la liste"):
                     user_store["employes_data"].pop(h)
                     st.session_state.pop(generated_file_key, None)
+                    st.session_state.pop(generated_pdf_key, None)
                     st.success("Fiche supprimée ! Sauvegardez pour appliquer les changements sur le serveur.")
                     st.rerun()
             with c_gen:
@@ -191,6 +194,7 @@ if user_store["employes_data"]:
                             st.error(f"Impossible de générer : il manque l'information {erreur_type_solo} !")
                         else:
                             excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"], emp)
+                            st.session_state.pop(generated_pdf_key, None)
                             st.session_state[generated_file_key] = {
                                 "data": excel_buffer.getvalue(),
                                 "filename": f"fiche_presence_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
@@ -208,6 +212,7 @@ if user_store["employes_data"]:
                             st.error(f"Impossible de générer : il manque l'information {erreur_type_solo} !")
                         else:
                             docx_buffer = generer_docx_stagiaire(emp, user_store['mois'], user_store['annee'])
+                            st.session_state.pop(generated_pdf_key, None)
                             st.session_state[generated_file_key] = {
                                 "data": docx_buffer.getvalue(),
                                 "filename": f"Fiche_Stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx",
@@ -218,7 +223,7 @@ if user_store["employes_data"]:
                             st.rerun()
 
             generated_file = st.session_state.get(generated_file_key)
-            c_download, c_send, _ = st.columns([1, 1, 4])
+            c_download, c_pdf, c_send, _ = st.columns([1, 1, 1, 3])
             if generated_file:
                 st.caption("Fichier généré. Générez à nouveau la fiche après toute modification avant de l'envoyer.")
                 with c_download:
@@ -229,6 +234,40 @@ if user_store["employes_data"]:
                         mime=generated_file["mime"],
                         key=f"dl_solo_{emp_id}",
                     )
+                with c_pdf:
+                    generated_pdf = st.session_state.get(generated_pdf_key)
+                    if generated_pdf:
+                        st.download_button(
+                            label="Télécharger le PDF",
+                            data=generated_pdf["data"],
+                            file_name=generated_pdf["filename"],
+                            mime="application/pdf",
+                            key=f"dl_pdf_solo_{emp_id}",
+                        )
+                    elif st.button("Préparer le PDF", key=f"pdf_solo_btn_{emp_id}"):
+                        payload = {
+                            "filename": generated_file["filename"],
+                            "file_b64": base64.b64encode(generated_file["data"]).decode("utf-8"),
+                        }
+                        try:
+                            response = requests.post(
+                                f"{API_URL}/fiches/pdf",
+                                headers=headers,
+                                json=payload,
+                                timeout=100,
+                            )
+                            if response.status_code == 200:
+                                stem = os.path.splitext(generated_file["filename"])[0]
+                                st.session_state[generated_pdf_key] = {
+                                    "data": response.content,
+                                    "filename": f"{stem}.pdf",
+                                }
+                                st.rerun()
+                            else:
+                                detail = response.json().get("detail", response.text)
+                                st.error(f"Impossible de préparer le PDF : {detail}")
+                        except requests.RequestException as error:
+                            st.error(f"Erreur de communication avec le serveur : {error}")
                 with c_send:
                     if st.button("Envoyer pour signature", key=f"send_solo_btn_{emp_id}", type="primary"):
                         target_email = emp.get("email_employe", "").strip()

@@ -30,7 +30,7 @@ from typing import Any
 import bcrypt
 import pymysql
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, EmailStr
 
 
@@ -104,6 +104,11 @@ class ESignFicheRequest(BaseModel):
     employee_name: str
     month: int
     year: int
+    filename: str
+    file_b64: str
+
+
+class FichePdfRequest(BaseModel):
     filename: str
     file_b64: str
 
@@ -1210,6 +1215,31 @@ def get_esign_document(document_token: str) -> FileResponse:
     if not pdf_path.is_file():
         raise HTTPException(status_code=404, detail="Document introuvable.")
     return FileResponse(pdf_path, media_type="application/pdf", filename=str(metadata.get("filename", "fiche.pdf")))
+
+
+@app.post("/fiches/pdf")
+def generate_fiche_pdf(
+    payload: FichePdfRequest,
+    _: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
+) -> Response:
+    """Convert one generated attendance sheet to a downloadable PDF."""
+    try:
+        filename = payload.filename.strip()
+        if not filename or filename != filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]:
+            raise HTTPException(status_code=400, detail="Le nom du fichier est invalide.")
+        file_bytes = base64.b64decode(payload.file_b64, validate=True)
+        if not file_bytes or len(file_bytes) > MAX_FICHE_ATTACHMENT_BYTES:
+            raise HTTPException(status_code=400, detail="Le fichier est vide ou dépasse 10 Mo.")
+
+        pdf_bytes = convert_fiche_to_pdf(file_bytes, filename)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+        )
+    except HTTPException:
+        raise
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Le fichier est invalide.") from None
 
 
 @app.post("/send-fiche")
