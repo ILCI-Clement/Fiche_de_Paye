@@ -55,7 +55,7 @@ if not st.session_state["user"]:
 
 login_page = st.Page("pages/Login.py", title="Connexion")
 fiches_page = st.Page("pages/Fiches.py", title="Création de Fiches")
-profile_page = st.Page("pages/Profile.py", title="Paramètres")
+profile_page = st.Page("pages/Profile.py", title="Paramètres", icon="⚙️")
 admin_page = st.Page("pages/Admin.py", title="Administration")
 people_page = st.Page("pages/People.py", title="Personnel")
 transport_receipts_page = st.Page("pages/TransportReceipts.py", title="Justificatifs de transport")
@@ -74,13 +74,21 @@ def get_pages_for_user():
     user["role"] = role
     
     if "Admin" in tags:
-        return [dashboard_page, profile_page, fiches_page, transport_receipts_page, people_page, admin_page]
+        return {
+            "Gestion des présences": [dashboard_page, fiches_page, transport_receipts_page],
+            "Organisation": [people_page, admin_page],
+            "Compte": [profile_page],
+        }
 
     if "Responsable" in tags:
-        return [dashboard_page, profile_page, fiches_page, transport_receipts_page, people_page]
+        return {
+            "Gestion des présences": [dashboard_page, fiches_page, transport_receipts_page],
+            "Organisation": [people_page],
+            "Compte": [profile_page],
+        }
     
     if "Employe" in tags:
-        return [profile_page, transport_receipts_page]
+        return {"Mes documents": [transport_receipts_page], "Compte": [profile_page]}
     
     return [login_page]
 
