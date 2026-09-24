@@ -70,6 +70,32 @@ if username not in st.session_state.user_data:
 
 # Raccourci vers les données de l'utilisateur actuel
 user_store = st.session_state.user_data[username]
+contract_sync_key = f"fiche_contract_sync_pending_{username}"
+
+
+def save_current_configuration(show_success: bool = False) -> bool:
+    """Persist the current fiche configuration and make contract dates available to the dashboard."""
+    try:
+        response = requests.post(
+            f"{API_URL}/save-config/{username}",
+            headers=headers,
+            json=serialize_dates(user_store),
+            timeout=15,
+        )
+    except requests.RequestException as error:
+        st.error(f"Impossible de joindre le serveur : {error}")
+        return False
+    if response.status_code != 200:
+        st.error(f"Erreur lors de la sauvegarde: {response.status_code}")
+        return False
+    if show_success:
+        st.success("Données synchronisées avec succès ! L'e-mail de l'employé est mémorisé pour les prochains envois.")
+    return True
+
+
+def mark_contract_sync_pending() -> None:
+    """Defer the save until every widget value has been copied into the fiche record."""
+    st.session_state[contract_sync_key] = True
 
 # FORMULAIRE PRINCIPAL 
 st.title("Générateur de fiche de présence")
@@ -273,11 +299,11 @@ if user_store["employes_data"]:
                 emp["email_responsable"] = st.text_input("Email du responsable", placeholder="responsable@univ-ilci.fr", key=f"{username}_resp_mail_{emp_id}", value=emp.get("email_responsable", ""), help="Un mail sera envoyé au responsable un mois avant la fin du contrat de l'employé.")
                 c1, c2 = st.columns(2)
                 with c1:
-                    emp["ddc"] = st.date_input("Début de contrat", key=f"ddc_{emp_id}", value=emp.get("ddc"), format="DD/MM/YYYY")
-                    emp["cdi"] = st.checkbox("Contrat CDI ?", value=emp.get("cdi", False), key=f"cdi_{emp_id}")
+                    emp["ddc"] = st.date_input("Début de contrat", key=f"ddc_{emp_id}", value=emp.get("ddc"), format="DD/MM/YYYY", on_change=mark_contract_sync_pending)
+                    emp["cdi"] = st.checkbox("Contrat CDI ?", value=emp.get("cdi", False), key=f"cdi_{emp_id}", on_change=mark_contract_sync_pending)
                 with c2:
                     if not emp["cdi"]:
-                        emp["fdc"] = st.date_input("Fin de contrat", key=f"fdc_{emp_id}", value=emp.get("fdc") if emp.get("fdc") != "Pas de fin" else None, format="DD/MM/YYYY")
+                        emp["fdc"] = st.date_input("Fin de contrat", key=f"fdc_{emp_id}", value=emp.get("fdc") if emp.get("fdc") != "Pas de fin" else None, format="DD/MM/YYYY", on_change=mark_contract_sync_pending)
                     else:
                         emp["fdc"] = "Pas de fin"
                         st.write("Fin de contrat : N/A")
@@ -413,37 +439,25 @@ if user_store["employes_data"]:
                     emp["nom_stagiaire"] = st.text_input("Nom du stagiaire", key=f"st_nom_{emp_id}", value=emp.get("nom_stagiaire", ""))
                     emp["email_employe"] = st.text_input("E-mail du stagiaire", placeholder="stagiaire@univ-ilci.fr", key=f"{username}_emp_mail_{emp_id}", value=emp.get("email_employe", ""), help="L'adresse e-mail à laquelle la fiche de présence sera envoyée.")
                     emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{emp_id}", value=emp["responsable"])
-                    emp["dds"] = st.date_input("Début de stage", key=f"dds_{emp_id}", value=emp.get("dds"), format="DD/MM/YYYY")
+                    emp["dds"] = st.date_input("Début de stage", key=f"dds_{emp_id}", value=emp.get("dds"), format="DD/MM/YYYY", on_change=mark_contract_sync_pending)
                     emp["nb_jours"] = st.number_input("Nombre de jours", key=f"st_nj_{emp_id}", value=emp.get("nb_jours", 0))
                     emp["taux_horaire"] = st.number_input("Taux horaire (€)", key=f"st_th_{emp_id}", value=emp.get("taux_horaire", 0.0))
                     emp["facture_mensuelle"] = st.number_input("Facture mensuelle (€)", key=f"st_fm_{emp_id}", value=emp.get("facture_mensuelle", 0.0))
                 with c2:
                     emp["prenom_stagiaire"] = st.text_input("Prénom du stagiaire", key=f"st_pre_{emp_id}", value=emp.get("prenom_stagiaire", ""))
                     emp["email_responsable"] = st.text_input("Email du responsable", placeholder="responsable@univ-ilci.fr", key=f"{username}_resp_mail_{emp_id}", value=emp.get("email_responsable", ""))
-                    emp["fds"] = st.date_input("Fin de stage", key=f"fds_{emp_id}", value=emp.get("fds"), format="DD/MM/YYYY")
+                    emp["fds"] = st.date_input("Fin de stage", key=f"fds_{emp_id}", value=emp.get("fds"), format="DD/MM/YYYY", on_change=mark_contract_sync_pending)
                     emp["nb_heures_jour"] = st.number_input("Nombre d'heures/jour", key=f"st_nhj_{emp_id}", value=emp.get("nb_heures_jour", 0.0))
                     emp["transport"] = st.text_input("Transport", key=f"st_tr_{emp_id}", value=emp.get("transport", ""))
                     emp["taux"] = st.number_input("Taux (%)", key=f"st_tx_{emp_id}", value=emp.get("taux", 0.0))
 
 # BOUTON DE SAUVEGARDE SUR LE VPS
 st.divider()
+if st.session_state.pop(contract_sync_key, False) and save_current_configuration():
+    st.toast("Dates de contrat synchronisées avec le Tableau de bord.")
+
 if st.button("Sauvegarder", width="stretch"):
-    try:
-        # On prépare les données (conversion des dates en texte)
-        data_to_send = serialize_dates(user_store)
-        
-        response = requests.post(
-            f"{API_URL}/save-config/{username}",
-            headers=headers, 
-            json=data_to_send
-        )
-        
-        if response.status_code == 200:
-            st.success("Données synchronisées avec succès ! L'e-mail de l'employé est mémorisé pour les prochains envois.")
-        else:
-            st.error(f"Erreur lors de la sauvegarde: {response.status_code}")
-    except Exception as e:
-        st.error(f"Impossible de joindre le serveur : {e}")
+    save_current_configuration(show_success=True)
 
 # ENVOI GLOBAL POUR SIGNATURE
 if st.button(
