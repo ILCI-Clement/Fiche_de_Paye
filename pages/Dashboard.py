@@ -43,6 +43,36 @@ dashboard = response.json()
 contracts = list(dashboard.get("contracts", []))
 interviews = list(dashboard.get("interviews", []))
 open_interviews = [item for item in interviews if not item.get("completed")]
+is_admin = "Admin" in USER_TAGS
+auto_send_enabled = bool(dashboard.get("contract_reminders_auto_send"))
+contract_signature = "|".join(
+    f"{item.get('employee_name')}:{item.get('contract_end_date')}" for item in contracts
+)
+contract_prompt_key = "contract_reminder_prompt_acknowledged"
+
+
+def send_due_contract_reminders() -> requests.Response:
+    return requests.post(f"{API_URL}/contract-reminders/send", headers=HEADERS, timeout=30)
+
+
+@st.dialog("Envoyer les rappels de fin de contrat ?")
+def confirm_contract_reminders() -> None:
+    st.write(f"{len(contracts)} contrat(s) arrivent à échéance dans les 10 prochains jours.")
+    st.caption("Les e-mails seront envoyés une seule fois aux administrateurs et aux responsables directs concernés.")
+    send_column, cancel_column = st.columns(2)
+    with send_column:
+        if st.button("Envoyer maintenant", type="primary", width="stretch"):
+            send_response = send_due_contract_reminders()
+            if send_response.status_code == 200:
+                result = send_response.json()
+                st.session_state[contract_prompt_key] = contract_signature
+                st.success(f"{result['sent']} e-mail(s) de rappel envoyé(s).")
+                st.rerun()
+            st.error(api_error(send_response))
+    with cancel_column:
+        if st.button("Pas maintenant", width="stretch"):
+            st.session_state[contract_prompt_key] = contract_signature
+            st.rerun()
 
 st.title("Tableau de bord")
 st.caption("Suivez les échéances contractuelles et les entretiens annuels à réaliser.")
@@ -53,7 +83,29 @@ metric_interviews.metric(f"Entretiens annuels à faire ({dashboard['year']})", l
 metric_completed.metric("Entretiens terminés", len(interviews) - len(open_interviews))
 
 with st.expander("Contrats arrivant à échéance", expanded=True):
-    st.caption("Un e-mail est envoyé une seule fois aux administrateurs et au responsable direct lorsqu'il reste 10 jours ou moins.")
+    description_column, settings_column = st.columns([3, 2])
+    with description_column:
+        st.caption("Les rappels sont destinés aux administrateurs et aux responsables directs, jamais à l'employé concerné.")
+    with settings_column:
+        if is_admin:
+            desired_auto_send = st.toggle(
+                "Envoi automatique des rappels",
+                value=auto_send_enabled,
+                key=f"contract_reminders_auto_send_{int(auto_send_enabled)}",
+                help="Si cette option est désactivée, une confirmation est demandée dans ce tableau de bord avant tout envoi.",
+            )
+            if desired_auto_send != auto_send_enabled:
+                setting_response = requests.patch(
+                    f"{API_URL}/settings/contract-reminders",
+                    headers=HEADERS,
+                    json={"auto_send": desired_auto_send},
+                    timeout=15,
+                )
+                if setting_response.status_code == 200:
+                    st.rerun()
+                st.error(api_error(setting_response))
+        else:
+            st.caption("L'envoi est décidé par un administrateur.")
     if contracts:
         st.dataframe(
             [
@@ -70,6 +122,9 @@ with st.expander("Contrats arrivant à échéance", expanded=True):
         )
     else:
         st.success("Aucun contrat ne se termine dans les 10 prochains jours.")
+
+if contracts and is_admin and not auto_send_enabled and st.session_state.get(contract_prompt_key) != contract_signature:
+    confirm_contract_reminders()
 
 with st.expander(f"Entretiens annuels {dashboard['year']}", expanded=True):
     st.caption("Une tâche est créée automatiquement chaque année pour chaque personne enregistrée. Mettez-la à jour après l'entretien.")

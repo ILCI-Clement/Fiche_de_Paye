@@ -126,6 +126,10 @@ class ContractUpdateRequest(BaseModel):
     is_cdi: bool = False
 
 
+class ContractReminderSettingsRequest(BaseModel):
+    auto_send: bool
+
+
 def get_db_connection() -> pymysql.Connection:
     return pymysql.connect(**DB_CONFIG)
 
@@ -293,6 +297,20 @@ def ensure_organization_schema() -> None:
                     KEY contract_end_reminder_employee_index (employee_username)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    setting_key VARCHAR(100) NOT NULL,
+                    setting_value VARCHAR(255) NOT NULL,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (setting_key)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            # Never enable unattended e-mails merely because this feature is deployed.
+            cursor.execute(
+                "INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES ('contract_reminders_auto_send', '0')"
             )
         connection.commit()
     finally:
@@ -735,6 +753,14 @@ def send_password_reset_email(email: str, token: str) -> bool:
         return False
 
 
+def contract_reminders_auto_enabled(cursor: pymysql.cursors.Cursor) -> bool:
+    cursor.execute(
+        "SELECT setting_value FROM app_settings WHERE setting_key = 'contract_reminders_auto_send'"
+    )
+    setting = cursor.fetchone()
+    return bool(setting and str(setting["setting_value"]).strip() == "1")
+
+
 def send_contract_end_reminder_email(recipient_email: str, contract: dict[str, Any]) -> bool:
     """Send a single, actionable contract-end reminder to an admin or direct manager."""
     end_date = contract.get("contract_end_date")
@@ -762,15 +788,20 @@ def send_contract_end_reminder_email(recipient_email: str, contract: dict[str, A
         return False
 
 
-def run_contract_end_reminders() -> None:
-    """Notify admins and direct managers once per recipient for fiche contracts ending within ten days."""
+def run_contract_end_reminders(*, force: bool = False) -> dict[str, int | bool]:
+    """Send only on explicit request unless the administrator enabled automatic delivery."""
     today = date.today()
+    sent_count = 0
+    contract_count = 0
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
+            if not force and not contract_reminders_auto_enabled(cursor):
+                return {"sent": 0, "contracts": 0, "automatic": False}
             users = all_users(cursor)
             admins = [user for user in users if "Admin" in user["role_tags"]]
             for contract in contract_deadlines_from_fiches(cursor, today):
+                contract_count += 1
                 recipients = {admin["email"] for admin in admins}
                 if contract["manager_email"]:
                     recipients.add(contract["manager_email"])
@@ -792,7 +823,9 @@ def run_contract_end_reminders() -> None:
                             """,
                             (contract["reminder_key"], contract["contract_end_date"], recipient_email),
                         )
+                        sent_count += 1
         connection.commit()
+        return {"sent": sent_count, "contracts": contract_count, "automatic": not force}
     finally:
         connection.close()
 
@@ -1420,6 +1453,7 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
     try:
         with connection.cursor() as cursor:
             ensure_annual_interviews(cursor, current_year)
+            auto_send = contract_reminders_auto_enabled(cursor)
             users = all_users(cursor)
             visible_users = users_visible_to_actor(cursor, actor, users)
             visible_usernames = {user["username"] for user in visible_users}
@@ -1451,11 +1485,42 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
         connection.commit()
         return {
             "year": current_year,
+            "contract_reminders_auto_send": auto_send,
             "contracts": sorted(contracts, key=lambda item: (item["days_remaining"], item["employee_name"].casefold())),
             "interviews": interviews,
         }
     finally:
         connection.close()
+
+
+@app.patch("/settings/contract-reminders")
+def update_contract_reminder_settings(
+    payload: ContractReminderSettingsRequest,
+    _: dict[str, Any] = Depends(require_roles("Admin")),
+) -> dict[str, Any]:
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO app_settings (setting_key, setting_value)
+                VALUES ('contract_reminders_auto_send', %s)
+                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+                """,
+                ("1" if payload.auto_send else "0",),
+            )
+        connection.commit()
+        return {"status": "success", "auto_send": payload.auto_send}
+    finally:
+        connection.close()
+
+
+@app.post("/contract-reminders/send")
+def send_contract_reminders_now(
+    _: dict[str, Any] = Depends(require_roles("Admin")),
+) -> dict[str, int | bool]:
+    """Explicitly dispatch the currently due contract reminders after UI confirmation."""
+    return run_contract_end_reminders(force=True)
 
 
 @app.patch("/annual-interviews/{employee_username}/{interview_year}")
