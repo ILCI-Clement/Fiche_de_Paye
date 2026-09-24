@@ -497,10 +497,12 @@ def sync_all_contract_dates(cursor: pymysql.cursors.Cursor) -> None:
             )
 
 
-def fiche_display_names_by_account(cursor: pymysql.cursors.Cursor) -> dict[str, str]:
-    """Use the name shown on the fiche when presenting an account's contract deadline."""
-    names: dict[str, str] = {}
-    cursor.execute("SELECT form_content FROM Presence")
+def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) -> list[dict[str, Any]]:
+    """Return all fiche contracts ending within ten days, including people without an app account."""
+    records: list[dict[str, Any]] = []
+    represented_accounts: set[str] = set()
+    seen_references: set[str] = set()
+    cursor.execute("SELECT user_id, form_content FROM Presence")
     for row in cursor.fetchall():
         content = row.get("form_content")
         try:
@@ -511,10 +513,66 @@ def fiche_display_names_by_account(cursor: pymysql.cursors.Cursor) -> dict[str, 
             if not isinstance(employee, dict):
                 continue
             account_username = resolve_fiche_account_username(cursor, employee)
-            display_name = fiche_display_name(employee)
-            if account_username and display_name and account_username not in names:
-                names[account_username] = display_name
-    return names
+            display_name = fiche_display_name(employee) or account_username or "Employé sans nom"
+            _, end_date, is_cdi = fiche_contract_values(employee)
+            if not isinstance(end_date, date) or is_cdi:
+                continue
+            days_remaining = (end_date - today).days
+            if not 0 <= days_remaining <= 10:
+                continue
+            record_id = f"{row['user_id']}:{employee.get('id') or display_name.casefold()}"
+            reminder_key = account_username or f"fiche:{hashlib.sha256(record_id.encode()).hexdigest()[:32]}"
+            if reminder_key in seen_references:
+                continue
+            seen_references.add(reminder_key)
+            if account_username:
+                represented_accounts.add(account_username)
+                account = load_user(cursor, account_username)
+            else:
+                account = None
+            manager_username = account.get("manager_username") if account else None
+            manager = load_user(cursor, manager_username) if manager_username else None
+            manager_email = str(employee.get("email_responsable") or "").strip()
+            if not manager_email and manager:
+                manager_email = str(manager["email"])
+            records.append(
+                {
+                    "reminder_key": reminder_key,
+                    "employee_username": account_username,
+                    "employee_name": display_name,
+                    "contract_end_date": end_date,
+                    "days_remaining": days_remaining,
+                    "manager_username": manager_username,
+                    "manager_name": str(employee.get("responsable") or manager_username or "—"),
+                    "manager_email": manager_email,
+                }
+            )
+
+    # Keep contracts maintained directly on an account when that account has no fiche yet.
+    for user in all_users(cursor):
+        if user["username"] in represented_accounts:
+            continue
+        end_date = user.get("contract_end_date")
+        if not isinstance(end_date, date) or bool(user.get("is_cdi")):
+            continue
+        days_remaining = (end_date - today).days
+        if not 0 <= days_remaining <= 10:
+            continue
+        manager_username = user.get("manager_username")
+        manager = load_user(cursor, manager_username) if manager_username else None
+        records.append(
+            {
+                "reminder_key": user["username"],
+                "employee_username": user["username"],
+                "employee_name": user["username"],
+                "contract_end_date": end_date,
+                "days_remaining": days_remaining,
+                "manager_username": manager_username,
+                "manager_name": manager_username or "—",
+                "manager_email": str(manager["email"]) if manager else "",
+            }
+        )
+    return records
 
 
 def eligible_for_annual_interview(user: dict[str, Any]) -> bool:
@@ -677,20 +735,20 @@ def send_password_reset_email(email: str, token: str) -> bool:
         return False
 
 
-def send_contract_end_reminder_email(recipient_email: str, employee: dict[str, Any], days_remaining: int) -> bool:
+def send_contract_end_reminder_email(recipient_email: str, contract: dict[str, Any]) -> bool:
     """Send a single, actionable contract-end reminder to an admin or direct manager."""
-    end_date = employee.get("contract_end_date")
+    end_date = contract.get("contract_end_date")
     formatted_end_date = end_date.strftime("%d/%m/%Y") if isinstance(end_date, date) else str(end_date)
     message = MIMEMultipart()
     message["From"] = SMTP_USER
     message["To"] = recipient_email
-    message["Subject"] = f"Rappel : fin de contrat de {employee['username']}"
+    message["Subject"] = f"Rappel : fin de contrat de {contract['employee_name']}"
     message.attach(
         MIMEText(
             f"""<h3>Fin de contrat à anticiper</h3>
             <p>Bonjour,</p>
-            <p>Le contrat de <strong>{employee['username']}</strong> se termine le
-            <strong>{formatted_end_date}</strong> ({days_remaining} jour(s) restant(s)).</p>
+            <p>Le contrat de <strong>{contract['employee_name']}</strong> se termine le
+            <strong>{formatted_end_date}</strong> ({contract['days_remaining']} jour(s) restant(s)).</p>
             <p>Merci de vérifier la situation dans le Tableau de bord de Fiches de présence.</p>""",
             "html",
         )
@@ -705,42 +763,34 @@ def send_contract_end_reminder_email(recipient_email: str, employee: dict[str, A
 
 
 def run_contract_end_reminders() -> None:
-    """Notify admins and direct managers once per recipient for contracts ending within ten days."""
+    """Notify admins and direct managers once per recipient for fiche contracts ending within ten days."""
     today = date.today()
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             users = all_users(cursor)
             admins = [user for user in users if "Admin" in user["role_tags"]]
-            for employee in users:
-                end_date = employee.get("contract_end_date")
-                if not isinstance(end_date, date) or bool(employee.get("is_cdi")):
-                    continue
-                days_remaining = (end_date - today).days
-                if not 0 <= days_remaining <= 10:
-                    continue
+            for contract in contract_deadlines_from_fiches(cursor, today):
                 recipients = {admin["email"] for admin in admins}
-                manager_username = employee.get("manager_username")
-                manager = next((user for user in users if user["username"] == manager_username), None)
-                if manager:
-                    recipients.add(manager["email"])
+                if contract["manager_email"]:
+                    recipients.add(contract["manager_email"])
                 for recipient_email in recipients:
                     cursor.execute(
                         """
                         SELECT 1 FROM contract_end_reminders
                         WHERE employee_username = %s AND contract_end_date = %s AND recipient_email = %s
                         """,
-                        (employee["username"], end_date, recipient_email),
+                        (contract["reminder_key"], contract["contract_end_date"], recipient_email),
                     )
                     if cursor.fetchone():
                         continue
-                    if send_contract_end_reminder_email(recipient_email, employee, days_remaining):
+                    if send_contract_end_reminder_email(recipient_email, contract):
                         cursor.execute(
                             """
                             INSERT INTO contract_end_reminders (employee_username, contract_end_date, recipient_email)
                             VALUES (%s, %s, %s)
                             """,
-                            (employee["username"], end_date, recipient_email),
+                            (contract["reminder_key"], contract["contract_end_date"], recipient_email),
                         )
         connection.commit()
     finally:
@@ -1372,24 +1422,18 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
             ensure_annual_interviews(cursor, current_year)
             users = all_users(cursor)
             visible_users = users_visible_to_actor(cursor, actor, users)
-            display_names = fiche_display_names_by_account(cursor)
             visible_usernames = {user["username"] for user in visible_users}
-            contracts = []
-            for user in visible_users:
-                end_date = user.get("contract_end_date")
-                if not isinstance(end_date, date) or bool(user.get("is_cdi")):
-                    continue
-                days_remaining = (end_date - today).days
-                if 0 <= days_remaining <= 10:
-                    contracts.append(
-                        {
-                            "employee_username": user["username"],
-                            "employee_name": display_names.get(user["username"], user["username"]),
-                            "contract_end_date": end_date,
-                            "days_remaining": days_remaining,
-                            "manager_username": user.get("manager_username"),
-                        }
-                    )
+            candidates = contract_deadlines_from_fiches(cursor, today)
+            if "Admin" in actor["role_tags"]:
+                contracts = candidates
+            else:
+                contracts = [
+                    contract
+                    for contract in candidates
+                    if contract.get("employee_username") == actor["username"]
+                    or contract.get("manager_username") == actor["username"]
+                    or str(contract.get("manager_email") or "").casefold() == str(actor["email"]).casefold()
+                ]
             if visible_usernames:
                 placeholders = ", ".join(["%s"] * len(visible_usernames))
                 cursor.execute(
@@ -1407,7 +1451,7 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
         connection.commit()
         return {
             "year": current_year,
-            "contracts": sorted(contracts, key=lambda item: (item["days_remaining"], item["employee_username"].casefold())),
+            "contracts": sorted(contracts, key=lambda item: (item["days_remaining"], item["employee_name"].casefold())),
             "interviews": interviews,
         }
     finally:

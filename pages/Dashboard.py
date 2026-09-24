@@ -61,7 +61,7 @@ with st.expander("Contrats arrivant à échéance", expanded=True):
                     "Employé": item.get("employee_name", item["employee_username"]),
                     "Fin de contrat": as_date(item["contract_end_date"]).strftime("%d/%m/%Y"),
                     "Jours restants": item["days_remaining"],
-                    "Responsable direct": item.get("manager_username") or "—",
+                    "Responsable direct": item.get("manager_name") or item.get("manager_username") or "—",
                 }
                 for item in contracts
             ],
