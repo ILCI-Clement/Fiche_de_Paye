@@ -75,44 +75,43 @@ with st.expander(f"Entretiens annuels {dashboard['year']}", expanded=True):
     st.caption("Une tâche est créée automatiquement chaque année pour chaque personne enregistrée. Mettez-la à jour après l'entretien.")
     if not interviews:
         st.info("Aucun entretien annuel ne relève de votre périmètre.")
-    for interview in interviews:
+    interview_columns = st.columns(3)
+    for index, interview in enumerate(interviews):
         username = str(interview["employee_username"])
         completed = bool(interview.get("completed"))
         status = "Terminé" if completed else "À faire"
-        with st.container(border=True):
-            title_column, status_column = st.columns([5, 1])
-            with title_column:
-                st.markdown(f"**{username}**")
-            with status_column:
-                st.caption(status)
-            with st.form(f"annual_interview_{username}_{dashboard['year']}"):
-                due_date = st.date_input(
-                    "Date cible",
-                    value=as_date(interview["due_date"]),
-                    key=f"interview_due_{username}_{dashboard['year']}",
-                )
-                notes = st.text_area(
-                    "Remarques",
-                    value=str(interview.get("notes") or ""),
-                    key=f"interview_notes_{username}_{dashboard['year']}",
-                    placeholder="Ex. date proposée, points à aborder, compte rendu…",
-                )
-                completed_value = st.checkbox(
-                    "Entretien réalisé",
-                    value=completed,
-                    key=f"interview_completed_{username}_{dashboard['year']}",
-                )
-                if st.form_submit_button("Enregistrer", type="primary"):
-                    update_response = requests.patch(
-                        f"{API_URL}/annual-interviews/{username}/{dashboard['year']}",
-                        headers=HEADERS,
-                        json={
-                            "due_date": due_date.isoformat(),
-                            "notes": notes,
-                            "completed": completed_value,
-                        },
-                        timeout=15,
+        due_date_label = as_date(interview["due_date"]).strftime("%d/%m/%Y")
+        with interview_columns[index % len(interview_columns)]:
+            with st.expander(f"{username} · {status}", expanded=False):
+                st.caption(f"Date cible : {due_date_label}")
+                with st.form(f"annual_interview_{username}_{dashboard['year']}"):
+                    due_date = st.date_input(
+                        "Date cible",
+                        value=as_date(interview["due_date"]),
+                        key=f"interview_due_{username}_{dashboard['year']}",
                     )
-                    if update_response.status_code == 200:
-                        st.rerun()
-                    st.error(api_error(update_response))
+                    notes = st.text_area(
+                        "Remarques",
+                        value=str(interview.get("notes") or ""),
+                        key=f"interview_notes_{username}_{dashboard['year']}",
+                        placeholder="Ex. date proposée, points à aborder, compte rendu…",
+                    )
+                    completed_value = st.checkbox(
+                        "Entretien réalisé",
+                        value=completed,
+                        key=f"interview_completed_{username}_{dashboard['year']}",
+                    )
+                    if st.form_submit_button("Enregistrer", type="primary"):
+                        update_response = requests.patch(
+                            f"{API_URL}/annual-interviews/{username}/{dashboard['year']}",
+                            headers=HEADERS,
+                            json={
+                                "due_date": due_date.isoformat(),
+                                "notes": notes,
+                                "completed": completed_value,
+                            },
+                            timeout=15,
+                        )
+                        if update_response.status_code == 200:
+                            st.rerun()
+                        st.error(api_error(update_response))
