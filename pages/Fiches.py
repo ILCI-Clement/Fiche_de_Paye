@@ -167,7 +167,7 @@ if user_store["employes_data"]:
                             excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"], emp)
                             st.session_state[generated_file_key] = {
                                 "data": excel_buffer.getvalue(),
-                                "filename": f"fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
+                                "filename": f"fiche_presence_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
                                 "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 "download_label": "Télécharger l'Excel",
                                 "employee_name": nom_employe_text,
@@ -504,10 +504,10 @@ if st.button(
                     nom_fichier = nom.replace(" ", "_")
                     if est_stagiaire:
                         fichier = generer_docx_stagiaire(employe, user_store["mois"], user_store["annee"])
-                        filename = f"Fiche_stage_{nom_fichier}_{user_store['mois']}_{user_store['annee']}.docx"
+                        filename = f"fiche_presence_stage_{nom_fichier}_{user_store['mois']}_{user_store['annee']}.docx"
                     else:
                         fichier = remplir_fiche_paie(user_store["mois"], user_store["annee"], employe)
-                        filename = f"fiche_paie_{nom_fichier}_{user_store['mois']}_{user_store['annee']}.xlsx"
+                        filename = f"fiche_presence_{nom_fichier}_{user_store['mois']}_{user_store['annee']}.xlsx"
 
                     payload = {
                         "recipient_email": email,
@@ -642,7 +642,7 @@ if st.button("Générer toutes les fiches", type="primary"):
             if salaries:
                 for idx, salarie in enumerate(salaries):
                     nom_propre = salarie.get("nom", f"Employe_{idx+1}").replace(" ", "_")
-                    file_name = f"Fiche_paie_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx"
+                    file_name = f"fiche_presence_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx"
 
                     excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"],salarie)
 
@@ -651,7 +651,7 @@ if st.button("Générer toutes les fiches", type="primary"):
             if stagiaires:
                 for idx, stagiaire in enumerate(stagiaires):
                     nom_propre = stagiaire.get("nom_stagiaire", f"Stagiaire_{idx+1}").replace(" ", "_")
-                    file_name = f"Fiche_stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx"
+                    file_name = f"fiche_presence_stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx"
 
                     docx_buffer = generer_docx_stagiaire(stagiaire, user_store['mois'], user_store['annee'])
 

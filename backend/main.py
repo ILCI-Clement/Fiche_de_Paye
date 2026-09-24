@@ -17,10 +17,11 @@ import smtplib
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -44,6 +45,8 @@ MAX_FICHE_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_TRANSPORT_RECEIPT_BYTES = 10 * 1024 * 1024
 ESIGN_DOCUMENT_DURATION_HOURS = 24
 CLAWSHOW_CREATE_URL = "https://esign.clawshow.ai/esign/create"
+REMINDER_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
+_reminder_worker_started = False
 
 
 def required_env(name: str) -> str:
@@ -109,6 +112,18 @@ class TransportReceiptUploadRequest(BaseModel):
     employee_username: str
     original_filename: str
     file_b64: str
+
+
+class AnnualInterviewUpdateRequest(BaseModel):
+    due_date: date | None = None
+    notes: str | None = None
+    completed: bool | None = None
+
+
+class ContractUpdateRequest(BaseModel):
+    contract_start_date: date | None = None
+    contract_end_date: date | None = None
+    is_cdi: bool = False
 
 
 def get_db_connection() -> pymysql.Connection:
@@ -196,6 +211,12 @@ def ensure_organization_schema() -> None:
                 cursor.execute("ALTER TABLE users ADD COLUMN remember_token_hash CHAR(64) NULL")
             if "remember_token_expires" not in columns:
                 cursor.execute("ALTER TABLE users ADD COLUMN remember_token_expires DATETIME NULL")
+            if "contract_start_date" not in columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN contract_start_date DATE NULL")
+            if "contract_end_date" not in columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN contract_end_date DATE NULL")
+            if "is_cdi" not in columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN is_cdi TINYINT(1) NOT NULL DEFAULT 0")
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS organization_groups (
@@ -240,6 +261,39 @@ def ensure_organization_schema() -> None:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS annual_interviews (
+                    id INT NOT NULL AUTO_INCREMENT,
+                    employee_username VARCHAR(50) NOT NULL,
+                    interview_year INT NOT NULL,
+                    due_date DATE NOT NULL,
+                    notes TEXT NULL,
+                    completed TINYINT(1) NOT NULL DEFAULT 0,
+                    completed_at DATETIME NULL,
+                    completed_by VARCHAR(50) NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY annual_interviews_employee_year_unique (employee_username, interview_year),
+                    KEY annual_interviews_due_index (completed, due_date),
+                    KEY annual_interviews_employee_index (employee_username)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS contract_end_reminders (
+                    id INT NOT NULL AUTO_INCREMENT,
+                    employee_username VARCHAR(50) NOT NULL,
+                    contract_end_date DATE NOT NULL,
+                    recipient_email VARCHAR(255) NOT NULL,
+                    sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY contract_end_reminder_unique (employee_username, contract_end_date, recipient_email),
+                    KEY contract_end_reminder_employee_index (employee_username)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
         connection.commit()
     finally:
         connection.close()
@@ -248,12 +302,21 @@ def ensure_organization_schema() -> None:
 @app.on_event("startup")
 def migrate_database() -> None:
     ensure_organization_schema()
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            sync_all_contract_dates(cursor)
+        connection.commit()
+    finally:
+        connection.close()
+    start_contract_reminder_worker()
 
 
 def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] | None:
     cursor.execute(
         """
-        SELECT username, email, password_hash, is_admin, role, role_tags, employee_type, manager_username, created_at
+        SELECT username, email, password_hash, is_admin, role, role_tags, employee_type, manager_username,
+               contract_start_date, contract_end_date, is_cdi, created_at
         FROM users WHERE username = %s
         """,
         (username,),
@@ -295,8 +358,124 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "manager_id": user.get("manager_username"),
         "group_ids": user.get("group_ids", []),
         "managed_group_ids": user.get("managed_group_ids", []),
+        "contract_start_date": user.get("contract_start_date"),
+        "contract_end_date": user.get("contract_end_date"),
+        "is_cdi": bool(user.get("is_cdi")),
         "created_at": user.get("created_at"),
     }
+
+
+def parse_optional_date(value: Any) -> date | None:
+    """Return an ISO date when an existing fiche contains a usable date."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def sync_contract_dates_from_config(cursor: pymysql.cursors.Cursor, config: dict[str, Any]) -> None:
+    """Copy contractual dates from existing attendance fiches into user records by e-mail."""
+    for employee in config.get("employes_data", []) if isinstance(config, dict) else []:
+        if not isinstance(employee, dict):
+            continue
+        email = str(employee.get("email_employe") or "").strip()
+        if not email:
+            continue
+        if employee.get("type") == "Stagiaire":
+            start_date = parse_optional_date(employee.get("dds"))
+            end_date = parse_optional_date(employee.get("fds"))
+            is_cdi = False
+        else:
+            start_date = parse_optional_date(employee.get("ddc"))
+            is_cdi = bool(employee.get("cdi"))
+            end_date = None if is_cdi else parse_optional_date(employee.get("fdc"))
+        if not start_date and not end_date and not is_cdi:
+            continue
+        cursor.execute(
+            """
+            UPDATE users
+            SET contract_start_date = %s, contract_end_date = %s, is_cdi = %s
+            WHERE email = %s
+            """,
+            (start_date, end_date, is_cdi, email),
+        )
+
+
+def link_fiche_records_to_users(cursor: pymysql.cursors.Cursor, config: dict[str, Any]) -> bool:
+    """Persist a stable account link for fiche records that originate from an account."""
+    changed = False
+    for employee in config.get("employes_data", []) if isinstance(config, dict) else []:
+        if not isinstance(employee, dict):
+            continue
+        email = str(employee.get("email_employe") or "").strip()
+        if not email:
+            continue
+        cursor.execute("SELECT username FROM users WHERE email = %s", (email,))
+        row = cursor.fetchone()
+        if row and employee.get("account_username") != row["username"]:
+            employee["account_username"] = row["username"]
+            changed = True
+    return changed
+
+
+def sync_all_contract_dates(cursor: pymysql.cursors.Cursor) -> None:
+    """Backfill contract fields from pre-existing saved attendance configurations."""
+    cursor.execute("SELECT user_id, form_content FROM Presence")
+    for row in cursor.fetchall():
+        content = row.get("form_content")
+        try:
+            config = content if isinstance(content, dict) else json.loads(content)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        linked = link_fiche_records_to_users(cursor, config)
+        sync_contract_dates_from_config(cursor, config)
+        if linked:
+            cursor.execute(
+                "UPDATE Presence SET form_content = %s WHERE user_id = %s",
+                (json.dumps(config, default=str), row["user_id"]),
+            )
+
+
+def eligible_for_annual_interview(user: dict[str, Any]) -> bool:
+    # The Admin label is an application permission, not an employment status:
+    # administrators also need their yearly interview to be tracked.
+    return bool({"Admin", "Employe", "Responsable"} & set(user["role_tags"]))
+
+
+def ensure_annual_interviews(cursor: pymysql.cursors.Cursor, year: int) -> None:
+    """Create one annual-interview task per active personnel account and year."""
+    cursor.execute("SELECT username FROM users ORDER BY username")
+    for row in cursor.fetchall():
+        user = load_user(cursor, str(row["username"]))
+        if user and eligible_for_annual_interview(user):
+            cursor.execute(
+                """
+                INSERT IGNORE INTO annual_interviews (employee_username, interview_year, due_date)
+                VALUES (%s, %s, %s)
+                """,
+                (user["username"], year, date(year, 12, 31)),
+            )
+
+
+def all_users(cursor: pymysql.cursors.Cursor) -> list[dict[str, Any]]:
+    cursor.execute("SELECT username FROM users ORDER BY username")
+    return [user for row in cursor.fetchall() if (user := load_user(cursor, str(row["username"])))]
+
+
+def users_visible_to_actor(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if "Admin" in actor["role_tags"]:
+        return users
+    return [
+        user
+        for user in users
+        if user["username"] == actor["username"] or user_can_manage(cursor, actor, user)
+    ]
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
@@ -421,6 +600,94 @@ def send_password_reset_email(email: str, token: str) -> bool:
         return True
     except smtplib.SMTPException:
         return False
+
+
+def send_contract_end_reminder_email(recipient_email: str, employee: dict[str, Any], days_remaining: int) -> bool:
+    """Send a single, actionable contract-end reminder to an admin or direct manager."""
+    end_date = employee.get("contract_end_date")
+    formatted_end_date = end_date.strftime("%d/%m/%Y") if isinstance(end_date, date) else str(end_date)
+    message = MIMEMultipart()
+    message["From"] = SMTP_USER
+    message["To"] = recipient_email
+    message["Subject"] = f"Rappel : fin de contrat de {employee['username']}"
+    message.attach(
+        MIMEText(
+            f"""<h3>Fin de contrat à anticiper</h3>
+            <p>Bonjour,</p>
+            <p>Le contrat de <strong>{employee['username']}</strong> se termine le
+            <strong>{formatted_end_date}</strong> ({days_remaining} jour(s) restant(s)).</p>
+            <p>Merci de vérifier la situation dans le Tableau de bord de Fiches de présence.</p>""",
+            "html",
+        )
+    )
+    try:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, recipient_email, message.as_string())
+        return True
+    except smtplib.SMTPException:
+        return False
+
+
+def run_contract_end_reminders() -> None:
+    """Notify admins and direct managers once per recipient for contracts ending within ten days."""
+    today = date.today()
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            users = all_users(cursor)
+            admins = [user for user in users if "Admin" in user["role_tags"]]
+            for employee in users:
+                end_date = employee.get("contract_end_date")
+                if not isinstance(end_date, date) or bool(employee.get("is_cdi")):
+                    continue
+                days_remaining = (end_date - today).days
+                if not 0 <= days_remaining <= 10:
+                    continue
+                recipients = {admin["email"] for admin in admins}
+                manager_username = employee.get("manager_username")
+                manager = next((user for user in users if user["username"] == manager_username), None)
+                if manager:
+                    recipients.add(manager["email"])
+                for recipient_email in recipients:
+                    cursor.execute(
+                        """
+                        SELECT 1 FROM contract_end_reminders
+                        WHERE employee_username = %s AND contract_end_date = %s AND recipient_email = %s
+                        """,
+                        (employee["username"], end_date, recipient_email),
+                    )
+                    if cursor.fetchone():
+                        continue
+                    if send_contract_end_reminder_email(recipient_email, employee, days_remaining):
+                        cursor.execute(
+                            """
+                            INSERT INTO contract_end_reminders (employee_username, contract_end_date, recipient_email)
+                            VALUES (%s, %s, %s)
+                            """,
+                            (employee["username"], end_date, recipient_email),
+                        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def contract_reminder_worker() -> None:
+    while True:
+        try:
+            run_contract_end_reminders()
+        except Exception:
+            # A transient mail or database outage must not stop the API service.
+            pass
+        time.sleep(REMINDER_CHECK_INTERVAL_SECONDS)
+
+
+def start_contract_reminder_worker() -> None:
+    global _reminder_worker_started
+    if _reminder_worker_started:
+        return
+    _reminder_worker_started = True
+    threading.Thread(target=contract_reminder_worker, name="contract-reminders", daemon=True).start()
 
 
 def e_sign_public_base_url() -> str:
@@ -1019,6 +1286,99 @@ def list_users(actor: dict[str, Any] = Depends(get_current_user)) -> dict[str, A
         connection.close()
 
 
+@app.get("/dashboard")
+def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable"))) -> dict[str, Any]:
+    """Return the operational to-do view for administrators and managers."""
+    current_year = date.today().year
+    today = date.today()
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            ensure_annual_interviews(cursor, current_year)
+            users = all_users(cursor)
+            visible_users = users_visible_to_actor(cursor, actor, users)
+            visible_usernames = {user["username"] for user in visible_users}
+            contracts = []
+            for user in visible_users:
+                end_date = user.get("contract_end_date")
+                if not isinstance(end_date, date) or bool(user.get("is_cdi")):
+                    continue
+                days_remaining = (end_date - today).days
+                if 0 <= days_remaining <= 10:
+                    contracts.append(
+                        {
+                            "employee_username": user["username"],
+                            "contract_end_date": end_date,
+                            "days_remaining": days_remaining,
+                            "manager_username": user.get("manager_username"),
+                        }
+                    )
+            if visible_usernames:
+                placeholders = ", ".join(["%s"] * len(visible_usernames))
+                cursor.execute(
+                    f"""
+                    SELECT employee_username, interview_year, due_date, notes, completed, completed_at, completed_by
+                    FROM annual_interviews
+                    WHERE interview_year = %s AND employee_username IN ({placeholders})
+                    ORDER BY completed ASC, due_date ASC, employee_username ASC
+                    """,
+                    (current_year, *sorted(visible_usernames)),
+                )
+                interviews = cursor.fetchall()
+            else:
+                interviews = []
+        connection.commit()
+        return {
+            "year": current_year,
+            "contracts": sorted(contracts, key=lambda item: (item["days_remaining"], item["employee_username"].casefold())),
+            "interviews": interviews,
+        }
+    finally:
+        connection.close()
+
+
+@app.patch("/annual-interviews/{employee_username}/{interview_year}")
+def update_annual_interview(
+    employee_username: str,
+    interview_year: int,
+    payload: AnnualInterviewUpdateRequest,
+    actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
+) -> dict[str, Any]:
+    if interview_year < 2000 or interview_year > 2100:
+        raise HTTPException(status_code=400, detail="Année d'entretien invalide.")
+    if payload.notes is not None and len(payload.notes) > 5000:
+        raise HTTPException(status_code=400, detail="La remarque est trop longue.")
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            require_target_access(cursor, actor, employee_username, edit=True)
+            ensure_annual_interviews(cursor, interview_year)
+            cursor.execute(
+                "SELECT * FROM annual_interviews WHERE employee_username = %s AND interview_year = %s",
+                (employee_username, interview_year),
+            )
+            interview = cursor.fetchone()
+            if not interview:
+                raise HTTPException(status_code=404, detail="Entretien annuel introuvable.")
+            due_date = payload.due_date if payload.due_date is not None else interview["due_date"]
+            notes = payload.notes if payload.notes is not None else interview.get("notes")
+            completed = bool(interview["completed"]) if payload.completed is None else payload.completed
+            completed_at = datetime.now() if completed else None
+            completed_by = actor["username"] if completed else None
+            cursor.execute(
+                """
+                UPDATE annual_interviews
+                SET due_date = %s, notes = %s, completed = %s, completed_at = %s, completed_by = %s
+                WHERE employee_username = %s AND interview_year = %s
+                """,
+                (due_date, notes, completed, completed_at, completed_by, employee_username, interview_year),
+            )
+        connection.commit()
+        return {"status": "success"}
+    finally:
+        connection.close()
+
+
 @app.put("/users/{target_username}/organization")
 def update_user_organization(
     target_username: str,
@@ -1085,6 +1445,38 @@ def update_user_organization(
         connection.close()
 
 
+@app.patch("/users/{target_username}/contract")
+def update_user_contract(
+    target_username: str,
+    payload: ContractUpdateRequest,
+    actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
+) -> dict[str, Any]:
+    if payload.contract_start_date and payload.contract_end_date and payload.contract_end_date < payload.contract_start_date:
+        raise HTTPException(status_code=400, detail="La fin de contrat ne peut pas précéder le début.")
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            require_target_access(cursor, actor, target_username, edit=True)
+            cursor.execute(
+                """
+                UPDATE users
+                SET contract_start_date = %s, contract_end_date = %s, is_cdi = %s
+                WHERE username = %s
+                """,
+                (
+                    payload.contract_start_date,
+                    None if payload.is_cdi else payload.contract_end_date,
+                    payload.is_cdi,
+                    target_username,
+                ),
+            )
+            updated = load_user(cursor, target_username)
+        connection.commit()
+        return {"status": "success", "user": public_user(updated)}
+    finally:
+        connection.close()
+
+
 @app.patch("/users/{target_username}/direct-manager")
 def assign_direct_manager(
     target_username: str,
@@ -1114,23 +1506,93 @@ def assign_direct_manager(
         connection.close()
 
 
+def fiche_record_belongs_to_user(record: dict[str, Any], username: str, email: str) -> bool:
+    account_username = str(
+        record.get("account_username") or record.get("employee_username") or record.get("user_username") or ""
+    ).strip()
+    record_email = str(record.get("email_employe") or "").strip()
+    return account_username == username or (bool(record_email) and record_email.casefold() == email.casefold())
+
+
+def purge_user_from_saved_fiches(cursor: pymysql.cursors.Cursor, username: str, email: str) -> None:
+    """Remove a deleted person from every saved fiche configuration, not only their own account."""
+    cursor.execute("SELECT user_id, form_content FROM Presence")
+    for row in cursor.fetchall():
+        owner = str(row["user_id"])
+        if owner == username:
+            cursor.execute("DELETE FROM Presence WHERE user_id = %s", (username,))
+            continue
+        content = row.get("form_content")
+        try:
+            config = content if isinstance(content, dict) else json.loads(content)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        employees = config.get("employes_data") if isinstance(config, dict) else None
+        if not isinstance(employees, list):
+            continue
+        changed = False
+        retained: list[dict[str, Any]] = []
+        for employee in employees:
+            if not isinstance(employee, dict):
+                retained.append(employee)
+                continue
+            if fiche_record_belongs_to_user(employee, username, email):
+                changed = True
+                continue
+            manager_email = str(employee.get("email_responsable") or "").strip()
+            if manager_email and manager_email.casefold() == email.casefold():
+                employee["responsable"] = ""
+                employee["email_responsable"] = ""
+                changed = True
+            retained.append(employee)
+        if changed:
+            config["employes_data"] = retained
+            cursor.execute(
+                "UPDATE Presence SET form_content = %s WHERE user_id = %s",
+                (json.dumps(config, default=str), owner),
+            )
+
+
 @app.delete("/delete-user/{username_to_delete}")
 def delete_user(username_to_delete: str, actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable"))) -> dict[str, Any]:
     if username_to_delete == actor["username"]:
         raise HTTPException(status_code=400, detail="Vous ne pouvez pas supprimer votre propre compte.")
     connection = get_db_connection()
+    receipt_files: list[str] = []
     try:
         with connection.cursor() as cursor:
             target = require_target_access(cursor, actor, username_to_delete, edit=True)
             if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"] and "Employe" not in target["role_tags"]:
                 raise HTTPException(status_code=403, detail="Un Responsable ne peut supprimer qu'un Employé.")
+            cursor.execute(
+                """
+                SELECT stored_filename FROM transport_receipts
+                WHERE employee_username = %s OR uploaded_by = %s OR archived_by = %s
+                """,
+                (username_to_delete, username_to_delete, username_to_delete),
+            )
+            receipt_files = [str(row["stored_filename"]) for row in cursor.fetchall()]
+            purge_user_from_saved_fiches(cursor, username_to_delete, str(target["email"]))
             cursor.execute("UPDATE users SET manager_username = NULL WHERE manager_username = %s", (username_to_delete,))
+            cursor.execute(
+                "DELETE FROM transport_receipts WHERE employee_username = %s OR uploaded_by = %s OR archived_by = %s",
+                (username_to_delete, username_to_delete, username_to_delete),
+            )
+            cursor.execute("DELETE FROM annual_interviews WHERE employee_username = %s", (username_to_delete,))
+            cursor.execute("UPDATE annual_interviews SET completed_by = NULL WHERE completed_by = %s", (username_to_delete,))
+            cursor.execute(
+                "DELETE FROM contract_end_reminders WHERE employee_username = %s OR recipient_email = %s",
+                (username_to_delete, target["email"]),
+            )
             cursor.execute("DELETE FROM user_group_memberships WHERE username = %s", (username_to_delete,))
             cursor.execute("DELETE FROM users WHERE username = %s", (username_to_delete,))
         connection.commit()
-        return {"status": "success", "message": "Compte supprimé. Les fiches de présence existantes sont conservées."}
     finally:
         connection.close()
+    for stored_name in receipt_files:
+        if Path(stored_name).name == stored_name:
+            (TRANSPORT_RECEIPTS_DIR / stored_name).unlink(missing_ok=True)
+    return {"status": "success", "message": "Compte et données associées supprimés définitivement."}
 
 
 @app.put("/update_profile/{username}")
@@ -1267,6 +1729,8 @@ def save_config(user_id: str, data: dict[str, Any], actor: dict[str, Any] = Depe
     try:
         with connection.cursor() as cursor:
             require_target_access(cursor, actor, user_id, edit=True)
+            link_fiche_records_to_users(cursor, data)
+            sync_contract_dates_from_config(cursor, data)
             serialized = json.dumps(data, default=str)
             cursor.execute(
                 """

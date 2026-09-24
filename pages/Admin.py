@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import requests
 import streamlit as st
 
@@ -119,6 +121,17 @@ def save_organization(username: str, payload: dict) -> None:
     st.error(api_error(response))
 
 
+def optional_date(value: object) -> date | None:
+    if isinstance(value, date):
+        return value
+    if value:
+        try:
+            return date.fromisoformat(str(value))
+        except ValueError:
+            return None
+    return None
+
+
 with st.expander("Utilisateurs enregistrés", expanded=True):
     with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
         st.caption(f"{len(users)} utilisateur(s) enregistré(s). Cliquez sur une ligne pour ouvrir sa fiche.")
@@ -200,6 +213,42 @@ if selected_username:
             border="horizontal",
             width="content",
         )
+
+    with st.expander("Contrat et échéances", expanded=False):
+        st.caption("Ces informations alimentent le Tableau de bord et le rappel automatique envoyé 10 jours avant une fin de contrat.")
+        with st.form(f"contract_{selected_username}"):
+            contract_start = st.date_input(
+                "Début de contrat",
+                value=optional_date(selected_user.get("contract_start_date")),
+                key=f"contract_start_{selected_username}",
+            )
+            is_cdi = st.checkbox(
+                "Contrat CDI / sans date de fin",
+                value=bool(selected_user.get("is_cdi")),
+                key=f"contract_cdi_{selected_username}",
+            )
+            contract_end = None
+            if not is_cdi:
+                contract_end = st.date_input(
+                    "Fin de contrat",
+                    value=optional_date(selected_user.get("contract_end_date")),
+                    key=f"contract_end_{selected_username}",
+                )
+            if st.form_submit_button("Enregistrer les dates de contrat", type="primary"):
+                response = requests.patch(
+                    f"{API_URL}/users/{selected_username}/contract",
+                    headers=HEADERS,
+                    json={
+                        "contract_start_date": contract_start.isoformat() if contract_start else None,
+                        "contract_end_date": contract_end.isoformat() if contract_end else None,
+                        "is_cdi": is_cdi,
+                    },
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    st.success("Informations contractuelles enregistrées.")
+                    st.rerun()
+                st.error(api_error(response))
 
     with st.expander("Fonction et étiquettes", expanded=False):
         with st.form(f"identity_{selected_username}"):
@@ -311,7 +360,7 @@ if selected_username:
             st.caption("Votre propre compte ne peut pas être supprimé ici.")
         else:
             confirmation = st.checkbox(
-                "Je confirme la suppression du compte. Les fiches existantes sont conservées.",
+                "Je confirme la suppression définitive du compte et de ses données locales associées.",
                 key=f"delete_confirmation_{selected_username}",
             )
             if st.button("Supprimer le compte", disabled=not confirmation, key=f"delete_{selected_username}"):
