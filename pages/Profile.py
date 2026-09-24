@@ -5,7 +5,8 @@ from api_client import api_url, authenticated_headers
 headers = authenticated_headers()
 API_URL = api_url()
 
-st.title("Mes Infos Personnelles")
+st.title("Paramètres")
+st.caption("Modifiez uniquement les informations de votre propre compte.")
 
 current_user = st.session_state["user"]["name"]
 

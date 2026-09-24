@@ -55,7 +55,7 @@ if not st.session_state["user"]:
 
 login_page = st.Page("pages/Login.py", title="Connexion")
 fiches_page = st.Page("pages/Fiches.py", title="Création de Fiches")
-profile_page = st.Page("pages/Profile.py", title="Infos Personnelles")
+profile_page = st.Page("pages/Profile.py", title="Paramètres")
 admin_page = st.Page("pages/Admin.py", title="Administration")
 people_page = st.Page("pages/People.py", title="Personnel")
 transport_receipts_page = st.Page("pages/TransportReceipts.py", title="Justificatifs de transport")
