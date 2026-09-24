@@ -104,6 +104,13 @@ with st.expander("Contrats arrivant à échéance", expanded=True):
                 if setting_response.status_code == 200:
                     st.rerun()
                 st.error(api_error(setting_response))
+            if st.button(
+                "Envoyer les rappels maintenant",
+                disabled=not contracts,
+                width="stretch",
+                help="Ouvre une confirmation avant l'envoi des rappels actuellement dus.",
+            ):
+                confirm_contract_reminders()
         else:
             st.caption("L'envoi est décidé par un administrateur.")
     if contracts:
