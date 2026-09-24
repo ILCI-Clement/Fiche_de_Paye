@@ -90,7 +90,7 @@ if st.button("Ajouter un employé / stagiaire", width="stretch"):
     user_store["employes_data"].append({
         "id": int(time.time() * 1000),
         "type": "Salarié",
-        "nom": "", "email_employe": "", "responsable": "", "email_responsable": "", "ddc": None, "fdc": None, "cdi": False,
+        "nom": "", "email_employe": "", "account_username": "", "responsable": "", "email_responsable": "", "ddc": None, "fdc": None, "cdi": False,
         "vacances": [], "absences": [], "arret": [],
         "calendar_overrides": {},
         "planning_detail": {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": j not in ("Samedi", "Dimanche")} for j in ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]}

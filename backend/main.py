@@ -379,31 +379,87 @@ def parse_optional_date(value: Any) -> date | None:
     return None
 
 
+def fiche_display_name(employee: dict[str, Any]) -> str:
+    """Return the employee-facing name from a fiche record."""
+    if employee.get("type") == "Stagiaire":
+        return " ".join(
+            value.strip()
+            for value in (str(employee.get("prenom_stagiaire") or ""), str(employee.get("nom_stagiaire") or ""))
+            if value.strip()
+        )
+    return str(employee.get("nom") or "").strip()
+
+
+def fiche_contract_values(employee: dict[str, Any]) -> tuple[date | None, date | None, bool]:
+    if employee.get("type") == "Stagiaire":
+        return (
+            parse_optional_date(employee.get("dds")),
+            parse_optional_date(employee.get("fds")),
+            False,
+        )
+    is_cdi = bool(employee.get("cdi"))
+    return (
+        parse_optional_date(employee.get("ddc")),
+        None if is_cdi else parse_optional_date(employee.get("fdc")),
+        is_cdi,
+    )
+
+
+def resolve_fiche_account_username(cursor: pymysql.cursors.Cursor, employee: dict[str, Any]) -> str | None:
+    """Resolve a fiche to an account; the recorded employee name wins over an e-mail fallback."""
+    employee_name = fiche_display_name(employee)
+    if employee_name:
+        cursor.execute("SELECT username FROM users WHERE LOWER(username) = LOWER(%s)", (employee_name,))
+        row = cursor.fetchone()
+        if row:
+            return str(row["username"])
+    account_username = str(employee.get("account_username") or "").strip()
+    if account_username:
+        cursor.execute("SELECT username FROM users WHERE LOWER(username) = LOWER(%s)", (account_username,))
+        row = cursor.fetchone()
+        if row:
+            return str(row["username"])
+    email = str(employee.get("email_employe") or "").strip()
+    if email:
+        cursor.execute("SELECT username FROM users WHERE email = %s", (email,))
+        row = cursor.fetchone()
+        if row:
+            return str(row["username"])
+    return None
+
+
+def clear_mislinked_contract(cursor: pymysql.cursors.Cursor, username: str, employee: dict[str, Any]) -> None:
+    """Remove a contract only when it exactly matches the fiche that was previously linked by mistake."""
+    start_date, end_date, is_cdi = fiche_contract_values(employee)
+    cursor.execute(
+        """
+        UPDATE users
+        SET contract_start_date = NULL, contract_end_date = NULL, is_cdi = 0
+        WHERE username = %s
+          AND contract_start_date <=> %s
+          AND contract_end_date <=> %s
+          AND is_cdi = %s
+        """,
+        (username, start_date, end_date, is_cdi),
+    )
+
+
 def sync_contract_dates_from_config(cursor: pymysql.cursors.Cursor, config: dict[str, Any]) -> None:
-    """Copy contractual dates from existing attendance fiches into user records by e-mail."""
+    """Copy fiche contract dates only to the resolved employee account, never to an unrelated e-mail owner."""
     for employee in config.get("employes_data", []) if isinstance(config, dict) else []:
         if not isinstance(employee, dict):
             continue
-        email = str(employee.get("email_employe") or "").strip()
-        if not email:
-            continue
-        if employee.get("type") == "Stagiaire":
-            start_date = parse_optional_date(employee.get("dds"))
-            end_date = parse_optional_date(employee.get("fds"))
-            is_cdi = False
-        else:
-            start_date = parse_optional_date(employee.get("ddc"))
-            is_cdi = bool(employee.get("cdi"))
-            end_date = None if is_cdi else parse_optional_date(employee.get("fdc"))
-        if not start_date and not end_date and not is_cdi:
+        account_username = resolve_fiche_account_username(cursor, employee)
+        start_date, end_date, is_cdi = fiche_contract_values(employee)
+        if not account_username or (not start_date and not end_date and not is_cdi):
             continue
         cursor.execute(
             """
             UPDATE users
             SET contract_start_date = %s, contract_end_date = %s, is_cdi = %s
-            WHERE email = %s
+            WHERE username = %s
             """,
-            (start_date, end_date, is_cdi, email),
+            (start_date, end_date, is_cdi, account_username),
         )
 
 
@@ -413,13 +469,12 @@ def link_fiche_records_to_users(cursor: pymysql.cursors.Cursor, config: dict[str
     for employee in config.get("employes_data", []) if isinstance(config, dict) else []:
         if not isinstance(employee, dict):
             continue
-        email = str(employee.get("email_employe") or "").strip()
-        if not email:
-            continue
-        cursor.execute("SELECT username FROM users WHERE email = %s", (email,))
-        row = cursor.fetchone()
-        if row and employee.get("account_username") != row["username"]:
-            employee["account_username"] = row["username"]
+        resolved_username = resolve_fiche_account_username(cursor, employee)
+        previous_username = str(employee.get("account_username") or "").strip()
+        if resolved_username and previous_username != resolved_username:
+            if previous_username:
+                clear_mislinked_contract(cursor, previous_username, employee)
+            employee["account_username"] = resolved_username
             changed = True
     return changed
 
@@ -440,6 +495,26 @@ def sync_all_contract_dates(cursor: pymysql.cursors.Cursor) -> None:
                 "UPDATE Presence SET form_content = %s WHERE user_id = %s",
                 (json.dumps(config, default=str), row["user_id"]),
             )
+
+
+def fiche_display_names_by_account(cursor: pymysql.cursors.Cursor) -> dict[str, str]:
+    """Use the name shown on the fiche when presenting an account's contract deadline."""
+    names: dict[str, str] = {}
+    cursor.execute("SELECT form_content FROM Presence")
+    for row in cursor.fetchall():
+        content = row.get("form_content")
+        try:
+            config = content if isinstance(content, dict) else json.loads(content)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        for employee in config.get("employes_data", []) if isinstance(config, dict) else []:
+            if not isinstance(employee, dict):
+                continue
+            account_username = resolve_fiche_account_username(cursor, employee)
+            display_name = fiche_display_name(employee)
+            if account_username and display_name and account_username not in names:
+                names[account_username] = display_name
+    return names
 
 
 def eligible_for_annual_interview(user: dict[str, Any]) -> bool:
@@ -1297,6 +1372,7 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
             ensure_annual_interviews(cursor, current_year)
             users = all_users(cursor)
             visible_users = users_visible_to_actor(cursor, actor, users)
+            display_names = fiche_display_names_by_account(cursor)
             visible_usernames = {user["username"] for user in visible_users}
             contracts = []
             for user in visible_users:
@@ -1308,6 +1384,7 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
                     contracts.append(
                         {
                             "employee_username": user["username"],
+                            "employee_name": display_names.get(user["username"], user["username"]),
                             "contract_end_date": end_date,
                             "days_remaining": days_remaining,
                             "manager_username": user.get("manager_username"),
