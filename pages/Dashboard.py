@@ -8,7 +8,7 @@ import requests
 import streamlit as st
 
 from access_control import role_tags
-from api_client import api_url, authenticated_headers
+from api_client import api_url, authenticated_headers, safe_api_request
 
 
 API_URL = api_url()
@@ -34,7 +34,9 @@ def as_date(value: object) -> date:
     return date.fromisoformat(str(value))
 
 
-response = requests.get(f"{API_URL}/dashboard", headers=HEADERS, timeout=15)
+response = safe_api_request("GET", f"{API_URL}/dashboard", headers=HEADERS)
+if response is None:
+    st.stop()
 if response.status_code != 200:
     st.error(api_error(response))
     st.stop()
@@ -51,8 +53,8 @@ contract_signature = "|".join(
 contract_prompt_key = "contract_reminder_prompt_acknowledged"
 
 
-def send_due_contract_reminders() -> requests.Response:
-    return requests.post(f"{API_URL}/contract-reminders/send", headers=HEADERS, timeout=30)
+def send_due_contract_reminders() -> requests.Response | None:
+    return safe_api_request("POST", f"{API_URL}/contract-reminders/send", headers=HEADERS, timeout=30)
 
 
 @st.dialog("Envoyer les rappels de fin de contrat ?")
@@ -63,15 +65,45 @@ def confirm_contract_reminders() -> None:
     with send_column:
         if st.button("Envoyer maintenant", type="primary", width="stretch"):
             send_response = send_due_contract_reminders()
-            if send_response.status_code == 200:
+            if send_response is not None and send_response.status_code == 200:
                 result = send_response.json()
                 st.session_state[contract_prompt_key] = contract_signature
                 st.success(f"{result['sent']} e-mail(s) de rappel envoyé(s).")
                 st.rerun()
-            st.error(api_error(send_response))
+            if send_response is not None:
+                st.error(api_error(send_response))
     with cancel_column:
         if st.button("Pas maintenant", width="stretch"):
             st.session_state[contract_prompt_key] = contract_signature
+            st.rerun()
+
+
+@st.dialog("Renvoyer le rappel de contrat ?")
+def confirm_contract_reminder_resend(contract: dict) -> None:
+    employee_name = str(contract.get("employee_name") or contract.get("employee_username") or "cet employé")
+    st.write(f"Un nouveau rappel sera envoyé aux administrateurs et au responsable direct de {employee_name}.")
+    st.caption("Cette action est volontairement un renvoi : elle peut donc créer un e-mail supplémentaire.")
+    send_column, cancel_column = st.columns(2)
+    with send_column:
+        if st.button("Renvoyer", type="primary", width="stretch"):
+            resend_response = safe_api_request(
+                "POST",
+                f"{API_URL}/contract-reminders/resend",
+                headers=HEADERS,
+                json={
+                    "reminder_key": contract["reminder_key"],
+                    "contract_end_date": as_date(contract["contract_end_date"]).isoformat(),
+                },
+                timeout=30,
+            )
+            if resend_response is not None and resend_response.status_code == 200:
+                result = resend_response.json()
+                st.success(f"{result['sent']} e-mail(s) de rappel renvoyé(s).")
+                st.rerun()
+            if resend_response is not None:
+                st.error(api_error(resend_response))
+    with cancel_column:
+        if st.button("Annuler", width="stretch"):
             st.rerun()
 
 st.title("Tableau de bord")
@@ -95,15 +127,16 @@ with st.expander("Contrats arrivant à échéance", expanded=True):
                 help="Si cette option est désactivée, une confirmation est demandée dans ce tableau de bord avant tout envoi.",
             )
             if desired_auto_send != auto_send_enabled:
-                setting_response = requests.patch(
+                setting_response = safe_api_request(
+                    "PATCH",
                     f"{API_URL}/settings/contract-reminders",
                     headers=HEADERS,
                     json={"auto_send": desired_auto_send},
-                    timeout=15,
                 )
-                if setting_response.status_code == 200:
+                if setting_response is not None and setting_response.status_code == 200:
                     st.rerun()
-                st.error(api_error(setting_response))
+                if setting_response is not None:
+                    st.error(api_error(setting_response))
             if st.button(
                 "Envoyer les rappels maintenant",
                 disabled=not contracts,
@@ -127,6 +160,20 @@ with st.expander("Contrats arrivant à échéance", expanded=True):
             hide_index=True,
             width="stretch",
         )
+        if is_admin:
+            contract_options = [
+                f"{item.get('employee_name') or item.get('employee_username')} · "
+                f"{as_date(item['contract_end_date']).strftime('%d/%m/%Y')}"
+                for item in contracts
+            ]
+            selected_contract_index = st.selectbox(
+                "Rappel à renvoyer",
+                options=range(len(contracts)),
+                format_func=lambda index: contract_options[index],
+                key="contract_reminder_resend_target",
+            )
+            if st.button("Renvoyer ce rappel", help="Renvoie uniquement le rappel du collaborateur sélectionné."):
+                confirm_contract_reminder_resend(contracts[selected_contract_index])
     else:
         st.success("Aucun contrat ne se termine dans les 10 prochains jours.")
 
@@ -164,7 +211,8 @@ with st.expander(f"Entretiens annuels {dashboard['year']}", expanded=True):
                         key=f"interview_completed_{username}_{dashboard['year']}",
                     )
                     if st.form_submit_button("Enregistrer", type="primary"):
-                        update_response = requests.patch(
+                        update_response = safe_api_request(
+                            "PATCH",
                             f"{API_URL}/annual-interviews/{username}/{dashboard['year']}",
                             headers=HEADERS,
                             json={
@@ -172,8 +220,8 @@ with st.expander(f"Entretiens annuels {dashboard['year']}", expanded=True):
                                 "notes": notes,
                                 "completed": completed_value,
                             },
-                            timeout=15,
                         )
-                        if update_response.status_code == 200:
+                        if update_response is not None and update_response.status_code == 200:
                             st.rerun()
-                        st.error(api_error(update_response))
+                        if update_response is not None:
+                            st.error(api_error(update_response))

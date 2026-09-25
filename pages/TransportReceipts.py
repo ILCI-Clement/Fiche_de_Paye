@@ -9,7 +9,7 @@ import requests
 import streamlit as st
 
 from access_control import role_tags
-from api_client import api_url, authenticated_headers
+from api_client import api_url, authenticated_headers, safe_api_request
 
 
 API_URL = api_url()
@@ -30,12 +30,14 @@ def response_detail(response: requests.Response) -> str:
 
 
 def load_receipts() -> list[dict]:
-    response = requests.get(
+    response = safe_api_request(
+        "GET",
         f"{API_URL}/transport-receipts",
         headers=HEADERS,
         params={"include_archived": "true"},
-        timeout=15,
     )
+    if response is None:
+        st.stop()
     if response.status_code != 200:
         st.error(response_detail(response))
         st.stop()
@@ -61,7 +63,9 @@ def created_this_month(receipt: dict) -> bool:
 st.title("Justificatifs de transport")
 st.caption("Déposez un justificatif de transport pour un utilisateur enregistré. Les fichiers acceptés sont PDF, JPG et PNG, jusqu'à 10 Mo.")
 
-assignees_response = requests.get(f"{API_URL}/transport-receipts/assignees", headers=HEADERS, timeout=15)
+assignees_response = safe_api_request("GET", f"{API_URL}/transport-receipts/assignees", headers=HEADERS)
+if assignees_response is None:
+    st.stop()
 if assignees_response.status_code != 200:
     st.error(response_detail(assignees_response))
     st.stop()
@@ -82,16 +86,14 @@ with st.expander("Ajouter un justificatif", expanded=True):
                     "original_filename": uploaded_file.name,
                     "file_b64": base64.b64encode(uploaded_file.getvalue()).decode("utf-8"),
                 }
-                try:
-                    response = requests.post(f"{API_URL}/transport-receipts", headers=HEADERS, json=payload, timeout=30)
-                except requests.RequestException as error:
-                    st.error(f"Impossible de joindre le serveur : {error}")
-                else:
-                    if response.status_code == 200:
-                        st.success("Justificatif enregistré.")
-                        st.rerun()
-                    else:
-                        st.error(response_detail(response))
+                response = safe_api_request(
+                    "POST", f"{API_URL}/transport-receipts", headers=HEADERS, json=payload, timeout=30
+                )
+                if response is not None and response.status_code == 200:
+                    st.success("Justificatif enregistré.")
+                    st.rerun()
+                elif response is not None:
+                    st.error(response_detail(response))
 
 receipts = load_receipts()
 current_month_count = sum(1 for receipt in receipts if created_this_month(receipt))
@@ -135,30 +137,24 @@ for receipt in visible_receipts:
                     key=f"download_receipt_{receipt_id}",
                 )
             elif st.button("Préparer", key=f"prepare_receipt_{receipt_id}"):
-                try:
-                    file_response = requests.get(
-                        f"{API_URL}/transport-receipts/{receipt_id}/file",
-                        headers=HEADERS,
-                        timeout=30,
-                    )
-                    if file_response.status_code == 200:
-                        st.session_state[download_key] = file_response.content
-                        st.rerun()
-                    else:
-                        st.error(response_detail(file_response))
-                except requests.RequestException:
-                    st.error("Fichier indisponible.")
+                file_response = safe_api_request(
+                    "GET", f"{API_URL}/transport-receipts/{receipt_id}/file", headers=HEADERS, timeout=30
+                )
+                if file_response is not None and file_response.status_code == 200:
+                    st.session_state[download_key] = file_response.content
+                    st.rerun()
+                elif file_response is not None:
+                    st.error(response_detail(file_response))
         if "Admin" in USER_TAGS:
             with archive_column:
                 if not archived and st.button("Archiver", key=f"archive_receipt_{receipt_id}"):
-                    response = requests.patch(
-                        f"{API_URL}/transport-receipts/{receipt_id}/archive",
-                        headers=HEADERS,
-                        timeout=15,
+                    response = safe_api_request(
+                        "PATCH", f"{API_URL}/transport-receipts/{receipt_id}/archive", headers=HEADERS
                     )
-                    if response.status_code == 200:
+                    if response is not None and response.status_code == 200:
                         st.rerun()
-                    st.error(response_detail(response))
+                    if response is not None:
+                        st.error(response_detail(response))
         with delete_column:
             may_delete = "Admin" in USER_TAGS or receipt["uploaded_by"] == USER["name"]
             confirm_delete_key = f"confirm_delete_receipt_{receipt_id}"
@@ -186,13 +182,12 @@ for receipt in visible_receipts:
                 st.rerun()
 
             if confirm_delete:
-                response = requests.delete(
-                    f"{API_URL}/transport-receipts/{receipt_id}",
-                    headers=HEADERS,
-                    timeout=15,
+                response = safe_api_request(
+                    "DELETE", f"{API_URL}/transport-receipts/{receipt_id}", headers=HEADERS
                 )
                 st.session_state.pop(confirm_delete_key, None)
-                if response.status_code == 200:
+                if response is not None and response.status_code == 200:
                     st.session_state.pop(f"receipt_download_{receipt_id}", None)
                     st.rerun()
-                st.error(response_detail(response))
+                if response is not None:
+                    st.error(response_detail(response))

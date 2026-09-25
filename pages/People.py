@@ -6,7 +6,7 @@ import requests
 import streamlit as st
 
 from access_control import role_tags
-from api_client import api_url, authenticated_headers
+from api_client import api_url, authenticated_headers, safe_api_request
 
 
 API_URL = api_url()
@@ -27,8 +27,10 @@ def detail(response: requests.Response) -> str:
         return "Une erreur est survenue."
 
 
-users_response = requests.get(f"{API_URL}/list-users", headers=HEADERS, timeout=10)
-groups_response = requests.get(f"{API_URL}/groups", headers=HEADERS, timeout=10)
+users_response = safe_api_request("GET", f"{API_URL}/list-users", headers=HEADERS)
+groups_response = safe_api_request("GET", f"{API_URL}/groups", headers=HEADERS)
+if users_response is None or groups_response is None:
+    st.stop()
 if users_response.status_code != 200 or groups_response.status_code != 200:
     st.error(detail(users_response if users_response.status_code != 200 else groups_response))
     st.stop()
@@ -76,7 +78,8 @@ if "Responsable" in USER_TAGS and "Admin" not in USER_TAGS:
         employee_type = st.selectbox("Type de personnel", ["salarie", "stagiaire"])
         selected_groups = st.multiselect("Groupes d'appartenance (facultatif)", group_ids, format_func=lambda group_id: group_names[group_id])
         if st.form_submit_button("Créer l'Employé", type="primary"):
-            response = requests.post(
+            response = safe_api_request(
+                "POST",
                 f"{API_URL}/create-user",
                 headers=HEADERS,
                 json={
@@ -87,10 +90,9 @@ if "Responsable" in USER_TAGS and "Admin" not in USER_TAGS:
                     "employee_type": employee_type,
                     "group_ids": selected_groups,
                 },
-                timeout=10,
             )
-            if response.status_code == 200:
+            if response is not None and response.status_code == 200:
                 st.success("Employé créé.")
                 st.rerun()
-            else:
+            elif response is not None:
                 st.error(detail(response))

@@ -8,7 +8,7 @@ import requests
 import streamlit as st
 
 from access_control import role_tags
-from api_client import api_url, authenticated_headers
+from api_client import api_url, authenticated_headers, safe_api_request
 
 
 API_URL = api_url()
@@ -29,7 +29,9 @@ def api_error(response: requests.Response) -> str:
 
 
 def fetch_groups() -> list[dict]:
-    response = requests.get(f"{API_URL}/groups", headers=HEADERS, timeout=10)
+    response = safe_api_request("GET", f"{API_URL}/groups", headers=HEADERS)
+    if response is None:
+        return []
     if response.status_code != 200:
         st.error(api_error(response))
         return []
@@ -37,7 +39,9 @@ def fetch_groups() -> list[dict]:
 
 
 def fetch_users() -> list[dict]:
-    response = requests.get(f"{API_URL}/list-users", headers=HEADERS, timeout=10)
+    response = safe_api_request("GET", f"{API_URL}/list-users", headers=HEADERS)
+    if response is None:
+        return []
     if response.status_code != 200:
         st.error(api_error(response))
         return []
@@ -109,16 +113,17 @@ def organization_payload(
 
 
 def save_organization(username: str, payload: dict) -> None:
-    response = requests.put(
+    response = safe_api_request(
+        "PUT",
         f"{API_URL}/users/{username}/organization",
         headers=HEADERS,
         json=payload,
-        timeout=10,
     )
-    if response.status_code == 200:
+    if response is not None and response.status_code == 200:
         st.success("Informations enregistrées.")
         st.rerun()
-    st.error(api_error(response))
+    if response is not None:
+        st.error(api_error(response))
 
 
 def optional_date(value: object) -> date | None:
@@ -153,7 +158,8 @@ with st.expander("Utilisateurs enregistrés", expanded=True):
                     placeholder="Sélectionnez un responsable si nécessaire",
                 )
                 if st.form_submit_button("Créer l'utilisateur", type="primary"):
-                    response = requests.post(
+                    response = safe_api_request(
+                        "POST",
                         f"{API_URL}/create-user",
                         headers=HEADERS,
                         json={
@@ -166,12 +172,11 @@ with st.expander("Utilisateurs enregistrés", expanded=True):
                             "managed_group_ids": new_managed_group_ids,
                             "manager_id": new_manager_id,
                         },
-                        timeout=10,
                     )
-                    if response.status_code == 200:
+                    if response is not None and response.status_code == 200:
                         st.success("Utilisateur créé.")
                         st.rerun()
-                    else:
+                    elif response is not None:
                         st.error(api_error(response))
 
     overview_rows = [
@@ -235,7 +240,8 @@ if selected_username:
                     key=f"contract_end_{selected_username}",
                 )
             if st.form_submit_button("Enregistrer les dates de contrat", type="primary"):
-                response = requests.patch(
+                response = safe_api_request(
+                    "PATCH",
                     f"{API_URL}/users/{selected_username}/contract",
                     headers=HEADERS,
                     json={
@@ -243,12 +249,12 @@ if selected_username:
                         "contract_end_date": contract_end.isoformat() if contract_end else None,
                         "is_cdi": is_cdi,
                     },
-                    timeout=10,
                 )
-                if response.status_code == 200:
+                if response is not None and response.status_code == 200:
                     st.success("Informations contractuelles enregistrées.")
                     st.rerun()
-                st.error(api_error(response))
+                if response is not None:
+                    st.error(api_error(response))
 
     with st.expander("Fonction et étiquettes", expanded=False):
         with st.form(f"identity_{selected_username}"):
@@ -341,16 +347,16 @@ if selected_username:
                     current_manager = users_by_name[employee_name].get("manager_id") or "Aucun responsable"
                     st.caption(f"Responsable actuel : {current_manager}")
                     if st.button("Affecter", type="primary", key=f"assign_{selected_username}"):
-                        response = requests.patch(
+                        response = safe_api_request(
+                            "PATCH",
                             f"{API_URL}/users/{employee_name}/direct-manager",
                             headers=HEADERS,
                             json={"manager_id": selected_username},
-                            timeout=10,
                         )
-                        if response.status_code == 200:
+                        if response is not None and response.status_code == 200:
                             st.success("Employé affecté au responsable.")
                             st.rerun()
-                        else:
+                        elif response is not None:
                             st.error(api_error(response))
                 else:
                     st.caption("Aucun Employé existant ne peut être affecté.")
@@ -364,14 +370,14 @@ if selected_username:
                 key=f"delete_confirmation_{selected_username}",
             )
             if st.button("Supprimer le compte", disabled=not confirmation, key=f"delete_{selected_username}"):
-                response = requests.delete(
-                    f"{API_URL}/delete-user/{selected_username}", headers=HEADERS, timeout=10
+                response = safe_api_request(
+                    "DELETE", f"{API_URL}/delete-user/{selected_username}", headers=HEADERS
                 )
-                if response.status_code == 200:
+                if response is not None and response.status_code == 200:
                     st.session_state["admin_selected_username"] = None
                     st.success("Compte supprimé.")
                     st.rerun()
-                else:
+                elif response is not None:
                     st.error(api_error(response))
 
 with st.expander("Gérer les départements", expanded=False):
@@ -381,13 +387,13 @@ with st.expander("Gérer les départements", expanded=False):
             with st.form("create_group_form", clear_on_submit=True):
                 new_group_name = st.text_input("Nom du département")
                 if st.form_submit_button("Créer le département", type="primary"):
-                    response = requests.post(
-                        f"{API_URL}/groups", headers=HEADERS, json={"name": new_group_name}, timeout=10
+                    response = safe_api_request(
+                        "POST", f"{API_URL}/groups", headers=HEADERS, json={"name": new_group_name}
                     )
-                    if response.status_code == 200:
+                    if response is not None and response.status_code == 200:
                         st.success("Département créé.")
                         st.rerun()
-                    else:
+                    elif response is not None:
                         st.error(api_error(response))
 
     if groups:
@@ -400,14 +406,14 @@ with st.expander("Gérer les départements", expanded=False):
             edited_group_name = st.text_input("Nom du département", value=str(selected_group["name"]))
             edited_group_active = st.checkbox("Département actif", value=bool(selected_group["is_active"]))
             if st.form_submit_button("Enregistrer le département", type="primary"):
-                response = requests.put(
-                    f"{API_URL}/groups/{selected_group_id}", headers=HEADERS,
-                    json={"name": edited_group_name, "is_active": edited_group_active}, timeout=10,
+                response = safe_api_request(
+                    "PUT", f"{API_URL}/groups/{selected_group_id}", headers=HEADERS,
+                    json={"name": edited_group_name, "is_active": edited_group_active},
                 )
-                if response.status_code == 200:
+                if response is not None and response.status_code == 200:
                     st.success("Département mis à jour.")
                     st.rerun()
-                else:
+                elif response is not None:
                     st.error(api_error(response))
     else:
         st.info("Créez un département lorsqu'il sera nécessaire.")

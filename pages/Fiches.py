@@ -9,7 +9,7 @@ from ExcelGen import remplir_fiche_paie
 from calendar_view import render_monthly_calendar
 import zipfile
 import io
-from api_client import api_url, authenticated_headers
+from api_client import api_url, authenticated_headers, safe_api_request
 
 # Secrets de streamlit
 API_URL = api_url()
@@ -58,15 +58,18 @@ if "user_data" not in st.session_state:
 if username not in st.session_state.user_data:
     try:
         # Appel GET à l'API pour récupérer le JSON stocké
-        response = requests.get(f"{API_URL}/get-config/{username}", headers=headers)
-        if response.status_code == 200 and response.json():
+        response = safe_api_request("GET", f"{API_URL}/get-config/{username}", headers=headers)
+        if response is not None and response.status_code == 200 and response.json():
             # On récupère les données et on convertit les strings en dates
             raw_data = response.json()
             st.session_state.user_data[username] = deserialize_dates(raw_data)
-        else:
+        elif response is not None:
+            st.error(f"Impossible de charger la configuration ({response.status_code}).")
             st.session_state.user_data[username] = {}
-    except Exception as e:
-        st.error(f"Erreur de connexion au serveur : {e}")
+        else:
+            st.stop()
+    except (ValueError, TypeError) as error:
+        st.error(f"La configuration enregistrée est invalide : {error}")
         st.session_state.user_data[username] = {}
 
 # Raccourci vers les données de l'utilisateur actuel

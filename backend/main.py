@@ -42,6 +42,8 @@ SESSION_DURATION_SECONDS = 8 * 60 * 60
 REMEMBER_SESSION_DURATION_DAYS = 30
 PASSWORD_RESET_DURATION_MINUTES = 15
 MAX_FICHE_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_FICHE_CONFIG_BYTES = 5 * 1024 * 1024
+MAX_FICHE_EMPLOYEES = 100
 MAX_TRANSPORT_RECEIPT_BYTES = 10 * 1024 * 1024
 ESIGN_DOCUMENT_DURATION_HOURS = 24
 CLAWSHOW_CREATE_URL = "https://esign.clawshow.ai/esign/create"
@@ -133,6 +135,11 @@ class ContractUpdateRequest(BaseModel):
 
 class ContractReminderSettingsRequest(BaseModel):
     auto_send: bool
+
+
+class ContractReminderResendRequest(BaseModel):
+    reminder_key: str
+    contract_end_date: date
 
 
 def get_db_connection() -> pymysql.Connection:
@@ -793,6 +800,50 @@ def send_contract_end_reminder_email(recipient_email: str, contract: dict[str, A
         return False
 
 
+def contract_reminder_recipients(cursor: pymysql.cursors.Cursor, contract: dict[str, Any]) -> set[str]:
+    """Return the administrators and direct manager who must receive a reminder."""
+    recipients = {
+        str(user["email"]).strip()
+        for user in all_users(cursor)
+        if "Admin" in user["role_tags"] and str(user.get("email") or "").strip()
+    }
+    manager_email = str(contract.get("manager_email") or "").strip()
+    if manager_email:
+        recipients.add(manager_email)
+    return recipients
+
+
+def claim_contract_end_reminder(
+    cursor: pymysql.cursors.Cursor,
+    contract: dict[str, Any],
+    recipient_email: str,
+) -> bool:
+    """Reserve a normal reminder before sending so concurrent workers cannot duplicate it."""
+    cursor.execute(
+        """
+        INSERT IGNORE INTO contract_end_reminders (employee_username, contract_end_date, recipient_email)
+        VALUES (%s, %s, %s)
+        """,
+        (contract["reminder_key"], contract["contract_end_date"], recipient_email),
+    )
+    return cursor.rowcount == 1
+
+
+def release_contract_end_reminder_claim(
+    cursor: pymysql.cursors.Cursor,
+    contract: dict[str, Any],
+    recipient_email: str,
+) -> None:
+    """Allow a later attempt only when SMTP explicitly reports a failed delivery."""
+    cursor.execute(
+        """
+        DELETE FROM contract_end_reminders
+        WHERE employee_username = %s AND contract_end_date = %s AND recipient_email = %s
+        """,
+        (contract["reminder_key"], contract["contract_end_date"], recipient_email),
+    )
+
+
 def run_contract_end_reminders(*, force: bool = False) -> dict[str, int | bool]:
     """Send only on explicit request unless the administrator enabled automatic delivery."""
     today = date.today()
@@ -803,32 +854,19 @@ def run_contract_end_reminders(*, force: bool = False) -> dict[str, int | bool]:
         with connection.cursor() as cursor:
             if not force and not contract_reminders_auto_enabled(cursor):
                 return {"sent": 0, "contracts": 0, "automatic": False}
-            users = all_users(cursor)
-            admins = [user for user in users if "Admin" in user["role_tags"]]
             for contract in contract_deadlines_from_fiches(cursor, today):
                 contract_count += 1
-                recipients = {admin["email"] for admin in admins}
-                if contract["manager_email"]:
-                    recipients.add(contract["manager_email"])
-                for recipient_email in recipients:
-                    cursor.execute(
-                        """
-                        SELECT 1 FROM contract_end_reminders
-                        WHERE employee_username = %s AND contract_end_date = %s AND recipient_email = %s
-                        """,
-                        (contract["reminder_key"], contract["contract_end_date"], recipient_email),
-                    )
-                    if cursor.fetchone():
+                for recipient_email in contract_reminder_recipients(cursor, contract):
+                    if not claim_contract_end_reminder(cursor, contract, recipient_email):
                         continue
+                    # Commit the reservation before SMTP. If this process stops after delivery,
+                    # a later worker will not risk sending the same HR reminder again.
+                    connection.commit()
                     if send_contract_end_reminder_email(recipient_email, contract):
-                        cursor.execute(
-                            """
-                            INSERT INTO contract_end_reminders (employee_username, contract_end_date, recipient_email)
-                            VALUES (%s, %s, %s)
-                            """,
-                            (contract["reminder_key"], contract["contract_end_date"], recipient_email),
-                        )
                         sent_count += 1
+                    else:
+                        release_contract_end_reminder_claim(cursor, contract, recipient_email)
+                        connection.commit()
         connection.commit()
         return {"sent": sent_count, "contracts": contract_count, "automatic": not force}
     finally:
@@ -1553,6 +1591,45 @@ def send_contract_reminders_now(
     return run_contract_end_reminders(force=True)
 
 
+@app.post("/contract-reminders/resend")
+def resend_contract_reminder(
+    payload: ContractReminderResendRequest,
+    _: dict[str, Any] = Depends(require_roles("Admin")),
+) -> dict[str, Any]:
+    """Explicitly resend one reminder after an administrator confirms the action."""
+    reminder_key = payload.reminder_key.strip()
+    if not reminder_key or len(reminder_key) > 100:
+        raise HTTPException(status_code=400, detail="Référence de rappel invalide.")
+
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            contract = next(
+                (
+                    item
+                    for item in contract_deadlines_from_fiches(cursor, date.today())
+                    if item["reminder_key"] == reminder_key and item["contract_end_date"] == payload.contract_end_date
+                ),
+                None,
+            )
+            if not contract:
+                raise HTTPException(status_code=404, detail="Ce contrat n'est plus dans la période de rappel.")
+            recipients = contract_reminder_recipients(cursor, contract)
+
+        sent_count = sum(
+            1 for recipient_email in recipients if send_contract_end_reminder_email(recipient_email, contract)
+        )
+        if not sent_count:
+            raise HTTPException(status_code=502, detail="Aucun e-mail de rappel n'a pu être envoyé.")
+        return {
+            "status": "success",
+            "sent": sent_count,
+            "employee_name": contract["employee_name"],
+        }
+    finally:
+        connection.close()
+
+
 @app.patch("/annual-interviews/{employee_username}/{interview_year}")
 def update_annual_interview(
     employee_username: str,
@@ -1730,6 +1807,78 @@ def fiche_record_belongs_to_user(record: dict[str, Any], username: str, email: s
     return account_username == username or (bool(record_email) and record_email.casefold() == email.casefold())
 
 
+def serialize_fiche_config(data: dict[str, Any]) -> str:
+    """Validate the flexible legacy fiche payload while putting bounded limits around it."""
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="La configuration de fiche est invalide.")
+    employees = data.get("employes_data", [])
+    if employees is not None:
+        if not isinstance(employees, list) or len(employees) > MAX_FICHE_EMPLOYEES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Une fiche peut contenir au plus {MAX_FICHE_EMPLOYEES} employés.",
+            )
+        if any(not isinstance(employee, dict) for employee in employees):
+            raise HTTPException(status_code=400, detail="Un employé de la fiche est invalide.")
+    try:
+        serialized = json.dumps(data, default=str)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail="La configuration de fiche est invalide.") from error
+    if len(serialized.encode("utf-8")) > MAX_FICHE_CONFIG_BYTES:
+        raise HTTPException(status_code=413, detail="La configuration de fiche dépasse la limite de 5 Mo.")
+    return serialized
+
+
+def migrate_username_in_saved_fiches(
+    cursor: pymysql.cursors.Cursor,
+    old_username: str,
+    new_username: str,
+    old_email: str,
+    new_email: str,
+) -> None:
+    """Update stable account links and manager details in every stored fiche configuration."""
+    cursor.execute("SELECT user_id, form_content FROM Presence")
+    username_fields = {
+        "account_username",
+        "employee_username",
+        "user_username",
+        "manager_username",
+        "responsable_id",
+    }
+    for row in cursor.fetchall():
+        content = row.get("form_content")
+        try:
+            config = content if isinstance(content, dict) else json.loads(content)
+        except (TypeError, json.JSONDecodeError):
+            # Leave historical corrupt content untouched; get_config reports it safely to the owner.
+            continue
+        employees = config.get("employes_data") if isinstance(config, dict) else None
+        if not isinstance(employees, list):
+            continue
+        changed = False
+        for employee in employees:
+            if not isinstance(employee, dict):
+                continue
+            for field in username_fields:
+                if str(employee.get(field) or "") == old_username:
+                    employee[field] = new_username
+                    changed = True
+            # These two fields are displayed to users, but equal usernames are unambiguous links.
+            if str(employee.get("responsable") or "") == old_username:
+                employee["responsable"] = new_username
+                changed = True
+            if old_email != new_email:
+                for field in ("email_employe", "email_responsable"):
+                    if str(employee.get(field) or "").casefold() == old_email.casefold():
+                        employee[field] = new_email
+                        changed = True
+        if changed:
+            cursor.execute(
+                "UPDATE Presence SET form_content = %s WHERE user_id = %s",
+                (serialize_fiche_config(config), row["user_id"]),
+            )
+
+
 def purge_user_from_saved_fiches(cursor: pymysql.cursors.Cursor, username: str, email: str) -> None:
     """Remove a deleted person from every saved fiche configuration, not only their own account."""
     cursor.execute("SELECT user_id, form_content FROM Presence")
@@ -1828,13 +1977,15 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
             updates: list[str] = []
             params: list[Any] = []
             target_username = username
+            target_email = str(user["email"])
             if payload.new_username and payload.new_username != username:
                 updates.append("username = %s")
                 params.append(payload.new_username)
                 target_username = payload.new_username
             if payload.new_email and payload.new_email != user["email"]:
                 updates.append("email = %s")
-                params.append(str(payload.new_email))
+                target_email = str(payload.new_email)
+                params.append(target_email)
             if payload.new_password:
                 updates.append("password_hash = %s")
                 params.append(hash_password(payload.new_password))
@@ -1860,6 +2011,26 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                     cursor.execute(
                         "UPDATE transport_receipts SET archived_by = %s WHERE archived_by = %s",
                         (target_username, username),
+                    )
+                    cursor.execute(
+                        "UPDATE annual_interviews SET employee_username = %s WHERE employee_username = %s",
+                        (target_username, username),
+                    )
+                    cursor.execute(
+                        "UPDATE annual_interviews SET completed_by = %s WHERE completed_by = %s",
+                        (target_username, username),
+                    )
+                    cursor.execute(
+                        "UPDATE contract_end_reminders SET employee_username = %s WHERE employee_username = %s",
+                        (target_username, username),
+                    )
+                if target_username != username or target_email != str(user["email"]):
+                    migrate_username_in_saved_fiches(
+                        cursor,
+                        username,
+                        target_username,
+                        str(user["email"]),
+                        target_email,
                     )
         connection.commit()
         return {
@@ -1934,7 +2105,13 @@ def get_config(user_id: str, actor: dict[str, Any] = Depends(get_current_user)) 
             if not result:
                 return {}
             content = result["form_content"]
-            return content if isinstance(content, dict) else json.loads(content)
+            try:
+                return content if isinstance(content, dict) else json.loads(content)
+            except (TypeError, json.JSONDecodeError):
+                raise HTTPException(
+                    status_code=422,
+                    detail="La configuration enregistrée est invalide. Contactez un administrateur pour la restaurer.",
+                ) from None
     finally:
         connection.close()
 
@@ -1945,9 +2122,10 @@ def save_config(user_id: str, data: dict[str, Any], actor: dict[str, Any] = Depe
     try:
         with connection.cursor() as cursor:
             require_target_access(cursor, actor, user_id, edit=True)
+            serialize_fiche_config(data)
             link_fiche_records_to_users(cursor, data)
             sync_contract_dates_from_config(cursor, data)
-            serialized = json.dumps(data, default=str)
+            serialized = serialize_fiche_config(data)
             cursor.execute(
                 """
                 INSERT INTO Presence (user_id, form_content) VALUES (%s, %s)
