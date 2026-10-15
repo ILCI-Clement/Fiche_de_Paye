@@ -7,16 +7,12 @@ MariaDB schema migration for groups and enforces access server-side.
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import hmac
 import json
 import os
 import secrets
 import smtplib
-import shutil
-import subprocess
-import tempfile
 import threading
 import time
 import urllib.error
@@ -30,7 +26,6 @@ from typing import Any
 import bcrypt
 import pymysql
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, EmailStr
 
 
@@ -46,7 +41,6 @@ MAX_FICHE_CONFIG_BYTES = 5 * 1024 * 1024
 MAX_FICHE_EMPLOYEES = 100
 MAX_TRANSPORT_RECEIPT_BYTES = 10 * 1024 * 1024
 ESIGN_DOCUMENT_DURATION_HOURS = 24
-CLAWSHOW_CREATE_URL = "https://esign.clawshow.ai/esign/create"
 REMINDER_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
 _reminder_worker_started = False
 
@@ -99,26 +93,6 @@ class DirectManagerRequest(BaseModel):
 
 class RememberSessionRequest(BaseModel):
     remember_token: str
-
-
-class ESignFicheRequest(BaseModel):
-    recipient_email: EmailStr
-    employee_name: str
-    month: int
-    year: int
-    filename: str
-    file_b64: str
-
-
-class FichePdfRequest(BaseModel):
-    filename: str
-    file_b64: str
-
-
-class TransportReceiptUploadRequest(BaseModel):
-    employee_username: str
-    original_filename: str
-    file_b64: str
 
 
 class AnnualInterviewUpdateRequest(BaseModel):
@@ -266,6 +240,10 @@ def ensure_organization_schema() -> None:
                     stored_filename VARCHAR(255) NOT NULL,
                     mime_type VARCHAR(100) NOT NULL,
                     size_bytes INT NOT NULL,
+                    document_type VARCHAR(20) NULL,
+                    other_type VARCHAR(120) NULL,
+                    receipt_month INT NULL,
+                    receipt_year INT NULL,
                     archived TINYINT(1) NOT NULL DEFAULT 0,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     archived_at DATETIME NULL,
@@ -276,6 +254,21 @@ def ensure_organization_schema() -> None:
                     KEY transport_receipts_archived_index (archived, created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
+            )
+            # Keep old receipts unclassified; only new uploads receive a category.
+            cursor.execute("SHOW COLUMNS FROM transport_receipts")
+            receipt_columns = {column["Field"] for column in cursor.fetchall()}
+            if "document_type" not in receipt_columns:
+                cursor.execute("ALTER TABLE transport_receipts ADD COLUMN document_type VARCHAR(20) NULL")
+            if "other_type" not in receipt_columns:
+                cursor.execute("ALTER TABLE transport_receipts ADD COLUMN other_type VARCHAR(120) NULL")
+            if "receipt_month" not in receipt_columns:
+                cursor.execute("ALTER TABLE transport_receipts ADD COLUMN receipt_month INT NULL")
+            if "receipt_year" not in receipt_columns:
+                cursor.execute("ALTER TABLE transport_receipts ADD COLUMN receipt_year INT NULL")
+            cursor.execute(
+                "UPDATE transport_receipts SET receipt_month = MONTH(created_at), receipt_year = YEAR(created_at) "
+                "WHERE receipt_month IS NULL OR receipt_year IS NULL"
             )
             cursor.execute(
                 """
@@ -373,6 +366,17 @@ def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] |
         (username,),
     )
     user["managed_group_ids"] = [row["group_id"] for row in cursor.fetchall()]
+    cursor.execute("SHOW TABLES LIKE 'personnel_contracts'")
+    if cursor.fetchone():
+        cursor.execute("SELECT * FROM personnel_contracts WHERE username=%s ORDER BY start_date", (username,))
+        history = cursor.fetchall()
+        if history:
+            current = next((c for c in history if c["start_date"] <= date.today() and (c["end_date"] is None or c["end_date"] >= date.today())), None)
+            user["contract_start_date"] = current["start_date"] if current else None
+            user["contract_end_date"] = current["end_date"] if current else None
+            user["is_cdi"] = current["is_cdi"] if current else False
+            if current:
+                user["employee_type"] = "salarie" if current["employee_type"] == "alternance" else current["employee_type"]
     return user
 
 
@@ -474,23 +478,9 @@ def clear_mislinked_contract(cursor: pymysql.cursors.Cursor, username: str, empl
     )
 
 
-def sync_contract_dates_from_config(cursor: pymysql.cursors.Cursor, config: dict[str, Any]) -> None:
-    """Copy fiche contract dates only to the resolved employee account, never to an unrelated e-mail owner."""
-    for employee in config.get("employes_data", []) if isinstance(config, dict) else []:
-        if not isinstance(employee, dict):
-            continue
-        account_username = resolve_fiche_account_username(cursor, employee)
-        start_date, end_date, is_cdi = fiche_contract_values(employee)
-        if not account_username or (not start_date and not end_date and not is_cdi):
-            continue
-        cursor.execute(
-            """
-            UPDATE users
-            SET contract_start_date = %s, contract_end_date = %s, is_cdi = %s
-            WHERE username = %s
-            """,
-            (start_date, end_date, is_cdi, account_username),
-        )
+def sync_contract_dates_from_config(cursor, config):
+    """Contract dates are maintained through contract history only."""
+    return
 
 
 def link_fiche_records_to_users(cursor: pymysql.cursors.Cursor, config: dict[str, Any]) -> bool:
@@ -543,6 +533,11 @@ def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) 
             if not isinstance(employee, dict):
                 continue
             account_username = resolve_fiche_account_username(cursor, employee)
+            cursor.execute("SHOW TABLES LIKE 'personnel_contracts'")
+            if account_username and cursor.fetchone():
+                cursor.execute("SELECT id FROM personnel_contracts WHERE username=%s LIMIT 1", (account_username,))
+                if cursor.fetchone():
+                    continue
             display_name = fiche_display_name(employee) or account_username or "Employé sans nom"
             _, end_date, is_cdi = fiche_contract_values(employee)
             if not isinstance(end_date, date) or is_cdi:
@@ -891,439 +886,6 @@ def start_contract_reminder_worker() -> None:
     threading.Thread(target=contract_reminder_worker, name="contract-reminders", daemon=True).start()
 
 
-def e_sign_public_base_url() -> str:
-    """Return the public HTTPS origin used by ClawShow to retrieve a PDF."""
-    public_url = os.getenv("PRESENCE_ESIGN_PUBLIC_URL", "").rstrip("/")
-    if not public_url.startswith("https://"):
-        raise HTTPException(
-            status_code=503,
-            detail="L'URL publique de signature électronique n'est pas configurée sur le serveur.",
-        )
-    return public_url
-
-
-def clean_expired_esign_documents() -> None:
-    """Remove expired private PDFs and their metadata without touching other paths."""
-    if not ESIGN_DOCUMENTS_DIR.is_dir():
-        return
-    now = time.time()
-    for metadata_path in ESIGN_DOCUMENTS_DIR.glob("*.json"):
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if float(metadata.get("expires_at", 0)) > now:
-                continue
-            pdf_name = str(metadata.get("pdf_name", ""))
-            if pdf_name.endswith(".pdf") and "/" not in pdf_name and "\\" not in pdf_name:
-                (ESIGN_DOCUMENTS_DIR / pdf_name).unlink(missing_ok=True)
-            metadata_path.unlink(missing_ok=True)
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            # A malformed metadata file must not stop a signature request.
-            continue
-
-
-def convert_fiche_to_pdf(file_bytes: bytes, filename: str) -> bytes:
-    """Convert a generated Excel or Word attendance sheet with LibreOffice."""
-    suffix = Path(filename).suffix.lower()
-    if suffix not in {".xlsx", ".docx"}:
-        raise HTTPException(status_code=400, detail="Seuls les fichiers Excel et Word peuvent être signés.")
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
-    if not soffice:
-        raise HTTPException(
-            status_code=503,
-            detail="La génération PDF pour la signature n'est pas encore disponible sur le serveur.",
-        )
-
-    with tempfile.TemporaryDirectory(prefix="presence-esign-") as temporary_dir:
-        source_path = Path(temporary_dir) / f"fiche{suffix}"
-        source_path.write_bytes(file_bytes)
-        profile_path = Path(temporary_dir) / "libreoffice-profile"
-        profile_path.mkdir()
-        try:
-            result = subprocess.run(
-                [
-                    soffice,
-                    f"-env:UserInstallation={profile_path.as_uri()}",
-                    "--headless",
-                    "--convert-to",
-                    "pdf",
-                    "--outdir",
-                    temporary_dir,
-                    str(source_path),
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=90,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise HTTPException(status_code=502, detail="La conversion de la fiche en PDF a échoué.") from error
-        pdf_path = source_path.with_suffix(".pdf")
-        if result.returncode != 0 or not pdf_path.is_file():
-            raise HTTPException(status_code=502, detail="La conversion de la fiche en PDF a échoué.")
-        pdf_bytes = pdf_path.read_bytes()
-        if not pdf_bytes:
-            raise HTTPException(status_code=502, detail="Le PDF généré est vide.")
-        return pdf_bytes
-
-
-def store_esign_pdf(pdf_bytes: bytes, original_filename: str) -> tuple[str, str]:
-    """Store a short-lived PDF behind an unguessable public token."""
-    ESIGN_DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
-    document_token = secrets.token_urlsafe(32)
-    pdf_name = f"{document_token}.pdf"
-    expires_at = time.time() + ESIGN_DOCUMENT_DURATION_HOURS * 3600
-    (ESIGN_DOCUMENTS_DIR / pdf_name).write_bytes(pdf_bytes)
-    (ESIGN_DOCUMENTS_DIR / f"{document_token}.json").write_text(
-        json.dumps({"pdf_name": pdf_name, "expires_at": expires_at, "filename": original_filename}),
-        encoding="utf-8",
-    )
-    return document_token, pdf_name
-
-
-def delete_esign_pdf(document_token: str, pdf_name: str) -> None:
-    (ESIGN_DOCUMENTS_DIR / pdf_name).unlink(missing_ok=True)
-    (ESIGN_DOCUMENTS_DIR / f"{document_token}.json").unlink(missing_ok=True)
-
-
-def sanitize_transport_receipt_filename(filename: str) -> str:
-    """Keep only a safe display name for an uploaded transport receipt."""
-    safe_name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
-    if not safe_name or len(safe_name) > 255:
-        raise HTTPException(status_code=400, detail="Le nom du fichier est invalide.")
-    return safe_name
-
-
-def validate_transport_receipt_file(file_bytes: bytes, filename: str) -> tuple[str, str]:
-    """Allow only a small, verifiable set of receipt formats."""
-    extension = Path(filename).suffix.lower()
-    valid_files = {
-        ".pdf": ("application/pdf", b"%PDF-"),
-        ".png": ("image/png", b"\x89PNG\r\n\x1a\n"),
-        ".jpg": ("image/jpeg", b"\xff\xd8\xff"),
-        ".jpeg": ("image/jpeg", b"\xff\xd8\xff"),
-    }
-    expected = valid_files.get(extension)
-    if not expected or not file_bytes.startswith(expected[1]):
-        raise HTTPException(status_code=400, detail="Seuls les fichiers PDF, JPG et PNG valides sont acceptés.")
-    return extension, expected[0]
-
-
-def transport_receipt_response(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": int(row["id"]),
-        "employee_username": str(row["employee_username"]),
-        "uploaded_by": str(row["uploaded_by"]),
-        "original_filename": str(row["original_filename"]),
-        "mime_type": str(row["mime_type"]),
-        "size_bytes": int(row["size_bytes"]),
-        "archived": bool(row["archived"]),
-        "created_at": row["created_at"],
-        "archived_at": row.get("archived_at"),
-        "archived_by": row.get("archived_by"),
-    }
-
-
-def load_transport_receipt(cursor: pymysql.cursors.Cursor, receipt_id: int) -> dict[str, Any]:
-    cursor.execute("SELECT * FROM transport_receipts WHERE id = %s", (receipt_id,))
-    receipt = cursor.fetchone()
-    if not receipt:
-        raise HTTPException(status_code=404, detail="Justificatif introuvable.")
-    return receipt
-
-
-def can_view_transport_receipt(actor: dict[str, Any], receipt: dict[str, Any]) -> bool:
-    return "Admin" in actor["role_tags"] or receipt["employee_username"] == actor["username"]
-
-
-@app.get("/transport-receipts/assignees")
-def list_transport_receipt_assignees(
-    _: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Return every registered person so an uploader can assign a receipt."""
-    connection = get_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT username FROM users ORDER BY username")
-            return {"users": [str(row["username"]) for row in cursor.fetchall()]}
-    finally:
-        connection.close()
-
-
-@app.post("/transport-receipts")
-def upload_transport_receipt(
-    payload: TransportReceiptUploadRequest,
-    actor: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, Any]:
-    try:
-        employee_username = str(payload.employee_username).strip()
-        if not employee_username:
-            raise HTTPException(status_code=400, detail="Sélectionnez l'employé concerné.")
-        original_filename = sanitize_transport_receipt_filename(payload.original_filename)
-        file_bytes = base64.b64decode(payload.file_b64, validate=True)
-        if not file_bytes or len(file_bytes) > MAX_TRANSPORT_RECEIPT_BYTES:
-            raise HTTPException(status_code=400, detail="Le fichier est vide ou dépasse 10 Mo.")
-        extension, mime_type = validate_transport_receipt_file(file_bytes, original_filename)
-
-        connection = get_db_connection()
-        stored_path: Path | None = None
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT 1 FROM users WHERE username = %s", (employee_username,))
-                if not cursor.fetchone():
-                    raise HTTPException(status_code=400, detail="L'employé sélectionné n'existe pas.")
-
-                TRANSPORT_RECEIPTS_DIR.mkdir(parents=True, exist_ok=True)
-                stored_filename = f"{secrets.token_urlsafe(32)}{extension}"
-                stored_path = TRANSPORT_RECEIPTS_DIR / stored_filename
-                stored_path.write_bytes(file_bytes)
-                cursor.execute(
-                    """
-                    INSERT INTO transport_receipts
-                        (employee_username, uploaded_by, original_filename, stored_filename, mime_type, size_bytes)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (employee_username, actor["username"], original_filename, stored_filename, mime_type, len(file_bytes)),
-                )
-                receipt_id = int(cursor.lastrowid)
-                receipt = load_transport_receipt(cursor, receipt_id)
-            connection.commit()
-            return {"status": "success", "receipt": transport_receipt_response(receipt)}
-        except Exception:
-            connection.rollback()
-            if stored_path:
-                stored_path.unlink(missing_ok=True)
-            raise
-        finally:
-            connection.close()
-    except HTTPException:
-        raise
-    except (binascii.Error, ValueError):
-        raise HTTPException(status_code=400, detail="Le fichier envoyé est invalide.") from None
-
-
-@app.get("/transport-receipts")
-def list_transport_receipts(
-    include_archived: bool = True,
-    actor: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, Any]:
-    connection = get_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            conditions: list[str] = []
-            params: list[Any] = []
-            if "Admin" not in actor["role_tags"]:
-                conditions.append("employee_username = %s")
-                params.append(actor["username"])
-            if not include_archived:
-                conditions.append("archived = 0")
-            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-            cursor.execute(f"SELECT * FROM transport_receipts {where} ORDER BY created_at DESC, id DESC", tuple(params))
-            return {"receipts": [transport_receipt_response(row) for row in cursor.fetchall()]}
-    finally:
-        connection.close()
-
-
-@app.get("/transport-receipts/{receipt_id}/file")
-def download_transport_receipt(
-    receipt_id: int,
-    actor: dict[str, Any] = Depends(get_current_user),
-) -> FileResponse:
-    connection = get_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            receipt = load_transport_receipt(cursor, receipt_id)
-        if not can_view_transport_receipt(actor, receipt):
-            raise HTTPException(status_code=403, detail="Vous ne pouvez pas consulter ce justificatif.")
-    finally:
-        connection.close()
-
-    stored_name = str(receipt["stored_filename"])
-    if Path(stored_name).name != stored_name:
-        raise HTTPException(status_code=404, detail="Fichier introuvable.")
-    file_path = TRANSPORT_RECEIPTS_DIR / stored_name
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Fichier introuvable.")
-    return FileResponse(file_path, media_type=str(receipt["mime_type"]), filename=str(receipt["original_filename"]))
-
-
-@app.patch("/transport-receipts/{receipt_id}/archive")
-def archive_transport_receipt(
-    receipt_id: int,
-    actor: dict[str, Any] = Depends(require_roles("Admin")),
-) -> dict[str, Any]:
-    connection = get_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            receipt = load_transport_receipt(cursor, receipt_id)
-            if not receipt["archived"]:
-                cursor.execute(
-                    "UPDATE transport_receipts SET archived = 1, archived_at = %s, archived_by = %s WHERE id = %s",
-                    (datetime.now(), actor["username"], receipt_id),
-                )
-                receipt = load_transport_receipt(cursor, receipt_id)
-        connection.commit()
-        return {"status": "success", "receipt": transport_receipt_response(receipt)}
-    finally:
-        connection.close()
-
-
-@app.delete("/transport-receipts/{receipt_id}")
-def delete_transport_receipt(
-    receipt_id: int,
-    actor: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, str]:
-    connection = get_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            receipt = load_transport_receipt(cursor, receipt_id)
-            can_delete = "Admin" in actor["role_tags"] or receipt["uploaded_by"] == actor["username"]
-            if not can_delete:
-                raise HTTPException(status_code=403, detail="Vous pouvez uniquement supprimer vos propres justificatifs.")
-            cursor.execute("DELETE FROM transport_receipts WHERE id = %s", (receipt_id,))
-        connection.commit()
-    finally:
-        connection.close()
-
-    stored_name = str(receipt["stored_filename"])
-    if Path(stored_name).name == stored_name:
-        (TRANSPORT_RECEIPTS_DIR / stored_name).unlink(missing_ok=True)
-    return {"status": "success", "message": "Justificatif supprimé."}
-
-
-def submit_to_clawshow(
-    *,
-    document_url: str,
-    employee_name: str,
-    employee_email: str,
-    month: int,
-    year: int,
-) -> dict[str, Any]:
-    api_key = os.getenv("CLAWSHOW_ESIGN_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="La signature électronique n'est pas configurée sur le serveur.")
-    body = {
-        "namespace": os.getenv("CLAWSHOW_ESIGN_NAMESPACE", "ilci"),
-        "file_url": document_url,
-        "signers": [{"name": employee_name, "email": employee_email, "order": 1, "role": "student"}],
-        "reference_id": f"presence-{year}-{month:02d}-{secrets.token_hex(8)}",
-    }
-    request = urllib.request.Request(
-        CLAWSHOW_CREATE_URL,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        try:
-            provider_message = json.loads(error.read().decode("utf-8")).get("detail")
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            provider_message = None
-        raise HTTPException(
-            status_code=502,
-            detail=provider_message or "ClawShow n'a pas accepté la demande de signature.",
-        ) from None
-    except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError):
-        raise HTTPException(status_code=502, detail="ClawShow est indisponible pour le moment.") from None
-    if not result.get("success"):
-        raise HTTPException(status_code=502, detail="ClawShow n'a pas créé la demande de signature.")
-    return result
-
-
-@app.get("/esign/documents/{document_token}")
-def get_esign_document(document_token: str) -> FileResponse:
-    if not document_token or "/" in document_token or "\\" in document_token:
-        raise HTTPException(status_code=404, detail="Document introuvable.")
-    clean_expired_esign_documents()
-    metadata_path = ESIGN_DOCUMENTS_DIR / f"{document_token}.json"
-    try:
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        pdf_name = str(metadata["pdf_name"])
-    except (OSError, KeyError, TypeError, json.JSONDecodeError):
-        raise HTTPException(status_code=404, detail="Document introuvable.") from None
-    if not pdf_name.endswith(".pdf") or "/" in pdf_name or "\\" in pdf_name:
-        raise HTTPException(status_code=404, detail="Document introuvable.")
-    pdf_path = ESIGN_DOCUMENTS_DIR / pdf_name
-    if not pdf_path.is_file():
-        raise HTTPException(status_code=404, detail="Document introuvable.")
-    return FileResponse(pdf_path, media_type="application/pdf", filename=str(metadata.get("filename", "fiche.pdf")))
-
-
-@app.post("/fiches/pdf")
-def generate_fiche_pdf(
-    payload: FichePdfRequest,
-    _: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
-) -> Response:
-    """Convert one generated attendance sheet to a downloadable PDF."""
-    try:
-        filename = payload.filename.strip()
-        if not filename or filename != filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]:
-            raise HTTPException(status_code=400, detail="Le nom du fichier est invalide.")
-        file_bytes = base64.b64decode(payload.file_b64, validate=True)
-        if not file_bytes or len(file_bytes) > MAX_FICHE_ATTACHMENT_BYTES:
-            raise HTTPException(status_code=400, detail="Le fichier est vide ou dépasse 10 Mo.")
-
-        pdf_bytes = convert_fiche_to_pdf(file_bytes, filename)
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-        )
-    except HTTPException:
-        raise
-    except (binascii.Error, ValueError):
-        raise HTTPException(status_code=400, detail="Le fichier est invalide.") from None
-
-
-@app.post("/send-fiche")
-def send_fiche_for_signature(
-    payload: ESignFicheRequest,
-    _: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
-) -> dict[str, str]:
-    """Convert a generated fiche to PDF and create a ClawShow signature request."""
-    try:
-        if not payload.filename or payload.filename != payload.filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]:
-            raise HTTPException(status_code=400, detail="Le nom du fichier est invalide.")
-        if not 1 <= payload.month <= 12 or not 2000 <= payload.year <= 2100:
-            raise HTTPException(status_code=400, detail="La période de la fiche est invalide.")
-        file_bytes = base64.b64decode(payload.file_b64, validate=True)
-        if not file_bytes or len(file_bytes) > MAX_FICHE_ATTACHMENT_BYTES:
-            raise HTTPException(status_code=400, detail="Le fichier est vide ou dépasse 10 Mo.")
-
-        clean_expired_esign_documents()
-        pdf_bytes = convert_fiche_to_pdf(file_bytes, payload.filename)
-        pdf_filename = f"{Path(payload.filename).stem}.pdf"
-        document_token, pdf_name = store_esign_pdf(pdf_bytes, pdf_filename)
-        try:
-            result = submit_to_clawshow(
-                document_url=f"{e_sign_public_base_url()}/esign/documents/{document_token}",
-                employee_name=payload.employee_name.strip(),
-                employee_email=str(payload.recipient_email),
-                month=payload.month,
-                year=payload.year,
-            )
-        except Exception:
-            delete_esign_pdf(document_token, pdf_name)
-            raise
-
-        return {
-            "status": "success",
-            "message": f"Demande de signature envoyée à {payload.recipient_email}.",
-            "document_id": str(result.get("document_id", "")),
-        }
-    except HTTPException:
-        raise
-    except (binascii.Error, ValueError):
-        raise HTTPException(status_code=400, detail="Le fichier est invalide.") from None
-    except Exception:
-        raise HTTPException(status_code=500, detail="La demande de signature a échoué.") from None
-
-
 @app.post("/login")
 def login(payload: dict[str, Any]) -> dict[str, Any]:
     username = str(payload.get("username", ""))
@@ -1442,7 +1004,7 @@ def update_group(group_id: int, payload: GroupRequest, _: dict[str, Any] = Depen
 
 
 @app.post("/create-user")
-def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable"))) -> dict[str, Any]:
+def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require_roles("Admin"))) -> dict[str, Any]:
     username = str(payload.get("new_username", "")).strip()
     email = str(payload.get("new_mail", "")).strip()
     password = str(payload.get("new_password", ""))
@@ -1635,7 +1197,7 @@ def update_annual_interview(
     employee_username: str,
     interview_year: int,
     payload: AnnualInterviewUpdateRequest,
-    actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
+    actor: dict[str, Any] = Depends(require_roles("Admin")),
 ) -> dict[str, Any]:
     if interview_year < 2000 or interview_year > 2100:
         raise HTTPException(status_code=400, detail="Année d'entretien invalide.")
@@ -1676,7 +1238,7 @@ def update_annual_interview(
 def update_user_organization(
     target_username: str,
     payload: dict[str, Any],
-    actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
+    actor: dict[str, Any] = Depends(require_roles("Admin")),
 ) -> dict[str, Any]:
     """Update organization metadata while enforcing the caller's management scope."""
     connection = get_db_connection()
@@ -1744,6 +1306,7 @@ def update_user_contract(
     payload: ContractUpdateRequest,
     actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
 ) -> dict[str, Any]:
+    raise HTTPException(status_code=409, detail="Utilisez la gestion de l'historique des contrats dans Administration.")
     if payload.contract_start_date and payload.contract_end_date and payload.contract_end_date < payload.contract_start_date:
         raise HTTPException(status_code=400, detail="La fin de contrat ne peut pas précéder le début.")
     connection = get_db_connection()
@@ -1919,7 +1482,7 @@ def purge_user_from_saved_fiches(cursor: pymysql.cursors.Cursor, username: str, 
 
 
 @app.delete("/delete-user/{username_to_delete}")
-def delete_user(username_to_delete: str, actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable"))) -> dict[str, Any]:
+def delete_user(username_to_delete: str, actor: dict[str, Any] = Depends(require_roles("Admin"))) -> dict[str, Any]:
     if username_to_delete == actor["username"]:
         raise HTTPException(status_code=400, detail="Vous ne pouvez pas supprimer votre propre compte.")
     connection = get_db_connection()
@@ -1950,6 +1513,8 @@ def delete_user(username_to_delete: str, actor: dict[str, Any] = Depends(require
                 (username_to_delete, target["email"]),
             )
             cursor.execute("DELETE FROM user_group_memberships WHERE username = %s", (username_to_delete,))
+            cursor.execute("DELETE FROM personnel_contracts WHERE username = %s", (username_to_delete,))
+            detach_leave_owner(cursor, username_to_delete)
             cursor.execute("DELETE FROM users WHERE username = %s", (username_to_delete,))
         connection.commit()
     finally:
@@ -2024,6 +1589,9 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                         "UPDATE contract_end_reminders SET employee_username = %s WHERE employee_username = %s",
                         (target_username, username),
                     )
+                if target_username != username:
+                    cursor.execute("UPDATE personnel_contracts SET username=%s WHERE username=%s", (target_username, username))
+                    rename_leave_owner(cursor, username, target_username)
                 if target_username != username or target_email != str(user["email"]):
                     migrate_username_in_saved_fiches(
                         cursor,
@@ -2084,9 +1652,9 @@ def reset_password(payload: dict[str, Any]) -> dict[str, str]:
             if not user:
                 raise HTTPException(status_code=400, detail="Token invalide ou expiré.")
             cursor.execute(
-                "UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expires = NULL, "
+                "UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expires = %s, "
                 "remember_token_hash = NULL, remember_token_expires = NULL WHERE username = %s",
-                (hash_password(new_password), user["username"]),
+                (hash_password(new_password), datetime.now() - timedelta(seconds=1), user["username"]),
             )
         connection.commit()
         return {"status": "success", "message": "Mot de passe réinitialisé."}
@@ -2118,10 +1686,28 @@ def get_config(user_id: str, actor: dict[str, Any] = Depends(get_current_user)) 
 
 @app.post("/save-config/{user_id}")
 def save_config(user_id: str, data: dict[str, Any], actor: dict[str, Any] = Depends(get_current_user)) -> dict[str, str]:
+    save_config_checked(user_id, data, actor)
+    return {"status": "success"}
+
+
+def save_config_checked(user_id, data, actor, expected_revision=None):
+    if __package__:
+        from .attendance_revision import config_revision, require_revision
+    else:
+        from attendance_revision import config_revision, require_revision
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             require_target_access(cursor, actor, user_id, edit=True)
+            # Lock the owner too, including when no Presence row exists yet.
+            cursor.execute("SELECT username FROM users WHERE username=%s FOR UPDATE", (user_id,))
+            cursor.execute("SELECT form_content FROM Presence WHERE user_id=%s FOR UPDATE", (user_id,))
+            old_row = cursor.fetchone()
+            old_config = old_row["form_content"] if old_row else {}
+            if isinstance(old_config, str):
+                old_config = json.loads(old_config)
+            require_revision(old_config, expected_revision)
+            validate_manager_save(cursor, actor, old_config, data, load_user, user_can_manage)
             serialize_fiche_config(data)
             link_fiche_records_to_users(cursor, data)
             sync_contract_dates_from_config(cursor, data)
@@ -2134,6 +1720,47 @@ def save_config(user_id: str, data: dict[str, Any], actor: dict[str, Any] = Depe
                 (user_id, serialized, serialized),
             )
         connection.commit()
-        return {"status": "success"}
+        canonical = json.loads(serialized)
+        return {"status": "success", "config": canonical, "revision": config_revision(canonical)}
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
+
+
+# Support both package imports locally and `uvicorn main:app` on the server.
+if __package__:
+    from .ui_capabilities import register_ui_capabilities
+    from .leave_requests import register_leave_routes
+    from .leave_store import rename_leave_owner, detach_leave_owner
+    from .team_directory import register_team_directory
+    from .contract_history import register_contract_history
+    from .attendance_permissions import validate_manager_save
+    from .documents import register_document_routes
+    from .esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
+else:
+    from ui_capabilities import register_ui_capabilities
+    from leave_requests import register_leave_routes
+    from leave_store import rename_leave_owner, detach_leave_owner
+    from contract_history import register_contract_history
+    from team_directory import register_team_directory
+    from attendance_permissions import validate_manager_save
+    from documents import register_document_routes
+    from esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
+
+register_ui_capabilities(app, mail_configured=lambda: bool(SMTP_SERVER and SMTP_USER and SMTP_PASSWORD))
+register_contract_history(app, get_db_connection, require_roles, get_current_user, require_target_access)
+register_team_directory(app, get_db_connection=get_db_connection, get_current_user=get_current_user)
+register_leave_routes(app, get_db_connection=get_db_connection, get_current_user=get_current_user)
+register_document_routes(
+    app, get_db_connection=get_db_connection, get_current_user=get_current_user,
+    require_roles=require_roles, load_user=load_user, user_can_manage=user_can_manage,
+    all_users=all_users, storage_dir=TRANSPORT_RECEIPTS_DIR, max_file_bytes=MAX_TRANSPORT_RECEIPT_BYTES,
+)
+send_fiche_for_signature = register_esign_routes(
+    app, get_db_connection=get_db_connection, require_roles=require_roles,
+    load_user=load_user, require_target_access=require_target_access,
+    storage_dir=ESIGN_DOCUMENTS_DIR, document_duration_hours=ESIGN_DOCUMENT_DURATION_HOURS,
+    max_file_bytes=MAX_FICHE_ATTACHMENT_BYTES,
+)

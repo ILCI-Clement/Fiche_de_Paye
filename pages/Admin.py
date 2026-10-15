@@ -1,14 +1,15 @@
 """Administration of accounts, departments, and reporting relationships."""
 
 from __future__ import annotations
+from contract_ui import contract_editor
 
 from datetime import date
 
-import requests
 import streamlit as st
 
 from access_control import role_tags
 from api_client import api_url, authenticated_headers, safe_api_request
+from api_client import response_detail as api_error
 
 
 API_URL = api_url()
@@ -19,13 +20,6 @@ IDENTITY_TAGS = ["Employe", "Responsable", "Admin"]
 if not CURRENT_USER or "Admin" not in role_tags(CURRENT_USER):
     st.error("Cette page est réservée aux administrateurs.")
     st.stop()
-
-
-def api_error(response: requests.Response) -> str:
-    try:
-        return str(response.json().get("detail", "Une erreur est survenue."))
-    except ValueError:
-        return "Une erreur est survenue."
 
 
 def fetch_groups() -> list[dict]:
@@ -220,41 +214,7 @@ if selected_username:
         )
 
     with st.expander("Contrat et échéances", expanded=False):
-        st.caption("Ces informations alimentent le Tableau de bord et le rappel automatique envoyé 10 jours avant une fin de contrat.")
-        with st.form(f"contract_{selected_username}"):
-            contract_start = st.date_input(
-                "Début de contrat",
-                value=optional_date(selected_user.get("contract_start_date")),
-                key=f"contract_start_{selected_username}",
-            )
-            is_cdi = st.checkbox(
-                "Contrat CDI / sans date de fin",
-                value=bool(selected_user.get("is_cdi")),
-                key=f"contract_cdi_{selected_username}",
-            )
-            contract_end = None
-            if not is_cdi:
-                contract_end = st.date_input(
-                    "Fin de contrat",
-                    value=optional_date(selected_user.get("contract_end_date")),
-                    key=f"contract_end_{selected_username}",
-                )
-            if st.form_submit_button("Enregistrer les dates de contrat", type="primary"):
-                response = safe_api_request(
-                    "PATCH",
-                    f"{API_URL}/users/{selected_username}/contract",
-                    headers=HEADERS,
-                    json={
-                        "contract_start_date": contract_start.isoformat() if contract_start else None,
-                        "contract_end_date": contract_end.isoformat() if contract_end else None,
-                        "is_cdi": is_cdi,
-                    },
-                )
-                if response is not None and response.status_code == 200:
-                    st.success("Informations contractuelles enregistrées.")
-                    st.rerun()
-                if response is not None:
-                    st.error(api_error(response))
+        contract_editor(API_URL, HEADERS, selected_username)
 
     with st.expander("Fonction et étiquettes", expanded=False):
         with st.form(f"identity_{selected_username}"):

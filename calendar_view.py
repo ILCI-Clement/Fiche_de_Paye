@@ -5,6 +5,7 @@ half-day cells. It edits the current JSON-compatible employee structure in place
 """
 
 from __future__ import annotations
+from contract_periods import outside_contract
 
 import calendar
 from datetime import date
@@ -18,15 +19,7 @@ try:
 except ImportError:  # pragma: no cover - the production requirements include it
     holidays = None
 
-WEEKDAYS = (
-    "Lundi",
-    "Mardi",
-    "Mercredi",
-    "Jeudi",
-    "Vendredi",
-    "Samedi",
-    "Dimanche",
-)
+from planning import WEEKDAYS, DEFAULT_SCHEDULE, DEFAULT_WORKING_DAYS, default_planning as _default_planning
 
 STATUS_CLASS = {
     "Travail": "work",
@@ -38,23 +31,7 @@ STATUS_CLASS = {
     "Repos": "rest",
 }
 
-DEFAULT_SCHEDULE = {
-    "m1": "09:00",
-    "m2": "12:00",
-    "a1": "13:00",
-    "a2": "17:00",
-    "actif": True,
-}
-DEFAULT_WORKING_DAYS = frozenset(WEEKDAYS[:5])
-
 _COMPONENT_DIRECTORY = Path(__file__).with_name("calendar_selector_component")
-
-
-def _default_planning() -> dict[str, dict[str, Any]]:
-    return {
-        day: {**DEFAULT_SCHEDULE, "actif": day in DEFAULT_WORKING_DAYS}
-        for day in WEEKDAYS
-    }
 
 
 def ensure_calendar_data(employee: dict[str, Any]) -> None:
@@ -139,6 +116,8 @@ def apply_calendar_status(
 ) -> None:
     """Apply a clicked half-day while preserving the existing data model."""
 
+    if outside_contract(employee, day):
+        return
     ensure_calendar_data(employee)
     day_key = day.isoformat()
     overrides = employee["calendar_overrides"]
@@ -186,6 +165,8 @@ def resolve_cell(
 ) -> tuple[str, str, str]:
     """Return ``(status, detail, css_class)`` for one calendar half-day."""
 
+    if outside_contract(employee, day):
+        return "Repos", "Hors contrat", "rest"
     ensure_calendar_data(employee)
     day_key = day.isoformat()
     override = employee["calendar_overrides"].get(day_key, {}).get(period)

@@ -1,5 +1,26 @@
 # Dev Requirements — Presence
 
+## Implementation status as of 14 October 2026
+
+This document contains the original design scope. The table below takes precedence
+over older proposals in the remaining sections. Current module boundaries are in
+[modules.md](modules.md); pending corrections are in [code-audit.md](code-audit.md).
+
+| Topic | Current implementation |
+| --- | --- |
+| Access | Admin manages all resources; Responsable views the authorized team and enters attendance, without editing accounts or contracts or deleting sheets. Employe cannot save attendance. Access follows the server's organizational scope, not only record ownership. |
+| Personnel | Existing accounts are selected when creating sheets; administration and contracts are managed separately. |
+| Persistence | Attendance configuration is saved as Presence JSON. Explicit saving exists; creating an account-linked sheet can also trigger a contract synchronization save. |
+| Sheet deletion | Admin removes a sheet from the current configuration; saving persists the removal. No recycle bin, restoration or 60-day retention is implemented. |
+| Exports | Individual salary sheets use Excel, intern sheets Word; both can be converted to PDF. Batch export is a ZIP with separate files. Combined documents and per-person folders are not implemented. The audit identifies a pending function-name collision affecting batch actions. |
+| Archive | Documents has separate pending and archived views; archiving keeps the file. Sheet archival, frozen export records and archive restoration are not implemented. |
+| Signing | Employee then manager sign sequentially. The user confirmed the live employee flow; the full intern flow still needs verification. |
+| Language | Product UI is French. Existing repository navigation and maintenance documents are also maintained in Chinese. |
+
+Features described below but marked unimplemented here remain proposals, not
+acceptance evidence. Run tests when requested; static checks, automated regression
+and real uploads or signing must be reported separately.
+
 ## 1. Objective
 
 The application manages monthly presence sheets for employees and interns. It must allow a manager to prepare, review, save, export and archive one or several sheets while preserving unfinished work.

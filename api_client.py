@@ -20,6 +20,14 @@ def authenticated_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+def response_detail(response: requests.Response) -> str:
+    """Read an API error without assuming its response is valid JSON."""
+    try:
+        return str(response.json().get("detail", "Une erreur est survenue."))
+    except (ValueError, AttributeError):
+        return "Une erreur est survenue."
+
+
 def safe_api_request(
     method: str,
     url: str,

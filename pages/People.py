@@ -1,98 +1,38 @@
-"""Personnel view for managers and administrators."""
-
-from __future__ import annotations
-
-import requests
+"""Mon équipe entry: authentication, scope selection, then delegated rendering."""
 import streamlit as st
-
 from access_control import role_tags
-from api_client import api_url, authenticated_headers, safe_api_request
+from organization_ui import render_organization
+from team_api import fetch_directory
+from team_ui import department_rows, personnel_rows, render_team_table
 
-
-API_URL = api_url()
-HEADERS = authenticated_headers()
-USER = st.session_state.get("user")
-
-USER_TAGS = role_tags(USER) if USER else set()
-
-if not USER or not ({"Admin", "Responsable"} & USER_TAGS):
-    st.error("Cette page est réservée aux administrateurs et responsables.")
+user = st.session_state.get('user')
+if not user:
+    st.error('Veuillez vous connecter.')
     st.stop()
 
+tags = role_tags(user)
+st.title('Mon équipe')
+organization = fetch_directory('organization-directory')
+if organization is not None:
+    render_organization(organization['users'], organization['groups'])
+st.divider()
 
-def detail(response: requests.Response) -> str:
-    try:
-        return str(response.json().get("detail", "Une erreur est survenue."))
-    except ValueError:
-        return "Une erreur est survenue."
-
-
-users_response = safe_api_request("GET", f"{API_URL}/list-users", headers=HEADERS)
-groups_response = safe_api_request("GET", f"{API_URL}/groups", headers=HEADERS)
-if users_response is None or groups_response is None:
-    st.stop()
-if users_response.status_code != 200 or groups_response.status_code != 200:
-    st.error(detail(users_response if users_response.status_code != 200 else groups_response))
-    st.stop()
-
-users = list(users_response.json().get("users", []))
-groups = list(groups_response.json().get("groups", []))
-group_names = {int(group["id"]): str(group["name"]) for group in groups if group.get("is_active")}
-group_ids = list(group_names)
-
-st.title("Personnel")
-st.caption("Les utilisateurs affichés appartiennent à votre périmètre de responsabilité.")
-
-if "Admin" in USER_TAGS:
-    st.info("La gestion complète des comptes et des Groupes est disponible dans Administration.")
-
-st.subheader("Employés gérés")
-if users:
-    st.dataframe(
-        [
-            {
-                "Utilisateur": person["username"],
-                "Type": person.get("employee_type") or "salarie",
-                "Responsable": person.get("manager_id") or "",
-                "Groupes": ", ".join(group_names.get(int(group_id), str(group_id)) for group_id in person.get("group_ids", [])),
-                "E-mail": person["email"],
-            }
-            for person in users
-            if "Employe" in set(person.get("role_tags", [person.get("role")]))
-        ],
-        width="stretch",
-        hide_index=True,
-    )
+if not {'Admin', 'Responsable'}.intersection(tags):
+    directory = fetch_directory('my-team')
+    if directory is not None:
+        render_team_table(department_rows(directory), title='Mon département',
+                          empty_message='Vous n’êtes affecté à aucun département actif.')
 else:
-    st.info("Aucun Employé ne fait actuellement partie de votre périmètre.")
-
-if "Responsable" in USER_TAGS and "Admin" not in USER_TAGS:
-    st.divider()
-    st.subheader("Créer un Employé")
-    if not group_ids:
-        st.caption("Aucun Groupe actif ne vous est attribué. Vous pouvez créer l'Employé sans Groupe; vous serez son Responsable direct.")
-    with st.form("manager_create_employee", clear_on_submit=True):
-        username = st.text_input("Nom d'utilisateur")
-        email = st.text_input("E-mail professionnel")
-        password = st.text_input("Mot de passe", type="password")
-        employee_type = st.selectbox("Type de personnel", ["salarie", "stagiaire"])
-        selected_groups = st.multiselect("Groupes d'appartenance (facultatif)", group_ids, format_func=lambda group_id: group_names[group_id])
-        if st.form_submit_button("Créer l'Employé", type="primary"):
-            response = safe_api_request(
-                "POST",
-                f"{API_URL}/create-user",
-                headers=HEADERS,
-                json={
-                    "new_username": username,
-                    "new_mail": email,
-                    "new_password": password,
-                    "new_role": "Employe",
-                    "employee_type": employee_type,
-                    "group_ids": selected_groups,
-                },
-            )
-            if response is not None and response.status_code == 200:
-                st.success("Employé créé.")
-                st.rerun()
-            elif response is not None:
-                st.error(detail(response))
+    users = fetch_directory('list-users')
+    groups = fetch_directory('groups')
+    if users is not None and groups is not None:
+        st.caption('Les utilisateurs affichés appartiennent à votre périmètre de responsabilité.')
+        if 'Admin' in tags:
+            st.info('La gestion complète des comptes et des Groupes est disponible dans Administration.')
+        render_team_table(personnel_rows(users.get('users', []), groups.get('groups', [])),
+                          title='Employés gérés',
+                          empty_message='Aucun Employé ne fait actuellement partie de votre périmètre.')
+    if 'Responsable' in tags and 'Admin' not in tags:
+        st.caption('Les comptes et contrats sont gérés par un administrateur.')
+        st.page_link('pages/Fiches.py', label='Créer / remplir une fiche de présence',
+                     icon=':material/calendar_month:')

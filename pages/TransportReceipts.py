@@ -7,9 +7,12 @@ from datetime import datetime
 
 import requests
 import streamlit as st
+from period_selector import select_period, MONTH_NAMES
+from document_ui import receipt_period, render_receipt_card, render_selection_controls, render_bulk_download
 
 from access_control import role_tags
 from api_client import api_url, authenticated_headers, safe_api_request
+from api_client import response_detail
 
 
 API_URL = api_url()
@@ -20,13 +23,6 @@ USER_TAGS = role_tags(USER) if USER else set()
 if not USER:
     st.warning("Veuillez vous connecter d'abord.")
     st.stop()
-
-
-def response_detail(response: requests.Response) -> str:
-    try:
-        return str(response.json().get("detail", "Une erreur est survenue."))
-    except ValueError:
-        return "Une erreur est survenue."
 
 
 def load_receipts() -> list[dict]:
@@ -44,150 +40,143 @@ def load_receipts() -> list[dict]:
     return list(response.json().get("receipts", []))
 
 
-def format_created_at(value: object) -> str:
+def belongs_to_selected_period(receipt: dict) -> bool:
     try:
-        return datetime.fromisoformat(str(value)).strftime("%d/%m/%Y %H:%M")
-    except ValueError:
-        return str(value)
-
-
-def created_this_month(receipt: dict) -> bool:
-    try:
-        created_at = datetime.fromisoformat(str(receipt.get("created_at")))
-        now = datetime.now()
-        return created_at.year == now.year and created_at.month == now.month
-    except ValueError:
+        return receipt_period(receipt) == (selected_month, selected_year)
+    except (ValueError, TypeError):
         return False
 
 
-st.title("Justificatifs de transport")
-st.caption("Déposez un justificatif de transport pour un utilisateur enregistré. Les fichiers acceptés sont PDF, JPG et PNG, jusqu'à 10 Mo.")
+st.title("Documents")
+selected_month, selected_year = select_period("transport", "top", datetime.now().month, datetime.now().year)
+st.caption("Filtre selon le mois de rattachement du document, indépendamment de sa date de dépôt.")
+st.caption("Les fichiers acceptés sont PDF, JPG et PNG, jusqu'à 10 Mo.")
 
-assignees_response = safe_api_request("GET", f"{API_URL}/transport-receipts/assignees", headers=HEADERS)
-if assignees_response is None:
-    st.stop()
-if assignees_response.status_code != 200:
-    st.error(response_detail(assignees_response))
-    st.stop()
-assignees = list(assignees_response.json().get("users", []))
+if st.session_state.get("receipt_flash"):
+    st.success(st.session_state.pop("receipt_flash"))
 
-with st.expander("Ajouter un justificatif", expanded=True):
-    with st.form("transport_receipt_upload", clear_on_submit=True):
-        employee_username = st.selectbox("Employé concerné", assignees)
-        uploaded_file = st.file_uploader("Fichier", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=False)
-        submitted = st.form_submit_button("Envoyer le justificatif", type="primary")
+IS_ADMIN = "Admin" in USER_TAGS
+assignees = [USER["name"]]
+if IS_ADMIN:
+    assignees_response = safe_api_request("GET", f"{API_URL}/transport-receipts/assignees", headers=HEADERS)
+    if assignees_response is None:
+        st.stop()
+    if assignees_response.status_code != 200:
+        st.error(response_detail(assignees_response))
+        st.stop()
+    assignees = list(assignees_response.json().get("users", []))
 
-        if submitted:
-            if uploaded_file is None:
-                st.error("Sélectionnez un fichier PDF, JPG ou PNG.")
-            else:
-                payload = {
-                    "employee_username": employee_username,
-                    "original_filename": uploaded_file.name,
-                    "file_b64": base64.b64encode(uploaded_file.getvalue()).decode("utf-8"),
-                }
-                response = safe_api_request(
-                    "POST", f"{API_URL}/transport-receipts", headers=HEADERS, json=payload, timeout=30
+if assignees:
+    with st.expander("Ajouter un justificatif", expanded=True):
+        document_type = st.segmented_control(
+            "Type de document", ["Transport", "Autre"], default="Transport", key="receipt_document_type"
+        ) or "Transport"
+        page_period = (selected_month, selected_year)
+        reset_upload_period = st.session_state.pop("receipt_reset_upload_period", False)
+        if st.session_state.get("receipt_upload_period_context") != page_period or reset_upload_period:
+            st.session_state["receipt_upload_period_context"] = page_period
+            st.session_state["receipt_custom_period"] = False
+            st.session_state["receipt_upload_month"] = selected_month
+            st.session_state["receipt_upload_year"] = selected_year
+        upload_month, upload_year = selected_month, selected_year
+        if st.checkbox("Modifier le mois de rattachement", key="receipt_custom_period"):
+            month_column, year_column = st.columns(2)
+            with month_column:
+                upload_month = st.selectbox(
+                    "Mois du document", range(1, 13), format_func=lambda month: MONTH_NAMES[month - 1],
+                    key="receipt_upload_month",
                 )
-                if response is not None and response.status_code == 200:
-                    st.success("Justificatif enregistré.")
-                    st.rerun()
-                elif response is not None:
-                    st.error(response_detail(response))
+            with year_column:
+                upload_year = st.number_input(
+                    "Année du document", min_value=2000, max_value=2100, key="receipt_upload_year"
+                )
+        upload_period_label = f"{MONTH_NAMES[upload_month - 1]} {upload_year}"
+        st.info(f"Ce document sera classé dans : {upload_period_label}.")
+        with st.form("transport_receipt_upload", clear_on_submit=True):
+            if IS_ADMIN:
+                employee_username = st.selectbox("Employé concerné", assignees)
+            else:
+                employee_username = USER["name"]
+                st.caption(f"Document personnel · {employee_username}")
+            other_type = ""
+            if document_type == "Autre":
+                other_type = st.text_input(
+                    "Précisez le type de document", max_chars=120, placeholder="Ex. : repas, matériel…"
+                )
+            uploaded_file = st.file_uploader("Fichier", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=False)
+            submitted = st.form_submit_button(f"Envoyer pour {upload_period_label}", type="primary")
+
+            if submitted:
+                if uploaded_file is None:
+                    st.error("Sélectionnez un fichier PDF, JPG ou PNG.")
+                elif document_type == "Autre" and not other_type.strip():
+                    st.error("Précisez le type de document avant de l'envoyer.")
+                else:
+                    payload = {
+                        "employee_username": employee_username,
+                        "receipt_month": int(upload_month),
+                        "receipt_year": int(upload_year),
+                        "document_type": document_type.lower(),
+                        "other_type": other_type.strip() if document_type == "Autre" else None,
+                        "original_filename": uploaded_file.name,
+                        "file_b64": base64.b64encode(uploaded_file.getvalue()).decode("utf-8"),
+                    }
+                    try:
+                        response = requests.post(
+                            f"{API_URL}/transport-receipts", headers=HEADERS, json=payload, timeout=30
+                        )
+                    except requests.RequestException:
+                        response = None
+                        st.error("Le serveur est indisponible. Réessayez l'envoi du document.")
+                    if response is not None and response.status_code == 200:
+                        st.session_state["receipt_flash"] = f"Document enregistré dans {upload_period_label}."
+                        st.session_state["receipt_reset_upload_period"] = True
+                        st.rerun()
+                    elif response is not None:
+                        st.error(response_detail(response))
 
 receipts = load_receipts()
-current_month_count = sum(1 for receipt in receipts if created_this_month(receipt))
-metric_label = "Justificatifs déposés ce mois"
-st.metric(metric_label, current_month_count)
-
-show_archived = st.checkbox("Afficher les justificatifs archivés", value=False)
-visible_receipts = [receipt for receipt in receipts if show_archived or not receipt.get("archived")]
-
-if "Admin" in USER_TAGS:
-    st.subheader("Tous les justificatifs")
-    st.caption("Vous pouvez consulter, archiver ou supprimer chaque justificatif.")
-else:
-    st.subheader("Mes justificatifs")
-    st.caption("Vous pouvez consulter les justificatifs qui vous sont attribués et supprimer ceux que vous avez déposés.")
+current_month_count = sum(1 for receipt in receipts if belongs_to_selected_period(receipt))
+select_period("transport", "bottom", selected_month, selected_year)
+summary_column, folder_column, type_column = st.columns([1.6, 1.2, 1.2], gap="small")
+with folder_column:
+    document_folder = st.segmented_control(
+        "Dossier", ["À traiter", "Archives"], default="À traiter", key="receipt_folder"
+    ) or "À traiter"
+show_archived = document_folder == "Archives"
+with type_column:
+    type_filter = st.selectbox(
+        "Filtrer par type", ["Tous", "Transport", "Autre", "Non renseigné"], key="receipt_type_filter",
+    )
+visible_receipts = [
+    receipt for receipt in receipts
+    if belongs_to_selected_period(receipt)
+    and bool(receipt.get("archived")) == show_archived
+    and (type_filter == "Tous"
+         or (type_filter == "Transport" and receipt.get("document_type") == "transport")
+         or (type_filter == "Autre" and receipt.get("document_type") == "autre")
+         or (type_filter == "Non renseigné" and receipt.get("document_type") not in {"transport", "autre"}))
+]
+with summary_column:
+    list_title = "Archives" if show_archived else "Tous les justificatifs" if "Admin" in USER_TAGS else "Mes justificatifs"
+    st.markdown(f"#### {list_title}")
+    st.caption(f"Documents rattachés à {MONTH_NAMES[selected_month - 1]} {selected_year} · {current_month_count}")
+    st.caption(f"{len(visible_receipts)} document(s) correspondant aux filtres.")
 
 if not visible_receipts:
     st.info("Aucun justificatif à afficher.")
 
-for receipt in visible_receipts:
-    receipt_id = int(receipt["id"])
-    archived = bool(receipt.get("archived"))
-    status = "Archivé" if archived else "À traiter"
-    with st.container(border=True):
-        info_column, download_column, archive_column, delete_column = st.columns([5, 1.4, 1.2, 1.2])
-        with info_column:
-            st.markdown(f"**{receipt['original_filename']}**")
-            st.caption(
-                f"Employé concerné : {receipt['employee_username']} · "
-                f"Déposé par : {receipt['uploaded_by']} · "
-                f"{format_created_at(receipt.get('created_at'))} · {status}"
-            )
-        with download_column:
-            download_key = f"receipt_download_{receipt_id}"
-            if download_key in st.session_state:
-                st.download_button(
-                    "Télécharger",
-                    data=st.session_state[download_key],
-                    file_name=receipt["original_filename"],
-                    mime=receipt["mime_type"],
-                    key=f"download_receipt_{receipt_id}",
-                )
-            elif st.button("Préparer", key=f"prepare_receipt_{receipt_id}"):
-                file_response = safe_api_request(
-                    "GET", f"{API_URL}/transport-receipts/{receipt_id}/file", headers=HEADERS, timeout=30
-                )
-                if file_response is not None and file_response.status_code == 200:
-                    st.session_state[download_key] = file_response.content
-                    st.rerun()
-                elif file_response is not None:
-                    st.error(response_detail(file_response))
-        if "Admin" in USER_TAGS:
-            with archive_column:
-                if not archived and st.button("Archiver", key=f"archive_receipt_{receipt_id}"):
-                    response = safe_api_request(
-                        "PATCH", f"{API_URL}/transport-receipts/{receipt_id}/archive", headers=HEADERS
-                    )
-                    if response is not None and response.status_code == 200:
-                        st.rerun()
-                    if response is not None:
-                        st.error(response_detail(response))
-        with delete_column:
-            may_delete = "Admin" in USER_TAGS or receipt["uploaded_by"] == USER["name"]
-            confirm_delete_key = f"confirm_delete_receipt_{receipt_id}"
-            if may_delete and st.button("Supprimer", key=f"delete_receipt_{receipt_id}", type="secondary"):
-                st.session_state[confirm_delete_key] = True
-                st.rerun()
+selection_context = (USER["name"], selected_year, selected_month, document_folder, type_filter)
+bulk_download_slot = render_selection_controls(visible_receipts, selection_context)
 
-        if may_delete and st.session_state.get(confirm_delete_key):
-            st.warning(
-                "Cette action supprimera définitivement ce justificatif. "
-                "Voulez-vous continuer ?"
-            )
-            confirm_column, cancel_column, _ = st.columns([1.5, 1.2, 5])
-            with confirm_column:
-                confirm_delete = st.button(
-                    "Confirmer la suppression",
-                    key=f"confirm_delete_button_{receipt_id}",
-                    type="primary",
-                )
-            with cancel_column:
-                cancel_delete = st.button("Annuler", key=f"cancel_delete_{receipt_id}")
+for row_start in range(0, len(visible_receipts), 3):
+    card_columns = st.columns(3, gap="small")
+    for card_column, receipt in zip(card_columns, visible_receipts[row_start:row_start + 3]):
+        with card_column:
+            render_receipt_card(receipt, api_base=API_URL, headers=HEADERS, user=USER, user_tags=USER_TAGS)
 
-            if cancel_delete:
-                st.session_state.pop(confirm_delete_key, None)
-                st.rerun()
-
-            if confirm_delete:
-                response = safe_api_request(
-                    "DELETE", f"{API_URL}/transport-receipts/{receipt_id}", headers=HEADERS
-                )
-                st.session_state.pop(confirm_delete_key, None)
-                if response is not None and response.status_code == 200:
-                    st.session_state.pop(f"receipt_download_{receipt_id}", None)
-                    st.rerun()
-                if response is not None:
-                    st.error(response_detail(response))
+render_bulk_download(
+    bulk_download_slot, visible_receipts, selection_context,
+    month=selected_month, year=selected_year, archived=show_archived,
+    api_base=API_URL, headers=HEADERS,
+)

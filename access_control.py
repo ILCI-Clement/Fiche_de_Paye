@@ -65,5 +65,10 @@ def can_manage_employee(user: Mapping[str, object], employee: Mapping[str, objec
 
 
 def can_edit_employee(user: Mapping[str, object], employee: Mapping[str, object]) -> bool:
-    """Editing uses the same scope as management; Employe remains read-only."""
+    """Personnel identity and contracts may only be edited by administrators."""
+    return normalize_role(user) == "Admin"
+
+
+def can_fill_attendance(user: Mapping[str, object], employee: Mapping[str, object]) -> bool:
+    """Managers can fill attendance for their own team."""
     return can_manage_employee(user, employee)

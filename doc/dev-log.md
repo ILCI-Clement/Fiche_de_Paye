@@ -1,5 +1,14 @@
 # Journal de développement
 
+## 2026-10-09 — Modules partagés et documentation
+
+- Extraction des routes Documents et eSign dans des modules enregistrés avec des dépendances explicites.
+- Centralisation de la validation et de la génération des fiches pour les exports unitaires, groupés et les demandes de signature.
+- Extraction des cartes Documents et des contrôles de sélection ZIP; planning par défaut et sérialisation partagés.
+- Unification des erreurs API et des versions Streamlit déclarées.
+- Ajout de `AGENTS.md`, du README et de l'index `modules.md`; correction des descriptions de signature et de corbeille.
+- État détaillé de la vérification et de la publication : `refactoring.md`.
+
 ## 2026-09-16 — Rôles, personnel et groupes
 
 - Reprise de la première maquette de rôles afin de la compléter côté serveur.

@@ -57,8 +57,8 @@ login_page = st.Page("pages/Login.py", title="Connexion")
 fiches_page = st.Page("pages/Fiches.py", title="Création de Fiches")
 profile_page = st.Page("pages/Profile.py", title="Paramètres", icon="⚙️")
 admin_page = st.Page("pages/Admin.py", title="Administration")
-people_page = st.Page("pages/People.py", title="Personnel")
-transport_receipts_page = st.Page("pages/TransportReceipts.py", title="Justificatifs de transport")
+people_page = st.Page("pages/People.py", title="Mon équipe")
+transport_receipts_page = st.Page("pages/TransportReceipts.py", title="Documents")
 dashboard_page = st.Page("pages/Dashboard.py", title="Tableau de bord")
 
 def get_pages_for_user():
@@ -88,7 +88,7 @@ def get_pages_for_user():
         }
     
     if "Employe" in tags:
-        return {"Mes documents": [transport_receipts_page], "Compte": [profile_page]}
+        return {"Mes documents": [transport_receipts_page], "Organisation": [people_page], "Compte": [profile_page]}
     
     return [login_page]
 

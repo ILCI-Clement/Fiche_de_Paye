@@ -1,6 +1,8 @@
 from docxtpl import DocxTemplate
 import io
 from num2words import num2words
+from docx.shared import Pt
+from docx.enum.table import WD_ROW_HEIGHT_RULE
 
 def generer_docx_stagiaire(data_stagiaire, mois, annee):
     # 1. Chargement du modèle
@@ -33,8 +35,8 @@ def generer_docx_stagiaire(data_stagiaire, mois, annee):
         "prenom": data_stagiaire.get("prenom_stagiaire").capitalize(),
         "mois": mois_string[mois-1],
         "annee": annee,
-        "dds":data_stagiaire.get("dds"),
-        "fds":data_stagiaire.get("fds"),
+        "dds":data_stagiaire.get("sheet_period_start") or data_stagiaire.get("dds"),
+        "fds":data_stagiaire.get("sheet_period_end") or data_stagiaire.get("fds"),
         "taux_horaire": f"{th:.2f}",
         "nb_jours": nj,
         "nb_heures_jour": nhj,
@@ -49,6 +51,19 @@ def generer_docx_stagiaire(data_stagiaire, mois, annee):
 
     # 4. Remplissage du document
     doc.render(context)
+
+    # Reserve two distinct signature areas in the generated document.
+    signatures = doc.docx.add_table(rows=2, cols=2)
+    for cell, label in zip(signatures.rows[0].cells, (
+        "Signature et Cachet Entreprise Cliente :", "Signature du stagiaire :"
+    )):
+        paragraph = cell.paragraphs[0]
+        paragraph.text = label
+        paragraph.paragraph_format.keep_with_next = True
+        for run in paragraph.runs:
+            run.font.size = Pt(9)
+    signatures.rows[1].height = Pt(90)
+    signatures.rows[1].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
     
     # 5. Sauvegarde dans un buffer mémoire pour Streamlit
     buffer = io.BytesIO()

@@ -9,6 +9,7 @@ import streamlit as st
 
 from access_control import role_tags
 from api_client import api_url, authenticated_headers, safe_api_request
+from api_client import response_detail as api_error
 
 
 API_URL = api_url()
@@ -19,13 +20,6 @@ USER_TAGS = role_tags(USER) if USER else set()
 if not USER or not ({"Admin", "Responsable"} & USER_TAGS):
     st.error("Cette page est réservée aux administrateurs et responsables.")
     st.stop()
-
-
-def api_error(response: requests.Response) -> str:
-    try:
-        return str(response.json().get("detail", "Une erreur est survenue."))
-    except ValueError:
-        return "Une erreur est survenue."
 
 
 def as_date(value: object) -> date:
@@ -193,6 +187,9 @@ with st.expander(f"Entretiens annuels {dashboard['year']}", expanded=True):
         with interview_columns[index % len(interview_columns)]:
             with st.expander(f"{username} · {status}", expanded=False):
                 st.caption(f"Date cible : {due_date_label}")
+                if not is_admin:
+                    st.caption(str(interview.get("notes") or "Aucune remarque."))
+                    continue
                 with st.form(f"annual_interview_{username}_{dashboard['year']}"):
                     due_date = st.date_input(
                         "Date cible",

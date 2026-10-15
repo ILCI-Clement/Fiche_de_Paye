@@ -1,5 +1,8 @@
 # Exigences — rôles, personnel et Groupes
 
+État aligné sur le code publié le 14 octobre 2026. Les limites et les corrections
+à prévoir sont détaillées dans [le plan de maintenance](code-audit.md).
+
 ## Objectif
 
 Le système Presence doit limiter les données visibles et modifiables au périmètre
@@ -45,16 +48,19 @@ interprété comme `salarie`.
 
 ### Responsable
 
-- Crée uniquement des comptes `Employe` ; il devient automatiquement leur
-  Responsable direct. Les Groupes attribués restent limités à ses propres Groupes.
-- Voit, modifie et supprime uniquement les Employés de son périmètre.
-- Ne peut ni créer ni modifier un Admin, un autre Responsable ou un Groupe.
-- Ne peut pas attribuer un Groupe qu'il ne gère pas.
+- Consulte les personnes de son périmètre et prépare leurs présences.
+- Enregistre uniquement les champs de présence autorisés par
+  `backend/attendance_permissions.py`.
+- Ne crée, ne modifie et ne supprime aucun compte, contrat ou Groupe.
+- Ne supprime pas les fiches; dépose ses propres Documents et consulte ceux de
+  son équipe sans les modifier, archiver ou supprimer.
 
 ### Employe
 
 - Peut se connecter et consulter les informations qui lui sont attribuées.
 - Ne peut pas modifier les présences, l'organisation ni les autres comptes.
+- Doit utiliser son compte personnel pour déposer ses factures et justificatifs;
+  l'API refuse une attribution à un autre utilisateur. Un Admin peut déposer pour autrui.
 
 ## API et persistance
 
@@ -65,16 +71,19 @@ interprété comme `salarie`.
 - La migration MariaDB est additive : ajout de `employee_type` et
   `manager_username` dans `users`, puis création de `organization_groups` et
   `user_group_memberships`. Elle ne modifie pas les fiches existantes.
-- La suppression d'un compte conserve son contenu Presence historique. Les
-  associations de Groupes sont retirées et les liens de responsable direct sont
-  neutralisés.
+- Actuellement, la suppression d'un compte est définitive : son contenu Presence,
+  les fiches associées dans les autres configurations, ses contrats et les
+  justificatifs associés sont supprimés. Les fichiers déposés ou archivés par ce
+  compte pour d'autres personnes sont aussi concernés. Les associations de
+  Groupes sont retirées et les liens de responsable direct sont neutralisés.
+  Une politique de conservation doit être définie avant de modifier ce comportement.
 
 ## Interface
 
 - La page Administration permet à un Admin de gérer les Groupes, créer des
   comptes et modifier les affectations.
-- La page Personnel présente à un Responsable uniquement ses Employés et lui
-  permet d'en créer dans son périmètre.
+- La page `Mon équipe` présente à un Responsable les personnes de son périmètre
+  en consultation. La saisie des présences se fait dans `Création de Fiches`.
 - Les choix de Groupes affichent uniquement les Groupes actifs et autorisés.
 - Les erreurs d'autorisation et les données organisationnelles incomplètes sont
   affichées explicitement en français.
@@ -88,5 +97,5 @@ interprété comme `salarie`.
    direct.
 4. Un Admin peut gérer plusieurs Groupes et attribuer plusieurs Groupes à un
    Employé ou à un Responsable.
-5. Les fiches MariaDB existantes restent intactes après migration et après la
-   suppression d'un compte.
+5. Les migrations additives préservent les fiches MariaDB existantes. La suppression
+   explicite d'un compte suit actuellement le comportement définitif décrit ci-dessus.

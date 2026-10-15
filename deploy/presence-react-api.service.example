@@ -1,0 +1,22 @@
+# Prepared example only. Do not install or start before release approval and backups.
+# Deploy the full repository, including backend/ and root generator/template modules.
+[Unit]
+Description=Presence React API (staged)
+After=network.target
+
+[Service]
+Type=simple
+# Replace with the existing service account and prepared full-repository path.
+User=presence
+Group=presence
+WorkingDirectory=/var/www/presence-react
+EnvironmentFile=/etc/presence-app/presence-app.env
+Environment=PRESENCE_SIGNATURE_ATTEMPTS_DB=/var/lib/presence-app/signature-attempts.sqlite3
+# Keep one reminder worker while the original API is retained for rollback.
+Environment=PRESENCE_CONTRACT_REMINDER_WORKER=0
+ExecStart=/var/www/presence-react/.venv/bin/python -m uvicorn backend.rebuild_server:app --host 127.0.0.1 --port 8002
+Restart=on-failure
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

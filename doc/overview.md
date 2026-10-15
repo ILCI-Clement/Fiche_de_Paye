@@ -6,14 +6,20 @@ Cette application Streamlit permet de préparer des fiches mensuelles de présen
 
 ## Composants
 
+Voir [l'index des modules](modules.md) pour les responsabilités et les dépendances actuelles.
+
 - `online_test.py` : point d'entrée et navigation selon le rôle.
 - `pages/Login.py` : connexion, demande et confirmation de réinitialisation du mot de passe.
 - `remember_me.py` : synchronisation contrôlée du jeton de connexion persistant dans le navigateur.
 - `pages/Fiches.py` : création des fiches, calendrier, sauvegarde et exports.
+- `fiche_exports.py`, `fiche_serialization.py` et `planning.py` : validation, génération, dates et planning par défaut partagés.
+- `pages/TransportReceipts.py`, `document_ui.py` et `document_downloads.py` : dépôt, cartes, filtres, archives et ZIP des Documents.
 - `pages/Profile.py` : modification du profil connecté.
 - `pages/Admin.py` : administration centrée sur la fiche utilisateur, avec sélection des comptes, sections repliables, départements, étiquettes et affectation hiérarchique directe.
 - `pages/People.py` : vue opérationnelle du personnel accessible aux responsables autorisés.
 - `backend/main.py` : API FastAPI versionnée qui applique l'authentification et les autorisations.
+- `backend/documents.py` et `backend/esign.py` : routes Documents, conversion PDF et signature.
+- `backend/contract_history.py` et `contract_periods.py` : historique des contrats et rattachement mensuel des fiches.
 - `ExcelGen.py` et `DocxGen.py` : génération des exports Excel et Word.
 - `calendar_view.py` : calendrier mensuel et sélection groupée de demi-journées.
 
@@ -23,7 +29,19 @@ Une fiche est créée pour un mois et une année, à partir d'une personne exist
 
 Le calendrier possède un mode consultation et un mode `Modifier`. Dans ce dernier, plusieurs demi-journées peuvent être sélectionnées par clic ou glissement de souris, puis recevoir un statut en une action. Les séquences adjacentes de même statut sont affichées sous forme de barres continues à extrémités arrondies.
 
-Les fiches peuvent être conservées dans une file, archivées volontairement, restaurées, mises à la corbeille et récupérées pendant 60 jours. Les exports Word, PDF et Excel sont proposés séparément. Un export groupé peut produire une fiche par page ou par fichier, avec des noms incluant la personne, le mois et l'année. Les fiches archivées restent figées, sauf modification volontaire suivie d'un retour dans la file.
+Les fiches sont enregistrées dans la configuration de leur propriétaire. Les salariés disposent d'un export Excel et les stagiaires d'un export Word; les originaux peuvent être convertis en PDF. L'export groupé produit un ZIP contenant un fichier par fiche. La suppression d'une fiche est réservée à l'administrateur; aucune corbeille de 60 jours n'est actuellement implémentée.
+
+Le module Documents conserve les justificatifs par mois de rattachement, avec les types Transport ou Autre. La liste distingue les documents à traiter et les archives; les cartes peuvent être sélectionnées pour un téléchargement ZIP. L'archivage conserve le fichier. Le rétablissement d'un document archivé n'est pas encore proposé.
+
+Chaque salarié et responsable utilise son propre compte pour déposer ses factures.
+Le propriétaire est automatiquement lié à la session et l'API refuse une attribution
+à autrui. Un Admin peut déposer pour une autre personne. Le responsable peut déposer
+ses propres documents et consulter ceux de son équipe; ses droits d'archivage,
+de correction du mois et de suppression ne sont pas étendus.
+
+La signature ClawShow suit l'ordre salarié puis responsable direct, avec deux
+zones de signature distinctes. Le parcours salarié en production a été confirmé
+par l'utilisateur; le parcours complet stagiaire reste à vérifier.
 
 ## Utilisateurs et accès
 
@@ -32,10 +50,10 @@ L'API délivre à la connexion un jeton de session signé et limité dans le tem
 | Rôle | Accès |
 | --- | --- |
 | `Admin` | Tous les comptes, groupes, fiches et paramètres d'organisation. |
-| `Responsable` | Sa propre fiche et les employés qui lui sont rattachés directement ou qui appartiennent à au moins un groupe qu'il gère. |
+| `Responsable` | Consultation du périmètre autorisé et saisie des présences de son équipe; pas de modification des comptes ou contrats ni de suppression des fiches. |
 | `Employe` | Son profil et sa propre consultation; il ne peut ni gérer des personnes ni enregistrer une fiche pour autrui. |
 
-Les groupes sont créés et activés par un administrateur. Un employé peut appartenir à plusieurs groupes, sans que cela soit obligatoire; son responsable direct peut être un `Responsable` ou un `Admin`. Un responsable peut gérer plusieurs groupes. Ces relations et le type `salarie` ou `stagiaire` sont enregistrés dans MariaDB.
+Les groupes sont créés et activés par un administrateur. Un employé peut appartenir à plusieurs groupes, sans que cela soit obligatoire; son responsable direct peut être un `Responsable` ou un `Admin`. L'historique des contrats accepte les types `salarie`, `stagiaire` et `alternance` et refuse les périodes qui se chevauchent. Un changement de contrat en cours de mois peut produire deux fiches liées à leurs périodes respectives.
 
 La page Administration affiche une structure en arbre : `Organisation` au sommet, suivie des responsables directs et de leurs employés. Les Groupes sont affichés dans les nœuds des employés, sans devenir des parents supplémentaires dans l'arbre.
 
@@ -45,9 +63,15 @@ MariaDB conserve les comptes dans `users` et les configurations de fiches dans `
 
 En production, l'API tourne sur `127.0.0.1:8001` sous `presence-app.service`, et l'interface Streamlit sous `presence-interface.service`. Les secrets sont lus depuis le fichier d'environnement protégé du serveur et ne doivent jamais être ajoutés au dépôt.
 
+La suppression explicite d'un compte supprime actuellement ses fiches, contrats
+et justificatifs associés, y compris les documents qu'il a déposés ou archivés
+pour autrui. Elle ne constitue pas un archivage et ne permet pas de restauration.
+Le [plan de maintenance](code-audit.md) décrit les limites de cache, les erreurs
+de chargement et le problème de nom de fonction dans les actions groupées.
+
 ## Vérification avant publication
 
-1. Compiler les modules Python modifiés et exécuter les tests unitaires disponibles.
+1. Compiler les modules Python modifiés; exécuter les tests demandés et distinguer leurs résultats des vérifications de service.
 2. Sauvegarder le code de l'API et exporter la base MariaDB avant toute migration.
 3. Déployer l'API et l'interface dans la même fenêtre de maintenance courte, puis redémarrer les deux services.
 4. Vérifier l'état des services, la page publique, la connexion d'un administrateur et l'absence de perte de comptes ou de fiches.

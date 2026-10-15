@@ -1,13 +1,21 @@
+from access_control import role_tags
+from contract_periods import matching_contracts, bind_contract, period_sheets
 import streamlit as st
 from datetime import date, datetime
 import requests
 import time
 import base64
 import os
-from DocxGen import generer_docx_stagiaire
-from ExcelGen import remplir_fiche_paie
+from fiche_exports import fiche_name, validate_fiche, generate_fiche_file
+from fiche_batch_ui import render_batch_selection
+from fiche_serialization import serialize_dates, deserialize_dates
+from planning import default_planning
 from calendar_view import render_monthly_calendar
+from period_selector import select_period
 import zipfile
+import hashlib
+import json
+from pdf_export import convert_fiche_pdf
 import io
 from api_client import api_url, authenticated_headers, safe_api_request
 
@@ -19,30 +27,6 @@ HORAIRES.insert(0, "") # Option vide pour les jours non travaillés
 # Configuration du header pour les requêtes
 headers = authenticated_headers()
 
-# Les dates sont transformées en chaînes de caractères (ISO format).
-def serialize_dates(data):
-    """Convertir date en string"""
-    if isinstance(data, dict):
-        return {k: serialize_dates(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [serialize_dates(v) for v in data]
-    elif isinstance(data, date):
-        return data.isoformat()
-    return data
-
-# Les chaînes sont retransformées en objets datetime.date pour être compatibles avec les widgets Streamlit.
-def deserialize_dates(data):
-    """Convertir string en date"""
-    if isinstance(data, dict):
-        return {k: deserialize_dates(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [deserialize_dates(v) for v in data]
-    elif isinstance(data, str):
-        try:
-            return date.fromisoformat(data)
-        except ValueError:
-            return data
-    return data
 
 if "user" not in st.session_state or st.session_state["user"] is None:
     st.warning("Veuillez vous connecter d'abord.")
@@ -50,6 +34,16 @@ if "user" not in st.session_state or st.session_state["user"] is None:
 
 username = st.session_state['user']['name']
 role = st.session_state['user']['role']
+USER_TAGS = role_tags(st.session_state['user'])
+IS_MANAGER = "Responsable" in USER_TAGS and "Admin" not in USER_TAGS
+if not ({"Admin", "Responsable"} & USER_TAGS):
+    st.error("La saisie des présences est réservée aux administrateurs et responsables.")
+    st.stop()
+
+def person_text_input(*args, **kwargs):
+    kwargs["disabled"] = IS_MANAGER
+    return st.text_input(*args, **kwargs)
+
 
 if "user_data" not in st.session_state:
     st.session_state.user_data = {}
@@ -106,57 +100,223 @@ st.title("Générateur de fiche de présence")
 
 # Sélection du mois et de l'année
 now = datetime.now()
-col1, col2 = st.columns(2)
-with col1:
-    user_store["mois"] = st.number_input("Mois", min_value=1, max_value=12, value=int(now.strftime("%m")), key="mois", help="Saisissez le numéro du mois")
-with col2:
-    user_store["annee"] = st.number_input("Année", min_value=2000, max_value=2100, value=int(now.strftime("%Y")), key="annee")
+user_store["mois"], user_store["annee"] = select_period(
+    f"fiches_{username}", "top", user_store.get("mois", now.month), user_store.get("annee", now.year)
+)
 
 if "employes_data" not in user_store:
     user_store["employes_data"] = []
 
+
+def create_fiche_from_account(account: dict, manager_by_username: dict[str, dict]) -> dict:
+    """Create a new monthly fiche prefilled with the selected account's known data."""
+    employee_type = "Stagiaire" if account.get("employee_type") == "stagiaire" else "Salarié"
+    manager_username = str(account.get("manager_id") or "")
+    manager = manager_by_username.get(manager_username.casefold(), {})
+    start_date = account.get("contract_start_date")
+    end_date = account.get("contract_end_date")
+    if isinstance(start_date, str) and start_date:
+        try:
+            start_date = date.fromisoformat(start_date)
+        except ValueError:
+            start_date = None
+    if isinstance(end_date, str) and end_date:
+        try:
+            end_date = date.fromisoformat(end_date)
+        except ValueError:
+            end_date = None
+
+    employee = {
+        "id": int(time.time() * 1000),
+        "type": employee_type,
+        "nom": " ".join(str(account.get(field) or "").strip() for field in ("prenom", "nom")).strip(),
+        "nom_stagiaire": str(account.get("last_name") or ""),
+        "prenom_stagiaire": str(account.get("first_name") or ""),
+        "email_employe": str(account.get("email") or ""),
+        "account_username": str(account["username"]),
+        "responsable": "",
+        "email_responsable": str(manager.get("email") or ""),
+        "ddc": start_date if employee_type == "Salarié" else None,
+        "fdc": ("Pas de fin" if account.get("is_cdi") else end_date) if employee_type == "Salarié" else None,
+        "cdi": bool(account.get("is_cdi")) if employee_type == "Salarié" else False,
+        "dds": start_date if employee_type == "Stagiaire" else None,
+        "fds": end_date if employee_type == "Stagiaire" else None,
+        "nb_jours": 0,
+        "nb_heures_jour": 0.0,
+        "taux_horaire": 0.0,
+        "facture_mensuelle": 0.0,
+        "transport": "",
+        "taux": 0.0,
+        "vacances": [],
+        "absences": [],
+        "arret": [],
+        "calendar_overrides": {},
+        "planning_detail": default_planning(),
+    }
+    return employee
+
+
+def account_already_in_fiches(employee: dict, account: dict) -> bool:
+    """Match stable account links first, with email/name fallbacks for legacy fiches."""
+    username_key = str(account.get("username") or "").strip().casefold()
+    email_key = str(account.get("email") or "").strip().casefold()
+    linked_username = str(employee.get("account_username") or "").strip().casefold()
+    if username_key and linked_username == username_key:
+        return True
+    employee_email = str(employee.get("email_employe") or "").strip().casefold()
+    if email_key and employee_email and email_key == employee_email:
+        return True
+    legacy_name = str(employee.get("nom") or "").strip().casefold()
+    return bool(username_key and legacy_name == username_key)
+
+
+def display_person_label(value: str) -> str:
+    """Show the mailbox name without creating an automatic email link."""
+    return str(value or "").strip().split("@", 1)[0]
+
+
+def account_display_label(account: dict) -> str:
+    """Use an available full name, falling back to the account email."""
+    full_name = " ".join(
+        str(account.get(field) or "").strip()
+        for field in ("last_name", "first_name")
+        if str(account.get(field) or "").strip()
+    )
+    return display_person_label(full_name or str(account.get("email") or account.get("username") or "Compte employé").strip())
+
+
+def fiche_tab_label(employee: dict, index: int) -> str:
+    """Return the clearest available label for an attendance sheet tab."""
+    if employee.get("type") == "Stagiaire":
+        name = " ".join(
+            part.strip()
+            for part in (str(employee.get("prenom_stagiaire") or ""), str(employee.get("nom_stagiaire") or ""))
+            if part.strip()
+        )
+    else:
+        name = str(employee.get("prenom") or employee.get("nom") or "").strip()
+    email = str(employee.get("email_employe") or "").strip()
+    label = display_person_label(name or email or str(employee.get("account_username") or "").strip() or f"Employé {index + 1}")
+    if employee.get("contract_id"):
+        label += f" · {str(employee['sheet_period_start'])[8:10]}–{str(employee['sheet_period_end'])[8:10]} · {employee['contract_snapshot']['employee_type']}"
+    return label
+
+
+accounts_response = safe_api_request("GET", f"{API_URL}/list-users", headers=headers)
+accounts = []
+if accounts_response is not None and accounts_response.status_code == 200:
+    accounts = list(accounts_response.json().get("users", []))
+elif accounts_response is not None:
+    try:
+        st.warning(str(accounts_response.json().get("detail", "Les comptes existants ne sont pas disponibles.")))
+    except ValueError:
+        st.warning("Les comptes existants ne sont pas disponibles.")
+
+manager_by_username = {
+    str(account.get("username") or "").casefold(): account
+    for account in accounts
+}
+
+
 # Bouton pour ajouter un employé à la fin de la liste
-if st.button("Ajouter un employé / stagiaire", width="stretch"):
+if "Admin" in USER_TAGS and st.button("Ajouter un employé / stagiaire", width="stretch"):
     user_store["employes_data"].append({
         "id": int(time.time() * 1000),
         "type": "Salarié",
-        "nom": "", "email_employe": "", "account_username": "", "responsable": "", "email_responsable": "", "ddc": None, "fdc": None, "cdi": False,
+        "nom": "", "email_employe": "", "account_username": "", "account_username": "", "responsable": "", "email_responsable": "", "ddc": None, "fdc": None, "cdi": False,
         "vacances": [], "absences": [], "arret": [],
         "calendar_overrides": {},
         "planning_detail": {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": j not in ("Samedi", "Dimanche")} for j in ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]}
     })
     st.rerun() # On force Streamlit à recréer les onglets immédiatement
 
+# A searchable selector keeps existing accounts available without a button grid.
+if accounts:
+    accounts_by_username = {str(account["username"]): account for account in accounts}
+    with st.form("select_existing_employee"):
+        selected_username = st.selectbox(
+            "Sélectionner l'employé existant",
+            options=list(accounts_by_username),
+            index=None,
+            placeholder="Rechercher par nom de compte ou e-mail…",
+            format_func=lambda key: f"{account_display_label(accounts_by_username[key])} ({display_person_label(key)})",
+        )
+        open_existing = st.form_submit_button("Ouvrir / créer sa fiche")
+    if open_existing:
+        if selected_username is None:
+            st.warning("Sélectionnez une personne dans la liste.")
+        else:
+            account = accounts_by_username[selected_username]
+            contract_response = requests.get(f"{API_URL}/users/{selected_username}/contracts", headers=headers, timeout=15)
+            if contract_response.status_code != 200:
+                st.error("Impossible de charger les contrats de cette personne.")
+                st.stop()
+            contracts = matching_contracts(contract_response.json()["contracts"], int(user_store["mois"]), int(user_store["annee"]))
+            if not contracts:
+                st.warning("Aucun contrat pour ce mois. Un administrateur doit renseigner le contrat dans Administration.")
+                st.stop()
+            for contract in contracts:
+                existing_fiche = next(((index, fiche) for index, fiche in enumerate(user_store["employes_data"])
+                    if fiche.get("account_username") == selected_username and fiche.get("contract_id") == contract["id"]
+                    and fiche.get("sheet_month") == user_store["mois"] and fiche.get("sheet_year") == user_store["annee"]), None)
+                if existing_fiche:
+                    index, fiche = existing_fiche
+                else:
+                    fiche = bind_contract(create_fiche_from_account(account, manager_by_username), contract, int(user_store["mois"]), int(user_store["annee"]))
+                    prior = next((e for e in reversed(user_store["employes_data"]) if e.get("account_username") == selected_username), None)
+                    if prior:
+                        import copy
+                        for field in ("nom", "nom_stagiaire", "prenom_stagiaire", "responsable", "email_responsable", "planning_detail"):
+                            if prior.get(field):
+                                fiche[field] = copy.deepcopy(prior[field])
+                        if prior.get("type") == fiche.get("type"):
+                            for field in ("taux_horaire", "nb_heures_jour", "transport", "taux"):
+                                if field in prior:
+                                    fiche[field] = prior[field]
+                    user_store["employes_data"].append(fiche)
+                    index = len(user_store["employes_data"]) - 1
+                st.session_state["fiche_active_tab"] = fiche_tab_label(fiche, index)
+                st.session_state[f"fiche_active_id_{username}_{user_store['annee']}_{user_store['mois']}"] = str(fiche["id"])
+            save_current_configuration()
+            st.rerun()
+
 # Si la liste est vide, on affiche un message d'aide
 if not user_store["employes_data"]:
     st.info("Aucun employé ou stagiaire configuré. Cliquez sur le bouton ci-dessus pour commencer.")
 
 if user_store["employes_data"]:
-    def fiche_tab_label(employee: dict, index: int) -> str:
-        """Return the clearest available label for an attendance sheet tab."""
-        if employee.get("type") == "Stagiaire":
-            name = " ".join(
-                part.strip()
-                for part in (str(employee.get("prenom_stagiaire") or ""), str(employee.get("nom_stagiaire") or ""))
-                if part.strip()
-            )
-        else:
-            name = str(employee.get("prenom") or employee.get("nom") or "").strip()
-        return name or f"Employé {index + 1}"
+    visible_indices = [i for i, employee in enumerate(user_store["employes_data"])
+        if not employee.get("contract_id") or (employee.get("sheet_month") == user_store["mois"] and employee.get("sheet_year") == user_store["annee"])]
+    if not visible_indices:
+        st.info("Sélectionnez une personne pour créer sa fiche de ce mois.")
+        st.stop()
+    # Keep a separate persistent sheet ID: labels can change while editing.
+    from uuid import uuid4
+    for i in visible_indices:
+        user_store["employes_data"][i].setdefault("id", uuid4().hex)
+    labels_onglets = [fiche_tab_label(user_store["employes_data"][i], i) for i in visible_indices]
+    for position, label in enumerate(list(labels_onglets)):
+        if labels_onglets.count(label) > 1:
+            for duplicate in [j for j, value in enumerate(labels_onglets) if value == label]:
+                labels_onglets[duplicate] = f"{label} · fiche {duplicate + 1}"
 
-    labels_onglets = [
-        fiche_tab_label(employee, index) for index, employee in enumerate(user_store["employes_data"])
-    ]
-    
-    # Création des onglets pour chaque employé
-    # Les onglets suivis conservent l'employé actif après le rafraîchissement
-    # déclenché par un champ, notamment les sélecteurs de date.
-    active_tab = st.session_state.get("fiche_active_tab")
-    if active_tab not in labels_onglets:
-        active_tab = labels_onglets[0]
-    tabs = st.tabs(labels_onglets, default=active_tab, key="fiche_active_tab", on_change="rerun")
+    active_id_key = f"fiche_active_id_{username}_{user_store['annee']}_{user_store['mois']}"
+    active_id = st.session_state.get(active_id_key)
+    active_position = next((j for j, i in enumerate(visible_indices)
+        if str(user_store["employes_data"][i]["id"]) == active_id), 0)
+    st.session_state[active_id_key] = str(user_store["employes_data"][visible_indices[active_position]]["id"])
+    st.session_state["fiche_active_tab"] = labels_onglets[active_position]
 
-    for h, tab in enumerate(tabs):
+    def remember_fiche_tab():
+        label = st.session_state.get("fiche_active_tab")
+        if label in labels_onglets:
+            selected_index = visible_indices[labels_onglets.index(label)]
+            st.session_state[active_id_key] = str(user_store["employes_data"][selected_index]["id"])
+
+    tabs = st.tabs(labels_onglets, default=labels_onglets[0], key="fiche_active_tab", on_change=remember_fiche_tab)
+
+    for tab_index, tab in enumerate(tabs):
+        h = visible_indices[tab_index]
         if not tab.open:
             continue
         with tab:
@@ -173,9 +333,10 @@ if user_store["employes_data"]:
 
             c_space, c_gen, c_del = st.columns([4, 1, 1])
             with c_space:
-                st.subheader(f"Fiche de {emp['nom']}" if emp["nom"] else f"Fiche d'employé")
+                fiche_label = labels_onglets[tab_index]
+                st.subheader(f"Fiche de {fiche_label}" if fiche_label else "Fiche d'employé")
             with c_del:
-                if st.button("Supprimer cette fiche", key=f"del_btn_{emp_id}", type="secondary", help="Supprime définitivement cet employé de la liste"):
+                if "Admin" in USER_TAGS and st.button("Supprimer cette fiche", key=f"del_btn_{emp_id}", type="secondary", help="Supprime définitivement cet employé de la liste"):
                     user_store["employes_data"].pop(h)
                     st.session_state.pop(generated_file_key, None)
                     st.session_state.pop(generated_pdf_key, None)
@@ -183,47 +344,15 @@ if user_store["employes_data"]:
                     st.rerun()
             with c_gen:
                 if st.button("Générer cette fiche", key=f"gen_solo_btn_{emp_id}", type="primary", help="Charge uniquement la fiche de cet employé"):
-                    erreur_type_solo = None
-                    nom_employe_text = emp.get("nom") or emp.get("nom_stagiaire") or f"Employé {h + 1}"
-                    nom_propre = nom_employe_text.replace(" ", "_")
-
-                    if emp.get("type") == "Salarié":
-                        if not emp.get("fdc"): erreur_type_solo = "du fin de contrat"
-                        if not emp.get("ddc"): erreur_type_solo = "du début de contrat"
-                        if emp.get("responsable") == "": erreur_type_solo = "du responsable"
-                        if emp.get("nom") == "": erreur_type_solo = "du nom"
-
-                        if erreur_type_solo:
-                            st.error(f"Impossible de générer : il manque l'information {erreur_type_solo} !")
-                        else:
-                            excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"], emp)
-                            st.session_state.pop(generated_pdf_key, None)
-                            st.session_state[generated_file_key] = {
-                                "data": excel_buffer.getvalue(),
-                                "filename": f"fiche_presence_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx",
-                                "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                "download_label": "Télécharger l'Excel",
-                                "employee_name": nom_employe_text,
-                            }
-                            st.rerun()
+                    try:
+                        validate_fiche(emp)
+                        generated = generate_fiche_file(emp, user_store["mois"], user_store["annee"])
+                    except Exception as error:
+                        st.error(f"Impossible de générer la fiche : {error}")
                     else:
-                        if not emp.get("fds"): erreur_type_solo = "de la fin de stage"
-                        if not emp.get("dds"): erreur_type_solo = "du début de stage"
-                        if emp.get("nom_stagiaire") == "": erreur_type_solo = "du nom"
-
-                        if erreur_type_solo:
-                            st.error(f"Impossible de générer : il manque l'information {erreur_type_solo} !")
-                        else:
-                            docx_buffer = generer_docx_stagiaire(emp, user_store['mois'], user_store['annee'])
-                            st.session_state.pop(generated_pdf_key, None)
-                            st.session_state[generated_file_key] = {
-                                "data": docx_buffer.getvalue(),
-                                "filename": f"Fiche_Stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx",
-                                "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                "download_label": "Télécharger le Word",
-                                "employee_name": nom_employe_text,
-                            }
-                            st.rerun()
+                        st.session_state.pop(generated_pdf_key, None)
+                        st.session_state[generated_file_key] = generated
+                        st.rerun()
 
             generated_file = st.session_state.get(generated_file_key)
             c_download, c_pdf, c_send, _ = st.columns([1, 1, 1, 3])
@@ -246,31 +375,22 @@ if user_store["employes_data"]:
                             file_name=generated_pdf["filename"],
                             mime="application/pdf",
                             key=f"dl_pdf_solo_{emp_id}",
+                            on_click="ignore",
                         )
                     elif st.button("Préparer le PDF", key=f"pdf_solo_btn_{emp_id}"):
-                        payload = {
-                            "filename": generated_file["filename"],
-                            "file_b64": base64.b64encode(generated_file["data"]).decode("utf-8"),
-                        }
                         try:
-                            response = requests.post(
-                                f"{API_URL}/fiches/pdf",
-                                headers=headers,
-                                json=payload,
-                                timeout=100,
-                            )
-                            if response.status_code == 200:
-                                stem = os.path.splitext(generated_file["filename"])[0]
-                                st.session_state[generated_pdf_key] = {
-                                    "data": response.content,
-                                    "filename": f"{stem}.pdf",
-                                }
-                                st.rerun()
-                            else:
-                                detail = response.json().get("detail", response.text)
-                                st.error(f"Impossible de préparer le PDF : {detail}")
-                        except requests.RequestException as error:
-                            st.error(f"Erreur de communication avec le serveur : {error}")
+                            with st.spinner("Préparation du PDF…"):
+                                pdf_data = convert_fiche_pdf(
+                                    API_URL, headers, generated_file["filename"], generated_file["data"]
+                                )
+                            stem = os.path.splitext(generated_file["filename"])[0]
+                            st.session_state[generated_pdf_key] = {
+                                "data": pdf_data,
+                                "filename": f"{stem}.pdf",
+                            }
+                            st.rerun()
+                        except ValueError as error:
+                            st.error(f"Impossible de préparer le PDF : {error}")
                 with c_send:
                     if st.button("Envoyer pour signature", key=f"send_solo_btn_{emp_id}", type="primary"):
                         target_email = emp.get("email_employe", "").strip()
@@ -293,7 +413,7 @@ if user_store["employes_data"]:
                                     timeout=30,
                                 )
                                 if response.status_code == 200:
-                                    st.success(f"Demande de signature envoyée à {target_email} !")
+                                    st.success(response.json().get("message", f"Demande de signature envoyée à {target_email} !"))
                                 else:
                                     detail = response.json().get("detail", response.text)
                                     st.error(f"Erreur lors de l'envoi : {detail}")
@@ -316,39 +436,43 @@ if user_store["employes_data"]:
                 ["Salarié", "Stagiaire"],
                 key=f"type_contrat_{emp_id}",
                 index=0 if emp.get("type", "Salarié") == "Salarié" else 1,
-                horizontal=True
+                horizontal=True,
+                disabled=IS_MANAGER or bool(emp.get("contract_id"))
             )
             emp["type"] = type_contrat
 
             st.divider()
 
             # Visual monthly calendar shared by employees and interns.
-            render_monthly_calendar(
-                emp,
-                int(user_store["mois"]),
-                int(user_store["annee"]),
-                f"{username}_{emp_id}",
-            )
+            with st.expander("Calendrier mensuel", expanded=False):
+                select_period(f"fiches_{username}", f"calendar_{emp_id}", user_store["mois"], user_store["annee"])
+                render_monthly_calendar(
+                    emp,
+                    int(user_store["mois"]),
+                    int(user_store["annee"]),
+                    f"{username}_{emp_id}",
+                )
 
             st.divider()
 
             # CHAMPS SALARIÉS
             if type_contrat == "Salarié":
-                st.subheader("Informations Employé")
-                emp["nom"] = st.text_input("NOM Prénom (Employé)", key=f"{username}_employe_nom_{emp_id}", value=emp["nom"])
-                emp["email_employe"] = st.text_input("E-mail de l'employé", placeholder="employe@univ-ilci.fr", key=f"{username}_emp_mail_{emp_id}", value=emp.get("email_employe", ""), help="L'adresse e-mail à laquelle la fiche de présence sera envoyée.")
-                emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{emp_id}", value=emp["responsable"])
-                emp["email_responsable"] = st.text_input("Email du responsable", placeholder="responsable@univ-ilci.fr", key=f"{username}_resp_mail_{emp_id}", value=emp.get("email_responsable", ""), help="Un mail sera envoyé au responsable un mois avant la fin du contrat de l'employé.")
-                c1, c2 = st.columns(2)
-                with c1:
-                    emp["ddc"] = st.date_input("Début de contrat", key=f"ddc_{emp_id}", value=emp.get("ddc"), format="DD/MM/YYYY", on_change=mark_contract_sync_pending)
-                    emp["cdi"] = st.checkbox("Contrat CDI ?", value=emp.get("cdi", False), key=f"cdi_{emp_id}", on_change=mark_contract_sync_pending)
-                with c2:
-                    if not emp["cdi"]:
-                        emp["fdc"] = st.date_input("Fin de contrat", key=f"fdc_{emp_id}", value=emp.get("fdc") if emp.get("fdc") != "Pas de fin" else None, format="DD/MM/YYYY", on_change=mark_contract_sync_pending)
-                    else:
-                        emp["fdc"] = "Pas de fin"
-                        st.write("Fin de contrat : N/A")
+                with st.expander("Informations personnelles et contrat", expanded=False):
+                    st.subheader("Informations Employé")
+                    emp["nom"] = person_text_input("NOM Prénom (Employé)", key=f"{username}_employe_nom_{emp_id}", value=emp["nom"])
+                    emp["email_employe"] = person_text_input("E-mail de l'employé", placeholder="employe@univ-ilci.fr", key=f"{username}_emp_mail_{emp_id}", value=emp.get("email_employe", ""), help="L'adresse e-mail à laquelle la fiche de présence sera envoyée.")
+                    emp["responsable"] = person_text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{emp_id}", value=emp["responsable"])
+                    emp["email_responsable"] = person_text_input("Email du responsable", placeholder="responsable@univ-ilci.fr", key=f"{username}_resp_mail_{emp_id}", value=emp.get("email_responsable", ""), help="Un mail sera envoyé au responsable un mois avant la fin du contrat de l'employé.")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        emp["ddc"] = st.date_input("Début de contrat", key=f"ddc_{emp_id}", value=emp.get("ddc"), format="DD/MM/YYYY", disabled=IS_MANAGER or bool(emp.get("contract_id")))
+                        emp["cdi"] = st.checkbox("Contrat CDI ?", value=emp.get("cdi", False), key=f"cdi_{emp_id}", disabled=IS_MANAGER or bool(emp.get("contract_id")))
+                    with c2:
+                        if not emp["cdi"]:
+                            emp["fdc"] = st.date_input("Fin de contrat", key=f"fdc_{emp_id}", value=emp.get("fdc") if emp.get("fdc") != "Pas de fin" else None, format="DD/MM/YYYY", disabled=IS_MANAGER or bool(emp.get("contract_id")))
+                        else:
+                            emp["fdc"] = "Pas de fin"
+                            st.write("Fin de contrat : N/A")
                 
                 # SECTION PLANNINGS ET CONGES
                 with st.expander("Temps partiel / Planning hebdomadaire"):
@@ -357,7 +481,7 @@ if user_store["employes_data"]:
                     jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
                     
                     if "planning_detail" not in emp:
-                        emp["planning_detail"] = {j: {"m1": "09:00", "m2": "12:00", "a1": "13:00", "a2": "17:00", "actif": j not in ("Samedi", "Dimanche")} for j in jours}
+                        emp["planning_detail"] = default_planning()
 
                     for jour in jours:
                         st.write(f"**{jour}**")
@@ -376,122 +500,27 @@ if user_store["employes_data"]:
                             with c5:
                                 emp["planning_detail"][jour]["a2"] = st.selectbox("à", HORAIRES, index=HORAIRES.index(emp["planning_detail"][jour]["a2"]), key=f"a2_{emp_id}_{jour}")
 
-                # Section Congés
-                with st.expander("Congés payés"):
-                    st.subheader("Saisir les jours de congés payés")
-                    nb_jours_vac = st.number_input(
-                        "Nombre de jours :",
-                        min_value=0,
-                        max_value=31,
-                        value=len(emp["vacances"]),
-                        key=f"{username}_nb_jours_vac_{emp_id}_{len(emp['vacances'])}",
-                    )
-
-                    while len(emp["vacances"]) < nb_jours_vac:
-                        emp["vacances"].append({
-                        "date": None,
-                        "matin": False,
-                        "aprem": False,
-                        "examen_alt": False
-                    })
-
-                    while len(emp["vacances"]) > nb_jours_vac:
-                        emp["vacances"].pop()
-
-                    for i, vac in enumerate(emp["vacances"]):
-                        st.markdown(f"### Jour de CP #{i+1}")
-                        col1, col2, col3, col4 = st.columns(4)
-
-                        with col1:
-                            vac["date"] = st.date_input(f"Date", key=f"{username}_date_cp_{emp_id}_{i}", format="MM/DD/YYYY", value=vac["date"])
-                        with col2:
-                            vac["matin"] = st.checkbox(f"Matin", value=vac["matin"], key=f"{username}_matin_{emp_id}_{i}")
-                        with col3:
-                            vac["aprem"] = st.checkbox(f"Après-midi", value=vac["aprem"], key=f"{username}_aprem_{emp_id}_{i}")
-                        with col4:
-                            vac["examen_alt"] = st.checkbox(f"Examen alternance", value=vac["examen_alt"] if "examen_alt" in vac else False, key=f"{username}_examen_alt_{emp_id}_{i}", help="Cochez la case si c'est un alternant qui pose des jours de congés pour les révisions de ses examens")
-
-                # Section Absences
-                with st.expander("Absences"):
-                    st.subheader("Saisir les jours d'absences")
-                    nb_jours_abs = st.number_input(
-                        "Nombre de jours :",
-                        min_value=0,
-                        max_value=31,
-                        value=len(emp["absences"]),
-                        key=f"{username}_nb_jours_abs_{emp_id}_{len(emp['absences'])}",
-                    )
-
-                    while len(emp["absences"]) < nb_jours_abs:
-                        emp["absences"].append({
-                        "date": None,
-                        "matin": False,
-                        "aprem": False
-                    })
-
-                    while len(emp["absences"]) > nb_jours_abs:
-                        emp["absences"].pop()
-
-                    for i, abs in enumerate(emp["absences"]):
-                        st.markdown(f"### Jour d'ABS #{i+1}")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            abs["date"] = st.date_input(f"Date", key=f"{username}_date_abs_{emp_id}_{i}", format="MM/DD/YYYY", value=abs["date"])
-                        with col2:
-                            abs["matin"] = st.checkbox(f"Matin", value=abs["matin"], key=f"{username}_matin_abs_{emp_id}_{i}")
-                        with col3:
-                            abs["aprem"] = st.checkbox(f"Après-midi", value=abs["aprem"], key=f"{username}_aprem_abs_{emp_id}_{i}")
-
-                # Section Arrêts
-                with st.expander("Arrêts maladies"):
-                    st.subheader("Saisir les jours d'arrêts maladies")
-                    nb_jours_am = st.number_input(
-                        "Nombre de jours",
-                        min_value=0,
-                        max_value=31,
-                        value=len(emp["arret"]),
-                        key=f"{username}_nb_jours_am_{emp_id}_{len(emp['arret'])}",
-                    )
-
-                    while len(emp["arret"]) < nb_jours_am:
-                        emp["arret"].append({
-                        "date": None,
-                        "matin": False,
-                        "aprem": False
-                    })
-
-                    while len(emp["arret"]) > nb_jours_am:
-                        emp["arret"].pop()
-
-                    for i, am in enumerate(emp["arret"]):
-                        st.markdown(f"### Jour d'AM #{i+1}")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            am["date"] = st.date_input(f"Date", key=f"{username}_date_am_{emp_id}_{i}", format="MM/DD/YYYY", value=am["date"])
-                        with col2:
-                            am["matin"] = st.checkbox(f"Matin", value=am["matin"], key=f"{username}_matin_am_{emp_id}_{i}")
-                        with col3:
-                            am["aprem"] = st.checkbox(f"Après-midi", value=am["aprem"], key=f"{username}_aprem_am_{emp_id}_{i}")
             else:
                 # CHAMPS STAGIAIRES
-                st.subheader("Information Stagiaire")
+                with st.expander("Informations du stage et rémunération", expanded=False):
+                    st.subheader("Information Stagiaire")
             
-                c1, c2 = st.columns(2)
-                with c1:
-                    emp["nom_stagiaire"] = st.text_input("Nom du stagiaire", key=f"st_nom_{emp_id}", value=emp.get("nom_stagiaire", ""))
-                    emp["email_employe"] = st.text_input("E-mail du stagiaire", placeholder="stagiaire@univ-ilci.fr", key=f"{username}_emp_mail_{emp_id}", value=emp.get("email_employe", ""), help="L'adresse e-mail à laquelle la fiche de présence sera envoyée.")
-                    emp["responsable"] = st.text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{emp_id}", value=emp["responsable"])
-                    emp["dds"] = st.date_input("Début de stage", key=f"dds_{emp_id}", value=emp.get("dds"), format="DD/MM/YYYY", on_change=mark_contract_sync_pending)
-                    emp["nb_jours"] = st.number_input("Nombre de jours", key=f"st_nj_{emp_id}", value=emp.get("nb_jours", 0))
-                    emp["taux_horaire"] = st.number_input("Taux horaire (€)", key=f"st_th_{emp_id}", value=emp.get("taux_horaire", 0.0))
-                    emp["facture_mensuelle"] = st.number_input("Facture mensuelle (€)", key=f"st_fm_{emp_id}", value=emp.get("facture_mensuelle", 0.0))
-                with c2:
-                    emp["prenom_stagiaire"] = st.text_input("Prénom du stagiaire", key=f"st_pre_{emp_id}", value=emp.get("prenom_stagiaire", ""))
-                    emp["email_responsable"] = st.text_input("Email du responsable", placeholder="responsable@univ-ilci.fr", key=f"{username}_resp_mail_{emp_id}", value=emp.get("email_responsable", ""))
-                    emp["fds"] = st.date_input("Fin de stage", key=f"fds_{emp_id}", value=emp.get("fds"), format="DD/MM/YYYY", on_change=mark_contract_sync_pending)
-                    emp["nb_heures_jour"] = st.number_input("Nombre d'heures/jour", key=f"st_nhj_{emp_id}", value=emp.get("nb_heures_jour", 0.0))
-                    emp["transport"] = st.text_input("Transport", key=f"st_tr_{emp_id}", value=emp.get("transport", ""))
-                    emp["taux"] = st.number_input("Taux (%)", key=f"st_tx_{emp_id}", value=emp.get("taux", 0.0))
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        emp["nom_stagiaire"] = person_text_input("Nom du stagiaire", key=f"st_nom_{emp_id}", value=emp.get("nom_stagiaire", ""))
+                        emp["email_employe"] = person_text_input("E-mail du stagiaire", placeholder="stagiaire@univ-ilci.fr", key=f"{username}_emp_mail_{emp_id}", value=emp.get("email_employe", ""), help="L'adresse e-mail à laquelle la fiche de présence sera envoyée.")
+                        emp["responsable"] = person_text_input("NOM Prénom (Responsable)", key=f"{username}_resp_nom_{emp_id}", value=emp["responsable"])
+                        emp["dds"] = st.date_input("Début de stage", key=f"dds_{emp_id}", value=emp.get("dds"), format="DD/MM/YYYY", disabled=IS_MANAGER or bool(emp.get("contract_id")))
+                        emp["nb_jours"] = st.number_input("Nombre de jours", key=f"st_nj_{emp_id}", value=emp.get("nb_jours", 0))
+                        emp["taux_horaire"] = st.number_input("Taux horaire (€)", key=f"st_th_{emp_id}", value=emp.get("taux_horaire", 0.0), disabled=IS_MANAGER)
+                        emp["facture_mensuelle"] = st.number_input("Facture mensuelle (€)", key=f"st_fm_{emp_id}", value=emp.get("facture_mensuelle", 0.0), disabled=IS_MANAGER)
+                    with c2:
+                        emp["prenom_stagiaire"] = person_text_input("Prénom du stagiaire", key=f"st_pre_{emp_id}", value=emp.get("prenom_stagiaire", ""))
+                        emp["email_responsable"] = person_text_input("Email du responsable", placeholder="responsable@univ-ilci.fr", key=f"{username}_resp_mail_{emp_id}", value=emp.get("email_responsable", ""))
+                        emp["fds"] = st.date_input("Fin de stage", key=f"fds_{emp_id}", value=emp.get("fds"), format="DD/MM/YYYY", disabled=IS_MANAGER or bool(emp.get("contract_id")))
+                        emp["nb_heures_jour"] = st.number_input("Nombre d'heures/jour", key=f"st_nhj_{emp_id}", value=emp.get("nb_heures_jour", 0.0))
+                        emp["transport"] = person_text_input("Transport", key=f"st_tr_{emp_id}", value=emp.get("transport", ""))
+                        emp["taux"] = st.number_input("Taux (%)", key=f"st_tx_{emp_id}", value=emp.get("taux", 0.0), disabled=IS_MANAGER)
 
 # BOUTON DE SAUVEGARDE SUR LE VPS
 st.divider()
@@ -501,226 +530,137 @@ if st.session_state.pop(contract_sync_key, False) and save_current_configuration
 if st.button("Sauvegarder", width="stretch"):
     save_current_configuration(show_success=True)
 
-# ENVOI GLOBAL POUR SIGNATURE
-if st.button(
-    "Envoyer toutes les fiches pour signature",
-    type="primary",
-    help="Génère chaque fiche puis envoie une demande de signature à l'adresse e-mail enregistrée.",
-):
-    envois_reussis = []
-    erreurs_envoi = []
-    fiches_a_envoyer = user_store["employes_data"]
+# Selection is shared by download and signing, without changing signer resolution.
+selected_batch_sheets = render_batch_selection(
+    period_sheets(user_store["employes_data"], user_store["mois"], user_store["annee"]),
+    username=username, month=user_store["mois"], year=user_store["annee"], label=fiche_tab_label,
+)
+if selected_batch_sheets is not None:
+    st.caption("Signature : salarié d’abord, puis son responsable direct enregistré. "
+               "Le téléchargement ZIP ne déclenche aucun e-mail.")
+    # ENVOI GLOBAL POUR SIGNATURE
+    if st.button(
+        "Envoyer la sélection pour signature",
+        disabled=not selected_batch_sheets,
+        type="primary",
+        help="Génère uniquement les fiches cochées puis envoie les demandes une par une.",
+    ):
+        envois_reussis = []
+        erreurs_envoi = []
+        fiches_a_envoyer = selected_batch_sheets
 
-    if not fiches_a_envoyer:
-        st.warning("Aucune fiche n'est disponible à envoyer.")
-    else:
-        progress = st.progress(0, text="Préparation des demandes de signature…")
-        for index, employe in enumerate(fiches_a_envoyer, start=1):
-            est_stagiaire = employe.get("type") == "Stagiaire"
-            emp_id = employe.get("id")
-            nom = (
-                " ".join(
-                    part.strip()
-                    for part in (str(employe.get("prenom_stagiaire") or ""), str(employe.get("nom_stagiaire") or ""))
-                    if part.strip()
-                )
-                if est_stagiaire
-                else str(employe.get("nom") or "").strip()
-            )
-            # Lire la valeur du widget en priorité : elle peut être plus récente
-            # que la copie de la fiche en mémoire au moment du clic groupé.
-            email_widget_key = f"{username}_emp_mail_{emp_id}"
-            email = str(st.session_state.get(email_widget_key, employe.get("email_employe") or "")).strip()
-            employe["email_employe"] = email
-            informations_manquantes = []
-
-            if not nom:
-                informations_manquantes.append("nom")
-            if not email:
-                informations_manquantes.append("e-mail")
-            if est_stagiaire:
-                if not employe.get("dds"):
-                    informations_manquantes.append("début de stage")
-                if not employe.get("fds"):
-                    informations_manquantes.append("fin de stage")
-            else:
-                if not employe.get("ddc"):
-                    informations_manquantes.append("début de contrat")
-                if not employe.get("fdc"):
-                    informations_manquantes.append("fin de contrat")
-                if not str(employe.get("responsable") or "").strip():
-                    informations_manquantes.append("responsable")
-
-            if informations_manquantes:
-                erreurs_envoi.append(
-                    f"{nom or f'Fiche {index}'} : information manquante ({', '.join(informations_manquantes)})."
-                )
-            else:
+        if not fiches_a_envoyer:
+            st.warning("Aucune fiche n'est disponible à envoyer.")
+        else:
+            progress = st.progress(0, text="Préparation des demandes de signature…")
+            for index, employe in enumerate(fiches_a_envoyer, start=1):
+                nom = fiche_name(employe) or f"Fiche {index}"
+                emp_id = employe.get("id")
+                email_widget_key = f"{username}_emp_mail_{emp_id}"
+                email = str(st.session_state.get(email_widget_key, employe.get("email_employe") or "")).strip()
+                employe["email_employe"] = email
                 try:
-                    nom_fichier = nom.replace(" ", "_")
-                    if est_stagiaire:
-                        fichier = generer_docx_stagiaire(employe, user_store["mois"], user_store["annee"])
-                        filename = f"fiche_presence_stage_{nom_fichier}_{user_store['mois']}_{user_store['annee']}.docx"
-                    else:
-                        fichier = remplir_fiche_paie(user_store["mois"], user_store["annee"], employe)
-                        filename = f"fiche_presence_{nom_fichier}_{user_store['mois']}_{user_store['annee']}.xlsx"
+                    validate_fiche(employe, require_email=True)
+                except ValueError as error:
+                    erreurs_envoi.append(f"{nom} : {error}")
+                else:
+                    try:
+                        generated = generate_fiche_file(employe, user_store["mois"], user_store["annee"])
+                        payload = {
+                            "recipient_email": email,
+                            "employee_name": nom,
+                            "month": int(user_store["mois"]),
+                            "year": int(user_store["annee"]),
+                            "filename": generated["filename"],
+                            "file_b64": base64.b64encode(generated["data"]).decode("utf-8"),
+                        }
+                        response = requests.post(
+                            f"{API_URL}/send-fiche",
+                            headers=headers,
+                            json=payload,
+                            timeout=90,
+                        )
+                        if response.status_code == 200:
+                            envois_reussis.append(f"{nom} ({email})")
+                        else:
+                            try:
+                                detail = response.json().get("detail", response.text)
+                            except ValueError:
+                                detail = response.text
+                            erreurs_envoi.append(f"{nom} : {detail}")
+                    except requests.RequestException as error:
+                        erreurs_envoi.append(f"{nom} : impossible de joindre le serveur ({error}).")
+                    except Exception as error:
+                        erreurs_envoi.append(f"{nom} : impossible de préparer la fiche ({error}).")
 
-                    payload = {
-                        "recipient_email": email,
-                        "employee_name": nom,
-                        "month": int(user_store["mois"]),
-                        "year": int(user_store["annee"]),
-                        "filename": filename,
-                        "file_b64": base64.b64encode(fichier.getvalue()).decode("utf-8"),
-                    }
-                    response = requests.post(
-                        f"{API_URL}/send-fiche",
-                        headers=headers,
-                        json=payload,
-                        timeout=90,
-                    )
-                    if response.status_code == 200:
-                        envois_reussis.append(f"{nom} ({email})")
-                    else:
-                        try:
-                            detail = response.json().get("detail", response.text)
-                        except ValueError:
-                            detail = response.text
-                        erreurs_envoi.append(f"{nom} : {detail}")
-                except requests.RequestException as error:
-                    erreurs_envoi.append(f"{nom} : impossible de joindre le serveur ({error}).")
-                except Exception as error:
-                    erreurs_envoi.append(f"{nom} : impossible de préparer la fiche ({error}).")
+                progress.progress(index / len(fiches_a_envoyer), text=f"Traitement de {index}/{len(fiches_a_envoyer)}…")
 
-            progress.progress(index / len(fiches_a_envoyer), text=f"Traitement de {index}/{len(fiches_a_envoyer)}…")
+            progress.empty()
+            if envois_reussis:
+                st.success(f"{len(envois_reussis)} demande(s) de signature envoyée(s) : {', '.join(envois_reussis)}.")
+            if erreurs_envoi:
+                st.error("Certaines fiches n'ont pas été envoyées :\n\n" + "\n\n".join(f"- {erreur}" for erreur in erreurs_envoi))
 
-        progress.empty()
-        if envois_reussis:
-            st.success(f"{len(envois_reussis)} demande(s) de signature envoyée(s) : {', '.join(envois_reussis)}.")
-        if erreurs_envoi:
-            st.error("Certaines fiches n'ont pas été envoyées :\n\n" + "\n\n".join(f"- {erreur}" for erreur in erreurs_envoi))
+    # Export des fiches du mois sélectionné.
+    batch_sheets = selected_batch_sheets
+    batch_format = st.segmented_control(
+        "Format de l'export groupé", ["PDF", "Excel / Word"], default="PDF", key="fiche_batch_format"
+    ) or "PDF"
+    batch_fingerprint = hashlib.sha256(json.dumps(
+        {"username": username, "month": user_store["mois"], "year": user_store["annee"],
+         "format": batch_format, "sheets": batch_sheets},
+        sort_keys=True, default=str, ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
+    if st.session_state.get("fiche_batch_export", {}).get("fingerprint") != batch_fingerprint:
+        st.session_state.pop("fiche_batch_export", None)
 
-# GÉNÉRATION EXCEL ET DOCX
-if st.button("Générer toutes les fiches", type="primary"): 
-    # On sépare les deux types de contrat
-    salaries = [e for e in user_store["employes_data"] if e.get("type") == "Salarié"]
-    stagiaires = [e for e in user_store["employes_data"] if e.get("type") == "Stagiaire"]
+    if st.button("Préparer la sélection en PDF" if batch_format == "PDF" else "Générer la sélection",
+                 type="primary", disabled=not batch_sheets, key="prepare_batch_export"):
+        st.session_state.pop("fiche_batch_export", None)
+        export_errors = []
+        for employee in batch_sheets:
+            try:
+                validate_fiche(employee, require_first_name=True, check_exceptions=True)
+            except ValueError as error:
+                export_errors.append(f"{fiche_name(employee) or 'Personne'} : {error}")
+        if export_errors:
+            st.error("Corrigez les fiches avant l'export :\n\n" + "\n\n".join(export_errors))
+        else:
+            zip_buffer = io.BytesIO()
+            progress = st.progress(0, text="Préparation des fiches…")
+            export_errors = []
+            sheets_to_export = batch_sheets
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                for idx, employee in enumerate(sheets_to_export):
+                    name = fiche_name(employee) or f"Personne_{idx+1}"
+                    try:
+                        generated = generate_fiche_file(employee, user_store["mois"], user_store["annee"], ordinal=idx+1)
+                        file_name, data = generated["filename"], generated["data"]
+                        if batch_format == "PDF":
+                            data = convert_fiche_pdf(API_URL, headers, file_name, data)
+                            file_name = os.path.splitext(file_name)[0] + ".pdf"
+                        zip_file.writestr(file_name, data)
+                    except Exception as error:
+                        export_errors.append(f"{name} : {error}")
+                    progress.progress((idx+1)/len(sheets_to_export), text=f"Fiche {idx+1}/{len(sheets_to_export)}")
+            progress.empty()
+            if export_errors:
+                st.error("L'export n'a pas pu être terminé. Corrigez les erreurs puis réessayez :\n\n"
+                         + "\n\n".join(f"- {error}" for error in export_errors))
+            else:
+                suffix = "pdf" if batch_format == "PDF" else "excel_word"
+                st.session_state["fiche_batch_export"] = {
+                    "fingerprint": batch_fingerprint,
+                    "data": zip_buffer.getvalue(),
+                    "filename": f"fiches_presence_{user_store['annee']}_{int(user_store['mois']):02d}_{suffix}.zip",
+                    "count": len(sheets_to_export),
+                }
 
-    bloquer_generation = False
-
-    if salaries:
-        # Logique de validation des champs obligatoires
-        erreur_type = None
-        erreur_employe = None
-        categories = {
-            "vacances": "le congé payé",
-            "absences": "l'absence",
-            "arret": "l'arrêt maladie"
-        }
-
-        for idx, employe in enumerate(salaries, start=1):
-            nom_emp = employe.get("nom", "Employé sans nom")
-
-            for key_cat, label in categories.items():
-                for jour in employe[key_cat]:
-                    if not jour["matin"] and not jour["aprem"]:
-                        erreur_type = label
-                        erreur_employe = nom_emp
-                        break
-                
-                if erreur_type:
-                    break
-            
-            if (not employe["fdc"]):
-                erreur_type = "du fin de contrat"
-                erreur_employe = f"{nom_emp} (Employé {idx})"
-
-            if (not employe["ddc"]):
-                erreur_type = "du début de contrat"
-                erreur_employe = f"{nom_emp} (Employé {idx})"
-
-            if (employe["responsable"] == ""):
-                erreur_type = "du responsable"
-                erreur_employe = f"{nom_emp} (Employé {idx})"
-
-            if (employe["nom"] == ""):
-                erreur_type = "du nom"
-                erreur_employe = f"Employé {idx}"
-
-            if erreur_type:
-                bloquer_generation = True
-                break
-
-        if (erreur_type == "le congé payé" or erreur_type == "l'absence" or erreur_type == "l'arrêt maladie"):
-            st.error(
-                f"Une des deux cases 'Matin' ou 'Après-midi' pour {erreur_type} de **{erreur_employe}** n'a pas été cochée !"
-            )
-        elif erreur_type:
-            st.error(
-                f"Il manque l'information {erreur_type} pour **{erreur_employe}** !"
-            )
-
-    if stagiaires and not bloquer_generation:
-        # Logique de validation des champs obligatoires
-        erreur_type_stage = None
-        erreur_stagiaire = None
-
-        for idx, stagiaire in enumerate(stagiaires, start=1):
-            nom_emp = stagiaire.get("nom", "Stagiaire sans nom")
-
-            if (not stagiaire["fds"]):
-                erreur_type_stage = "du fin de contrat"
-                erreur_stagiaire = f"{nom_emp} (Stagiaire {idx})"
-
-            if (not stagiaire["dds"]):
-                erreur_type_stage = "du début de contrat"
-                erreur_stagiaire = f"{nom_emp} (Stagiaire {idx})"
-
-            if (stagiaire["nom_stagiaire"] == ""):
-                erreur_type_stage = "du nom"
-                erreur_stagiaire = f"Stagiaire {idx}"
-
-            if (stagiaire["prenom_stagiaire"] == ""):
-                erreur_type_stage = "du prénom"
-                erreur_stagiaire = f"Stagiaire {idx}"
-
-            if erreur_type_stage:
-                bloquer_generation = True
-                st.error(
-                    f"Il manque l'information {erreur_type_stage} pour **{erreur_stagiaire}** !"
-                )
-    
-    if not bloquer_generation and (salaries or stagiaires):
-        zip_buffer = io.BytesIO()
-
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-
-            if salaries:
-                for idx, salarie in enumerate(salaries):
-                    nom_propre = salarie.get("nom", f"Employe_{idx+1}").replace(" ", "_")
-                    file_name = f"fiche_presence_{nom_propre}_{user_store['mois']}_{user_store['annee']}.xlsx"
-
-                    excel_buffer = remplir_fiche_paie(user_store["mois"], user_store["annee"],salarie)
-
-                    zip_file.writestr(file_name, excel_buffer.getvalue())
-            
-            if stagiaires:
-                for idx, stagiaire in enumerate(stagiaires):
-                    nom_propre = stagiaire.get("nom_stagiaire", f"Stagiaire_{idx+1}").replace(" ", "_")
-                    file_name = f"fiche_presence_stage_{nom_propre}_{user_store['mois']}_{user_store['annee']}.docx"
-
-                    docx_buffer = generer_docx_stagiaire(stagiaire, user_store['mois'], user_store['annee'])
-
-                    zip_file.writestr(file_name, docx_buffer.getvalue())
-
-        zip_buffer.seek(0)
-
-        st.success("Toutes les fiches individuelles ont été générées avec succès !")
-
+    batch_export = st.session_state.get("fiche_batch_export")
+    if batch_export:
+        st.success(f"{batch_export['count']} fiche(s) prête(s) à télécharger.")
         st.download_button(
-            label="Télécharger toutes les fiches (Dossier ZIP)",
-            data=zip_buffer,
-            file_name=f"fiches_presence_{user_store['mois']}_{user_store['annee']}.zip",
-            mime="application/zip",
-            width="stretch"
+            label="Télécharger les PDF sélectionnés (ZIP)" if batch_format == "PDF" else "Télécharger les fiches sélectionnées (ZIP)",
+            data=batch_export["data"], file_name=batch_export["filename"], mime="application/zip",
+            key="download_batch_export", on_click="ignore", width="stretch",
         )

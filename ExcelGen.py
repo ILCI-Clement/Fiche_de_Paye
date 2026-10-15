@@ -4,6 +4,7 @@ import holidays
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Alignment, Font
 import io
+from contract_periods import monthly_exceptions
 
 def heures_vers_texte(nb_heures):
     heures = int(nb_heures)
@@ -91,7 +92,7 @@ def somme(ws, lignes, col_source, col_resultat, ligne_total, somme):
     reste_minutes = total_minutes % 60
     ws.cell(row=ligne_total, column=col_resultat, value=f"{total_heures:02d}:{reste_minutes:02d}")
 
-def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsable, ddc, fdc, vacances_total, absences_total, arret_total, planning):
+def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsable, ddc, fdc, vacances_total, absences_total, arret_total, planning, period_start=None, period_end=None):
     mois_string = ["JANVIER", "FEVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOUT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DECEMBRE"]
     jours_trad = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 
@@ -169,7 +170,10 @@ def remplir_calendrier(ws, mois, annee, vacances, absences, arret, nom, responsa
             d_str = d.strftime("%Y-%m-%d")
             nom_jour_fr = jours_trad[d.weekday()]
 
-            if d in jours_feries:
+            if period_start and (d < date.fromisoformat(str(period_start)) or d > date.fromisoformat(str(period_end))):
+                ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
+                ws.cell(row=col, column=ligne+1, value="HORS CONTRAT")
+            elif d in jours_feries:
                 ws.merge_cells(start_row=col, start_column=ligne+1, end_row=col+1, end_column=ligne+3)
                 cell = ws.cell(row=col, column=ligne+1, value="FERIE")
                 cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -296,6 +300,7 @@ def remplir_fiche_paie(mois, annee, employes_data):
     else:
         modele.title = "Sans nom"
     
+    employes_data = monthly_exceptions(employes_data, mois, annee)
     vacances = convertir_jours(employes_data["vacances"])
     vacances_total = 0
     for jour, infos in vacances.items():
@@ -329,7 +334,7 @@ def remplir_fiche_paie(mois, annee, employes_data):
         elif mat and aprem:
             arret_total = arret_total + 1
 
-    remplir_calendrier(modele, mois, annee, vacances, absences, arret, employes_data["nom"], employes_data["responsable"], employes_data["ddc"], employes_data["fdc"], vacances_total, absences_total, arret_total, employes_data.get("planning_detail", {}))
+    remplir_calendrier(modele, mois, annee, vacances, absences, arret, employes_data["nom"], employes_data["responsable"], employes_data["ddc"], employes_data["fdc"], vacances_total, absences_total, arret_total, employes_data.get("planning_detail", {}), employes_data.get("sheet_period_start"), employes_data.get("sheet_period_end"))
 
     # Sauvegarde
     
