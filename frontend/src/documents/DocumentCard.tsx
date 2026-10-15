@@ -19,6 +19,7 @@ export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, onS
       <Typography sx={{ fontWeight: 650, overflowWrap: 'anywhere', flex: 1 }}>{r.original_filename} <Typography component="span" color="primary.main" sx={{ fontSize: 13 }}>· {periodLabel(initial.month, initial.year)}</Typography></Typography>
     </Box>
     <Box sx={{ my: 1, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+      {r.document_number && <Chip size="small" label={`N° ${r.document_number}`} variant="outlined" sx={{ fontFamily: 'monospace', userSelect: 'text', fontWeight: 650 }} />}
       <Chip size="small" label={r.document_type === 'autre' ? `Autre · ${r.other_type}` : r.document_type === 'transport' ? 'Transport' : 'Non renseigné'} color={r.document_type === 'transport' ? 'info' : 'secondary'} variant="outlined" />
       {r.archived && <Chip size="small" label="Archivé" variant="outlined" />}
     </Box>

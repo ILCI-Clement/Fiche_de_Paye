@@ -2,7 +2,7 @@
 from typing import Any
 from pathlib import Path
 import base64, binascii, secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 from document_downloads import safe_archive_component, MAX_ARCHIVE_BYTES
@@ -10,6 +10,10 @@ import pymysql
 from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+try:
+    from .document_numbers import allocate_document_number, ensure_document_number_schema
+except ImportError:
+    from document_numbers import allocate_document_number, ensure_document_number_schema
 
 
 class TransportReceiptUploadRequest(BaseModel):
@@ -36,6 +40,7 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
     """Register routes using the same authentication dependencies as the main API."""
     TRANSPORT_RECEIPTS_DIR = storage_dir
     MAX_TRANSPORT_RECEIPT_BYTES = max_file_bytes
+    app.router.add_event_handler("startup", lambda: ensure_document_number_schema(get_db_connection))
     def sanitize_transport_receipt_filename(filename: str) -> str:
         """Keep only a safe display name for an uploaded transport receipt."""
         safe_name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
@@ -62,6 +67,7 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
     def transport_receipt_response(row: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": int(row["id"]),
+            "document_number": row.get("document_number"),
             "employee_username": str(row["employee_username"]),
             "uploaded_by": str(row["uploaded_by"]),
             "original_filename": str(row["original_filename"]),
@@ -158,13 +164,15 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
                     stored_filename = f"{secrets.token_urlsafe(32)}{extension}"
                     stored_path = TRANSPORT_RECEIPTS_DIR / stored_filename
                     stored_path.write_bytes(file_bytes)
+                    uploaded_at = datetime.now(timezone.utc)
+                    document_number = allocate_document_number(cursor, uploaded_at)
                     cursor.execute(
                         """
                         INSERT INTO transport_receipts
-                            (employee_username, uploaded_by, original_filename, stored_filename, mime_type, size_bytes, document_type, other_type, receipt_month, receipt_year)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            (employee_username, uploaded_by, original_filename, stored_filename, mime_type, size_bytes, document_type, other_type, receipt_month, receipt_year, document_number, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s))
                         """,
-                        (employee_username, actor["username"], original_filename, stored_filename, mime_type, len(file_bytes), document_type, other_type, receipt_month, receipt_year),
+                        (employee_username, actor["username"], original_filename, stored_filename, mime_type, len(file_bytes), document_type, other_type, receipt_month, receipt_year, document_number, uploaded_at.timestamp()),
                     )
                     receipt_id = int(cursor.lastrowid)
                     receipt = load_transport_receipt(cursor, receipt_id)
@@ -228,7 +236,10 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
         file_path = TRANSPORT_RECEIPTS_DIR / stored_name
         if not file_path.is_file():
             raise HTTPException(status_code=404, detail="Fichier introuvable.")
-        return FileResponse(file_path, media_type=str(receipt["mime_type"]), filename=str(receipt["original_filename"]))
+        filename = str(receipt["original_filename"])
+        if receipt.get("document_number"):
+            filename = f"{receipt['document_number']}_{filename}"
+        return FileResponse(file_path, media_type=str(receipt["mime_type"]), filename=filename)
 
 
     @app.post("/transport-receipts/export")
@@ -257,7 +268,7 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
                         receipt = load_transport_receipt(cursor, receipt_id)
                     category = receipt.get("other_type") if receipt.get("document_type") == "autre" else receipt.get("document_type")
                     name = "_".join(safe_archive_component(value) for value in (
-                        receipt["employee_username"], category or "Non renseigné", receipt_id, receipt["original_filename"]))
+                        receipt.get("document_number") or receipt_id, receipt["employee_username"], category or "Non renseigné", receipt["original_filename"]))
                     archive.writestr(name, data)
                 finally:
                     connection.close()

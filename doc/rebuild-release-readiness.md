@@ -102,3 +102,13 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 取消、Esc 与点击遮罩关闭检查窗口草稿；提交期间阻止关闭，失败在窗口内显示错误，成功后关闭。保留环境能力控制及后端鉴权。
 - TypeScript/Vite 构建与 oxlint 通过，线上 HTML 与 Admin 模块逐字节核对一致；没有创建账户或发送邮件，后端未重启。
 - 回退：`sudo /var/backups/presence-react/create-account-dialog-20261015T125621Z/rollback-ui.sh`，上次静态版本保留。
+
+### 2026-10-15 Documents 上传编号
+
+- 版本 `document-numbers-20261015T131336Z`，新增 `backend/document_numbers.py`，当前 React API 与保留的旧 API 同时接入；部署前结构比对确认旧 API 仅缺少新版 ZIP 路由，补丁保留该差异。
+- `YYYYMMDD-0001` 按 Europe/Paris 的实际上传日分配，每日全公司共享序列；四位起步，超过 9999 自动扩位。新增唯一列与每日计数表；分配与上传元数据插入同事务，行锁串行化同一天的并发申请。删除不回收序号，修改报销月份及归档不改变编号。
+- 已有仍保留的 4 份文件按上传时间/id 补号：20261008-0001、0002、0003，以及 20261009-0001。已经删除且没有历史记录的文件无法追溯补号。
+- 编号展示在卡片中，单份下载和 ZIP 文件名包含编号，不修改原始文件名及私有存储路径。
+- 后端文件/数据库/私有文件备份：`/var/backups/presence-react/document-numbers-20261015T131336Z-backend`。原文件字节和原有记录字段前后完全一致；公开认证 Documents API 返回 200，4 份均带编号。Python 语法、前端构建与 oxlint 通过；未实际新增上传或执行并发压力测试，未发送邮件。
+- 首次发布因 FastAPI 启动钩子名称不兼容自动回退，修改为 router 注册后重新发布成功；两个 API 服务均 active。
+- 前端回退：`sudo /var/backups/presence-react/document-numbers-20261015T131336Z/rollback-ui.sh`；后端回退：`sudo python3 /var/backups/presence-react/document-numbers-20261015T131336Z-backend/rollback-backend.py`。回退保留增量编号列及计数表，不覆盖后续上传数据；旧版本上传的空编号在重新启用编号版本启动时补齐。

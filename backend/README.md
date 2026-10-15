@@ -47,6 +47,17 @@ Transport receipts are stored privately in `PRESENCE_TRANSPORT_RECEIPTS_DIR`
 JPG or PNG up to 10 MB at a time. The database stores only file metadata,
 assignment, document type, bound month/year and archive state; downloads remain protected by the authenticated API.
 At startup, the `transport_receipts` table is created if it does not exist.
+`document_numbers.py` adds a nullable unique `document_number` and a
+`document_daily_sequences` counter table. It fills missing references in upload
+order (`created_at`, then `id`), using the timestamp converted to Europe/Paris.
+New uploads reserve `YYYYMMDD-0001` references in the same transaction as the
+metadata insert, using a per-day InnoDB row lock. Archive/month edits retain the
+reference; deletion never decrements the counter. At least four sequence digits
+are displayed, extending naturally past 9999. Single downloads and ZIP entries
+include the reference; private storage filenames and original names stay intact.
+Deploy `document_numbers.py` with `documents.py` for both active API entries.
+Rollback may retain the additive column, unique index and counters, avoiding any
+loss of issued references; do not restore a database dump over later uploads.
 
 Each authenticated employee or manager may upload only for their own username.
 For non-admins, `/transport-receipts/assignees` returns only that username and the

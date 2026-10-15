@@ -70,7 +70,8 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | 模块 | 职责 | 主要接口 |
 | --- | --- | --- |
 | `backend/main.py` | 应用入口、环境配置、数据库连接、认证、组织权限、用户、提醒、面谈、考勤 JSON 保存和启动迁移 | `/login`、`/restore-session`、`/groups`、`/list-users`、`/dashboard`、`/get-config/{user_id}`、`/save-config/{user_id}` 等 |
-| `backend/documents.py` | 文件上传、访问范围、元数据、月份修正、归档及删除；ZIP 逐份复用下载鉴权，最多 100 份、100 MiB，不返回部分 ZIP | `/transport-receipts`、`/transport-receipts/assignees`、`/transport-receipts/{receipt_id}/file`、`/period`、`/archive`、`POST /transport-receipts/export` |
+| `backend/document_numbers.py` | 按巴黎上传日期分配 YYYYMMDD-0001 编号；启动时增量建列、唯一索引和每日计数表，历史文件按 created_at/id 补号；事务行锁保证并发分配，删除不回收编号 | 由 Documents 启动迁移与上传共用 |
+| `backend/documents.py` | 文件编号展示/下载前缀、文件上传、访问范围、元数据、月份修正、归档及删除；ZIP 逐份复用下载鉴权，最多 100 份、100 MiB，不返回部分 ZIP | `/transport-receipts`、`/transport-receipts/assignees`、`/transport-receipts/{receipt_id}/file`、`/period`、`/archive`、`POST /transport-receipts/export` |
 | `backend/esign.py` | LibreOffice 转换、临时 PDF 存储、ClawShow 请求及接口错误转换；注册函数返回原发送服务供 React 适配器复用，原路由不变 | `/fiches/pdf`、`/send-fiche`、`/esign/documents/{document_token}` |
 | `backend/signature_flow.py` | 根据员工账户寻找负责人，检查签署邮箱与权限，组装 SIGNER 顺序及员工或实习生的两个签名锚点 | 由 `backend/esign.py` 调用 |
 | `backend/signature_placement.py` | 从最终 PDF 查找唯一签名文字，按 ClawShow 当前的 A4 参考坐标换算；拒绝缺失、重复及不支持的旋转或裁剪页面 | 由 `backend/esign.py` 调用 |

@@ -1,7 +1,7 @@
 import { request } from '../api'
 
 export interface Receipt {
-  id: number; employee_username: string; uploaded_by: string; original_filename: string;
+  id: number; document_number?: string | null; employee_username: string; uploaded_by: string; original_filename: string;
   size_bytes: number; document_type: string | null; other_type: string | null;
   receipt_month: number | null; receipt_year: number | null; archived: boolean; created_at: string;
 }
