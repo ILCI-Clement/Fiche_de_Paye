@@ -18,6 +18,9 @@ import { accountOptionLabel } from './types'
 import { FicheExportMenu } from './FicheExportMenu'
 import { DeleteAction } from '../components/DeleteAction'
 import { useDraftGuard } from '../draftGuard'
+import { BatchExportResult } from '../components/BatchExportResult'
+import type { ExportResult } from '../components/BatchExportResult'
+import { periodLabel } from '../documents/api'
 
 interface EditorState { dirty: boolean; busy: boolean }
 
@@ -57,6 +60,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   const [message, setMessage] = useState('')
   const [version, setVersion] = useState(0)
   const [format, setFormat] = useState<'original' | 'pdf'>('original')
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [signing, setSigning] = useState<{ ids: string[]; month: number; year: number } | null>(null)
   useEffect(() => { try { sessionStorage.setItem(`attendance-active-${session.username}`, JSON.stringify(active)) } catch { /* Browsing still works without storage. */ } }, [active, session.username])
@@ -88,10 +92,21 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
     finally { operation.current = false; setBusy(false) }
   }
   async function exportSheets(ids: string[], chosen: 'original' | 'pdf') {
+    if (operation.current) return
+    const result: ExportResult = { phase: 'preparing', title: `Export ${chosen === 'pdf' ? 'PDF' : 'Excel / Word'} · ${periodLabel(month, year)}`,
+      items: ids.map(id => { const fiche = config.employes_data.find(item => String(item.id) === id); return fiche ? ficheLabel(fiche) : `Fiche ${id}` }) }
+    setExportResult(result)
     await perform(async () => {
+      try {
       await persist()
-      downloadFile(await attendanceApi.export(token, ids, month, year, chosen))
-      setMessage('Fichier généré. Le téléchargement est prêt.')
+      const file = await attendanceApi.export(token, ids, month, year, chosen)
+      downloadFile(file)
+      setExportResult({ ...result, phase: 'ready', filename: file.filename })
+      setMessage(`${ids.length} fiche(s) préparée(s). Téléchargement déclenché.`)
+      } catch (error) {
+        setExportResult({ ...result, phase: 'error', error: error instanceof Error ? error.message : 'Export indisponible.' })
+        throw error
+      }
     })
   }
   async function apply(cells: Cell[], status: string, reason: string) {
@@ -129,6 +144,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
       <Button disabled={busy} onClick={() => setReloadConfirm(true)}>Recharger le serveur</Button>
     </Alert>}
     {busy && <Alert icon={<CircularProgress size={18} />} severity="info" sx={{ my: 2 }}>Traitement en cours…</Alert>}
+    {exportResult && <BatchExportResult result={exportResult} />}
     {!current && <Paper className="requests-panel"><Box className="empty-state"><Typography variant="h6">Aucune fiche pour ce mois</Typography><Typography color="text.secondary">Sélectionnez un compte existant pour ouvrir sa fiche liée au contrat.</Typography></Box></Paper>}
     {current && <>
       <Tabs value={String(current.id)} onChange={(_, id: string) => { if (!busy && id !== String(current.id)) protectSelection(() => { setActive(a => ({ ...a, [period]: id })); setDeleteConfirm(false) }) }} variant="scrollable" scrollButtons="auto" sx={{ mb: 2 }}>

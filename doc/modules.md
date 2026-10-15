@@ -52,7 +52,7 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | 新版带薪假申请 | `frontend/src/App.tsx` | React + TypeScript + Vite + Material UI；个人/团队申请、分页、过滤、系统内提醒、申请/审批窗口及操作历史，接口集中在 `src/api.ts` |
 | 新版总入口及请假页面 | `frontend/src/AppWorkspace.tsx`、`frontend/src/LeaveWorkspace.tsx` | `App.tsx` 只管理会话，外壳提供统一导航，旧请假页面独立嵌入；界面主题与角色菜单共用 |
 | 新版页面加载和草稿提醒 | `frontend/src/AppWorkspace.tsx` | 各模块独立加载与失败重试，已打开模块保留状态；`draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx` 共用草稿注册、确认与刷新/关闭提醒；上下文提供不含字段值的待保存模块标签，外壳持续显示法语提示，考勤保存区区分待保存/干净/待应用日历状态；未应用的日历选区在切换员工、打开其他档案或切月前确认，覆盖考勤、管理表单、Documents 上传、请假、面谈、账户设置；提交期间阻止工作区切页/退出 |
-| 新版考勤页面 | `frontend/src/attendance/AttendancePage.tsx` | 保留完整 JSON 草稿、稳定 ID 分页、保存、导出与勾选；保存固定在当前考勤页面右下角，单份 Excel/Word 和 PDF 收进 `FicheExportMenu.tsx` 的 More 菜单；编辑、日历及月份拆至同目录组件，API 复用总请求工具 |
+| 新版考勤页面 | `frontend/src/attendance/AttendancePage.tsx` | 保留完整 JSON 草稿、稳定 ID 分页、保存、导出与勾选；保存固定在当前考勤页面右下角，`components/BatchExportResult.tsx` 共用完整导出结果、期间选区快照、失败原因与 JSON 明细（失败不推断单项成功）；单份 Excel/Word 和 PDF 收进 `FicheExportMenu.tsx` 的 More 菜单；编辑、日历及月份拆至同目录组件，API 复用总请求工具 |
 | 新版 Documents | `frontend/src/documents/DocumentsPage.tsx` | 单一吸顶月份栏同时控制上传与文件列表，保留草稿切月确认并清空旧月份勾选；待处理/归档、类型筛选、勾选及批量下载；`DocumentUpload.tsx` 上传，`DocumentCard.tsx` 卡片及操作确认（预览/下载/改月/归档/删除使用统一尺寸图标，法语悬停提示及 aria-label），`DocumentPreview.tsx` 通过原鉴权下载接口获取 Blob，在响应式弹窗中展示图片（内存 data URL）或延迟加载 `PdfPreview.tsx` 用 PDF.js/Canvas 渲染 PDF，支持翻页及缩放；Vite 将版本化字体、CMap 和解码器复制到被忽略的 public/pdfjs 并打包，全部同站加载，保持现有 CSP 不变；提供新标签页/下载回退、取消加载与关闭后释放 URL，不持久化或发送文件至第三方；`api.ts` 类型与请求；共用 `src/download.ts` 下载工具 |
 | 新版 Mon équipe | `frontend/src/team/TeamPage.tsx` | 以横向标签页切换人员名单和公司架构，默认显示名单；按角色请求本组目录或授权员工列表，支持搜索且切页保留搜索内容；`OrganizationCards.tsx` 在架构标签页直接渲染响应式部门卡片，`api.ts` 定义只读请求与类型；服务端复用 `organization_model.py` 投影 |
 | 新版 Administration | `frontend/src/admin/AdminPage.tsx` | Admin 入口、账户搜索/选择、操作状态和查询更新；`CreateAccount.tsx` 新建账户弹窗（顶部按钮打开，成功后关闭，取消/Esc/遮罩关闭检查本窗口草稿，提交时禁止关闭，错误在窗口内显示）与 `UserEditor.tsx` 共用 `OrganizationFields.tsx`；`UserEditor.tsx` 角色/部门/负责人及关联人员，`ContractEditor.tsx` 合同历史，`GroupEditor.tsx` 部门创建/修改，`api.ts` 请求类型；复用原管理接口，创建功能由 `/ui-capabilities` 控制，本地后端仍禁止新增账户 |
@@ -61,7 +61,7 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | 新版账户设置 | `frontend/src/profile/ProfilePage.tsx` | 本人用户名/邮箱/密码修改及当前密码确认；成功后交给 `App.tsx` 更新会话令牌、清理查询缓存并重载账户状态 |
 | 新版持久登录与密码重置 | `frontend/src/authSession.ts`、`components/PasswordRecovery.tsx` | 可选记住登录、恢复/撤销；访问令牌保存在 sessionStorage、持久随机令牌保存在 localStorage，密码不持久化；支持 `?token=` 重置入口，本地不发送找回邮件 |
 | 新版考勤签署 | `frontend/src/attendance/SignaturePreview.tsx`、`backend/attendance_signatures.py` | 单份/勾选人员预检、确认及逐份发送；直接复用旧版签署服务。`signature_attempts.py` 用本地 SQLite 记录提交回执，防同一次请求重复发送；仅沙盒配置就绪时启用 |
-| 签署链接与耗时 | `backend/esign.py`、`frontend/src/attendance/SignaturePreview.tsx` | 沙盒只展示返回的签署页，不展示 PDF/区域设置页；依响应中的邮箱标注签署人，无法核实时保留通用标签；记录生成/PDF/服务商耗时，前端显示等待秒数与明确完成状态 |
+| 签署链接与耗时 | `backend/esign.py`、`frontend/src/attendance/SignaturePreview.tsx` | 沙盒只展示返回的签署页，不展示 PDF/区域设置页；依响应中的邮箱标注签署人，无法核实时保留通用标签；记录生成/PDF/服务商耗时，前端显示等待秒数与明确完成状态；批量预检数量、当前处理人和进度，以及已创建/未发送/待核查结果分开，超时不得算作确定未发送，不自动重试；可下载不含签署链接的 JSON 结果，发送中注册关闭提醒 |
 | 本地 PDF 专用公网入口 | `backend/pdf_test_gateway.py`、`scripts/start_pdf_test_tunnel.ps1`、`scripts/stop_pdf_test_tunnel.ps1` | 独立 8014 端口，只读取随机令牌对应且未过期的 PDF；Cloudflare 临时隧道只连接此入口，未挂载 8013 私有 API；启动/停止和临时地址写入本地忽略目录 |
 | 指定人员正式邮件测试 | `backend/local_signing_policy.py`、`scripts/stop_live_signing_test.ps1` | 默认沙盒；用户明确授权后，可在本地私有配置限时开放唯一员工/负责人邮箱组合；新适配器与旧发送服务均校验，到期拒绝发送，支持撤销并恢复沙盒 |
 

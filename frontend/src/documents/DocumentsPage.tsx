@@ -10,6 +10,9 @@ import { DocumentUpload } from './DocumentUpload'
 import { DocumentCard } from './DocumentCard'
 import { DocumentPreview } from './DocumentPreview'
 import type { Receipt } from './api'
+import { BatchExportResult } from '../components/BatchExportResult'
+import type { ExportResult } from '../components/BatchExportResult'
+import { periodLabel } from './api'
 
 export function DocumentsPage({ token, session }: { token: string; session: Session }) {
   const admin = session.role_tags.includes('Admin')
@@ -26,6 +29,7 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   const lock = useRef(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const list = useQuery({ queryKey: ['documents', session.username], queryFn: ({ signal }) => documentsApi.list(token, signal), retry: false })
   const owners = useQuery({ queryKey: ['document-assignees', session.username], queryFn: ({ signal }) => documentsApi.assignees(token, signal), retry: false })
   function setPeriod(m: number, y: number) { guard?.request(() => { setMonth(m); setYear(y); setSelected([]) }) }
@@ -46,6 +50,23 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   })
   const selection = visible.filter(r => selected.includes(r.id))
   const totalBytes = selection.reduce((total, r) => total + r.size_bytes, 0)
+  async function exportSelection() {
+    if (lock.current || !selection.length) return
+    const result: ExportResult = { phase: 'preparing', title: `Export Documents · ${periodLabel(month, year)}`,
+      items: selection.map(receipt => `${receipt.document_number || `#${receipt.id}`} · ${receipt.original_filename}`) }
+    const ids = selection.map(receipt => receipt.id)
+    setExportResult(result)
+    await run(async () => {
+      try {
+        const file = await documentsApi.export(token, ids)
+        downloadFile(file)
+        setExportResult({ ...result, phase: 'ready', filename: file.filename })
+      } catch (error) {
+        setExportResult({ ...result, phase: 'error', error: error instanceof Error ? error.message : 'Export indisponible.' })
+        throw error
+      }
+    }, `${ids.length} document(s) préparé(s). Téléchargement déclenché.`)
+  }
   return <Box className="workspace">
     <Box className="page-heading"><Box><Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>DOCUMENTS</Typography>
       <Typography variant="h4" component="h1">Documents et justificatifs</Typography>
@@ -73,10 +94,11 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
         <Button disabled={busy || !visible.length || !!list.error} onClick={() => setSelected(visible.map(r => r.id))}>Tout sélectionner</Button>
         <Button disabled={busy || !selection.length} onClick={() => setSelected([])}>Tout désélectionner</Button>
-        <Button variant="contained" disabled={busy || !selection.length || selection.length > 100 || totalBytes > 100 * 1024 * 1024 || !!list.error} onClick={() => void run(async () => downloadFile(await documentsApi.export(token, selection.map(r => r.id))), 'ZIP prêt à télécharger.')}>Télécharger le ZIP ({selection.length})</Button>
+        <Button variant="contained" disabled={busy || !selection.length || selection.length > 100 || totalBytes > 100 * 1024 * 1024 || !!list.error} onClick={() => void exportSelection()}>Télécharger le ZIP ({selection.length})</Button>
         <Typography variant="caption" color="text.secondary">100 fichiers / 100 Mo maximum · {(totalBytes / 1024 / 1024).toFixed(1)} Mo sélectionnés</Typography>
       </Box>
     </Paper>
+    {exportResult && <BatchExportResult result={exportResult} />}
     {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
     {list.error ? <Alert severity="error">{list.error.message}<Button onClick={() => void list.refetch()}>Réessayer</Button></Alert> : list.isPending ? <CircularProgress size={28} /> :
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 2 }}>

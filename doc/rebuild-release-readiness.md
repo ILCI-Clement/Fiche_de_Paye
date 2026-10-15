@@ -133,3 +133,10 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 日历未应用选区也登记为草稿；切月、切员工或打开其他档案先确认，取消时保留选区。仅选区未应用时禁用普通保存，提示在日历点击 Appliquer；切内部 Sheet 保留选区。已有切模块、退出、刷新/关闭提醒继续有效，保存成功后字段提示消失，待应用选区继续提示。
 - 构建及 oxlint 通过；线上 HTML 与考勤模块逐字节核对一致。未执行保存、考勤应用或其他业务写入；仅前端发布，后端未重启。
 - 回退：`sudo /var/backups/presence-react/unsaved-reminder-20261015T134848Z/rollback-ui.sh`。
+
+### 2026-10-15 批量操作结果反馈
+
+- 静态版本 `batch-feedback-20261015T135445Z`：考勤导出与 Documents ZIP 复用 `BatchExportResult.tsx`，显示准备中/完整文件已生成并触发下载/中断无部分下载；保留本次月份、选择快照和错误，可下载 JSON 明细。失败保留勾选，不推断某个文件已经成功。
+- 签署预检显示选中、有效及待修复数量；处理时显示当前员工、已处理进度和秒数。结果区分已创建（有 accepted 回执及引用）、校验不通过未发送、提交异常待核查；异常可能已受理，不自动重发。结果明细可下载，不导出带权限的签署链接；发送期间接入全局关闭提醒，页面卸载后不继续提交剩余人员。
+- 构建和 oxlint 通过，线上 HTML/考勤/Documents 模块与本地构建字节一致；没有实际创建签署请求、发送邮件、导出真实业务批次或执行保存。仅前端发布，后端未重启。
+- 回退：`sudo /var/backups/presence-react/batch-feedback-20261015T135445Z/rollback-ui.sh`。
