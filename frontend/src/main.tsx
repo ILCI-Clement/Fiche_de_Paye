@@ -1,4 +1,8 @@
 import { StrictMode } from 'react'
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
+import { frFR } from '@mui/x-date-pickers/locales'
+import 'dayjs/locale/fr'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
@@ -13,7 +17,9 @@ const queryClient = new QueryClient({ defaultOptions: {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeModeProvider>
-      <QueryClientProvider client={queryClient}><App /></QueryClientProvider>
+      <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="fr" localeText={frFR.components.MuiLocalizationProvider.defaultProps.localeText}>
+        <QueryClientProvider client={queryClient}><App /></QueryClientProvider>
+      </LocalizationProvider>
     </ThemeModeProvider>
   </StrictMode>,
 )

@@ -38,6 +38,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   const [month, setMonth] = useState(() => workspace.config.mois || new Date().getMonth() + 1)
   const [year, setYear] = useState(() => workspace.config.annee || new Date().getFullYear())
   const [account, setAccount] = useState('')
+  const [sheet, setSheet] = useState<'calendar' | 'identity' | 'planning'>('calendar')
   const [active, setActive] = useState<Record<string, string>>(() => {
     try { return JSON.parse(sessionStorage.getItem(`attendance-active-${session.username}`) || '{}') } catch { return {} }
   })
@@ -67,6 +68,9 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
     setDirty(true)
   }
   async function persist() {
+    if (config.employes_data.some(fiche => ['ddc', 'fdc', 'dds', 'fds'].some(key => fiche[key] === 'Invalid Date'))) {
+      throw new Error('Veuillez corriger les dates invalides dans les informations personnelles et le contrat avant de sauvegarder.')
+    }
     const data = { ...config, mois: month, annee: year }
     const next = await attendanceApi.save(token, data, revision.current)
     revision.current = next.revision
@@ -141,8 +145,17 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
           revision.current = saved.revision
           setConfig(saved.config); setDirty(false); setDeleteConfirm(false); setMessage('Fiche supprimée.')
         })}>Confirmer</Button>}>Supprimer cette fiche ? <Button color="inherit" onClick={() => setDeleteConfirm(false)}>Annuler</Button></Alert>}
-        <AttendanceCalendar key={`${current.id}-${period}`} token={token} id={String(current.id)} month={month} year={year} version={version} busy={busy} onPeriod={setPeriod} onApply={apply} />
-        <FicheEditor fiche={current} admin={workspace.can_edit_identity} disabled={busy} onChange={update} />
+        <Tabs value={sheet} onChange={(_, value) => setSheet(value)} variant="scrollable" scrollButtons="auto" aria-label="Sections de la fiche" sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+          <Tab value="calendar" id="fiche-tab-calendar" aria-controls="fiche-panel-calendar" label="Calendrier mensuel" />
+          <Tab value="identity" id="fiche-tab-identity" aria-controls="fiche-panel-identity" label="Informations personnelles et contrat" />
+          <Tab value="planning" id="fiche-tab-planning" aria-controls="fiche-panel-planning" label={current.type === 'Stagiaire' ? 'Rémunération et présence' : 'Planning hebdomadaire'} />
+        </Tabs>
+        <Box role="tabpanel" id="fiche-panel-calendar" aria-labelledby="fiche-tab-calendar" hidden={sheet !== 'calendar'}>
+          <AttendanceCalendar key={`${current.id}-${period}`} token={token} id={String(current.id)} month={month} year={year} version={version} busy={busy} active={sheet === 'calendar'} onPeriod={setPeriod} onApply={apply} />
+        </Box>
+        {(['identity', 'planning'] as const).map(section => <Box key={section} role="tabpanel" id={`fiche-panel-${section}`} aria-labelledby={`fiche-tab-${section}`} hidden={sheet !== section}>
+          <FicheEditor key={String(current.id)} fiche={current} section={section} admin={workspace.can_edit_identity} disabled={busy} onChange={update} />
+        </Box>)}
       </Paper>
       <Paper className="batch-panel">
         <Typography variant="h6">Export de plusieurs fiches</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Choisissez les personnes à inclure dans le ZIP de ce mois.</Typography>

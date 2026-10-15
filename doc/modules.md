@@ -12,6 +12,8 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 新技术栈试点：[Congés payés 申请模块](leave-pilot.md)。React 入口位于 `frontend/`，独立本地预览保留；2026-10-15 已随重制版发布，旧版 Streamlit 保留供回退。
 2026-10-14 本地重构第一阶段：[独立真实数据测试版](local-rebuild.md)。默认新前端改为连接 `backend/local_rebuild.py`（8013）及独立 MySQL（3307），不再选择虚构演示身份；优先迁移考勤编辑、单份及批量文件生成，尚未发布。
 新前端主题：`frontend/src/ThemeModeProvider.tsx` 管理 Light/Dark 和浏览器偏好持久化，`themeMode.ts` 提供共享上下文，`theme.ts` 提供两套配色，`components/ThemeToggle.tsx` 是登录及工作区共用切换按钮。
+2026-10-15：考勤表内三个区域改为横向页签（日历、个人与合同、每周安排；实习生第三页为报酬与出勤），默认显示日历，窄屏可横向滚动。隐藏面板保留状态，日历只在激活时请求；个人字段与安排仍由 `FicheEditor.tsx` 按 section 渲染，切页不写入服务器。
+新版日期输入统一由 `components/FrenchDateField.tsx` 使用 MUI DatePicker 与 Day.js；`main.tsx` 设置法语本地化，显示 DD/MM/YYYY（占位 JJ/MM/AAAA），接口继续使用 ISO 日期。应用于考勤合同、Admin 合同、面谈、请假；保留必填、起止限制和禁用权限，非法日期不能保存考勤。
 新版各页面可折叠区统一默认收起：`theme.ts` 设置 MuiAccordion 默认值，页面不再单独默认展开；考勤日历受控状态也从 false 开始。用户主动展开后，当前会话切页继续保留页面状态，不强制关闭未保存表单。
 新版视觉公共组件：`components/DepartmentBadge.tsx` 提供固定列宽、稳定配色、长名称省略与全名提示；`attendance/AccountOption.tsx` 提供部门/姓名分列选人；同一标签共用于团队名单与 Admin 部门选择。`theme.ts` 统一控件高度、表格及折叠区；`index.css` 管理页面间距、人员控件与窄屏月份对齐。
 新版配色在 2026-10-15 按用户反馈改为蓝色系：深色模式主色 `#7aa7f8`、浅色模式 `#285fbd`；保留深色背景 `#0e1117` 与灰色控件 `#262730`。姓名高亮、常规按钮、标签页与日历选择框使用主题主色；错误和删除继续采用语义红色。

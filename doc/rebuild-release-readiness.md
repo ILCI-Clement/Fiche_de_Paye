@@ -81,3 +81,10 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 ## 删除入口简化（2026-10-15）
 
 静态版本 `delete-icon-20261015T103931Z` 已上线。考勤、文件、账户的删除入口统一改为垃圾桶图标，悬停/聚焦显示相应法语提示，保留原有权限和删除确认；确认窗口最终操作仍显示文字。构建与 lint 通过，公网首页和共用图标组件字节核对通过；未执行任何删除。回退：`sudo /var/backups/presence-react/delete-icon-20261015T103931Z/rollback-ui.sh`。
+
+### 2026-10-15 考勤页签与法语日期
+
+- 更新前 Git 保存点：`8eb4f2c`，标签 `checkpoint/before-attendance-sheets-20261015`。这是当时本地代码快照，密钥、私有运行配置和编译缓存未纳入。
+- 前端静态版本 `attendance-sheets-20261015T105159Z`：三个编辑区域改为独立页签，默认日历；法语日期控件替代受系统语言影响的原生日期控件，API 保留 ISO 值。
+- TypeScript/Vite 构建及 oxlint 通过，本地只读查看页签与法语日期；线上 HTML、考勤和日期模块与本地构建逐字节一致。未执行业务写入、邮件或签署测试。
+- 仅发布前端，后端未重启。上次静态版本保留；本次界面回退：`sudo /var/backups/presence-react/attendance-sheets-20261015T105159Z/rollback-ui.sh`。

@@ -1,3 +1,4 @@
+import { FrenchDateField } from './FrenchDateField'
 import { useDraftGuard } from '../draftGuard'
 import { useState } from 'react'
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material'
@@ -17,7 +18,7 @@ export function LeaveForm({ token, session, onClose, onSaved }: {
   const [input, setInput] = useState<LeaveInput>({ start_date: today(), end_date: today(), start_slot: 'full', end_slot: 'full', note: '' })
   const [baseline] = useState(() => JSON.stringify(input))
   const sameDay = input.start_date === input.end_date
-  const valid = input.start_date && input.end_date && input.end_date >= input.start_date
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(input.start_date) && /^\d{4}-\d{2}-\d{2}$/.test(input.end_date) && input.end_date >= input.start_date
   const save = useMutation({ mutationFn: () => api.create(token, input), onSuccess: onSaved })
   const close = useDraftGuard(JSON.stringify(input) !== baseline, save.isPending, 'Demande de congé')
   function setDate(field: 'start_date' | 'end_date', value: string) {
@@ -35,18 +36,18 @@ export function LeaveForm({ token, session, onClose, onSaved }: {
         {save.error && <Alert severity="error" sx={{ mb: 2 }}>{save.error.message}</Alert>}
         <Stack spacing={2.5} sx={{ pt: 1 }}>
           <Box className="form-row">
-            <TextField label="Date de début" type="date" required value={input.start_date} disabled={save.isPending}
-              onChange={event => setDate('start_date', event.target.value)} slotProps={{ inputLabel: { shrink: true } }} fullWidth />
+            <FrenchDateField label="Date de début" required value={input.start_date} disabled={save.isPending}
+              onChange={value => setDate('start_date', value)} fullWidth />
             <TextField select label="Période de début" value={input.start_slot} disabled={save.isPending} fullWidth onChange={event => {
               const slot = event.target.value as Slot
               setInput(previous => ({ ...previous, start_slot: slot, ...(sameDay ? { end_slot: slot } : {}) }))
             }}>{Object.entries(slotLabels).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</TextField>
           </Box>
           <Box className="form-row">
-            <TextField label="Date de fin" type="date" required value={input.end_date} disabled={save.isPending}
+            <FrenchDateField label="Date de fin" required value={input.end_date} disabled={save.isPending}
               error={Boolean(input.end_date && input.end_date < input.start_date)}
               helperText={input.end_date < input.start_date ? 'La fin ne peut pas précéder le début.' : undefined}
-              onChange={event => setDate('end_date', event.target.value)} slotProps={{ inputLabel: { shrink: true } }} fullWidth />
+              onChange={value => setDate('end_date', value)} fullWidth />
             <TextField select label="Période de fin" value={input.end_slot} disabled={sameDay || save.isPending} fullWidth
               onChange={event => setInput(previous => ({ ...previous, end_slot: event.target.value as Slot }))}>
               {Object.entries(slotLabels).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}

@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, CircularProgress, MenuItem, TextField, Typography } from '@mui/material'
-import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
+import { Alert, Box, Button, CircularProgress, MenuItem, TextField, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { attendanceApi } from './api'
 import type { Cell } from './types'
@@ -11,20 +10,17 @@ import { calendarStatus, calendarStatuses } from './calendarStatus'
 
 const statuses = [...calendarStatuses, 'Réinitialiser']
 
-export function AttendanceCalendar({ token, id, month, year, busy, version, onPeriod, onApply }: {
-  token: string; id: string; month: number; year: number; busy: boolean; version: number;
+export function AttendanceCalendar({ token, id, month, year, busy, version, active, onPeriod, onApply }: {
+  token: string; id: string; month: number; year: number; busy: boolean; version: number; active: boolean;
   onPeriod: (month: number, year: number) => void; onApply: (cells: Cell[], status: string, reason: string) => Promise<boolean | undefined>
 }) {
   const { palette: { mode } } = useTheme()
-  const [expanded, setExpanded] = useState(false)
   const { selection, clear, cellProps } = useCalendarSelection(busy)
   const [status, setStatus] = useState('Congé payé')
   const [reason, setReason] = useState('')
   const query = useQuery({ queryKey: ['attendance-calendar', id, month, year, version],
-    queryFn: ({ signal }) => attendanceApi.calendar(token, id, month, year, signal), enabled: expanded })
-  return <Accordion disableGutters expanded={expanded} onChange={(_, value) => setExpanded(value)}>
-    <AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography sx={{ fontWeight: 650 }}>Calendrier mensuel</Typography></AccordionSummary>
-    <AccordionDetails>
+    queryFn: ({ signal }) => attendanceApi.calendar(token, id, month, year, signal), enabled: active })
+  return <Box>
       <PeriodSelector month={month} year={year} disabled={busy} onChange={(m, y) => { clear(); onPeriod(m, y) }} />
       <Typography variant="body2" color="text.secondary" sx={{ my: 2 }}>Cliquez ou glissez sur les demi-journées pour sélectionner. Glissez depuis une case sélectionnée pour désélectionner, puis choisissez un statut et appliquez.</Typography>
       <Box className="calendar-toolbar">
@@ -42,7 +38,7 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, onPe
           const color = calendarStatus(s, mode)
           return <Box key={s} component="span" sx={{ bgcolor: color.background, color: color.foreground, px: 1, py: .5, borderRadius: 1, fontSize: 12, fontWeight: 650 }}>{s}</Box>
         })}
-        <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Contour rouge : sélection</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Contour bleu : sélection</Typography>
       </Box>
       {query.isPending && <CircularProgress size={24} sx={{ m: 2 }} />}
       {query.error && <Alert severity="error">{query.error.message}</Alert>}
@@ -62,6 +58,5 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, onPe
           })}
         </Box>)}
       </Box>}
-    </AccordionDetails>
-  </Accordion>
+  </Box>
 }
