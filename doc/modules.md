@@ -55,7 +55,7 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | 新版考勤页面 | `frontend/src/attendance/AttendancePage.tsx` | 保留完整 JSON 草稿、稳定 ID 分页、保存、导出与勾选；保存固定在当前考勤页面右下角，单份 Excel/Word 和 PDF 收进 `FicheExportMenu.tsx` 的 More 菜单；编辑、日历及月份拆至同目录组件，API 复用总请求工具 |
 | 新版 Documents | `frontend/src/documents/DocumentsPage.tsx` | 单一吸顶月份栏同时控制上传与文件列表，保留草稿切月确认并清空旧月份勾选；待处理/归档、类型筛选、勾选及批量下载；`DocumentUpload.tsx` 上传，`DocumentCard.tsx` 卡片及操作确认，`api.ts` 类型与请求；共用 `src/download.ts` 下载工具 |
 | 新版 Mon équipe | `frontend/src/team/TeamPage.tsx` | 以横向标签页切换人员名单和公司架构，默认显示名单；按角色请求本组目录或授权员工列表，支持搜索且切页保留搜索内容；`OrganizationCards.tsx` 在架构标签页直接渲染响应式部门卡片，`api.ts` 定义只读请求与类型；服务端复用 `organization_model.py` 投影 |
-| 新版 Administration | `frontend/src/admin/AdminPage.tsx` | Admin 入口、账户搜索/选择、操作状态和查询更新；`CreateAccount.tsx` 新建账户表单与 `UserEditor.tsx` 共用 `OrganizationFields.tsx`；`UserEditor.tsx` 角色/部门/负责人及关联人员，`ContractEditor.tsx` 合同历史，`GroupEditor.tsx` 部门创建/修改，`api.ts` 请求类型；复用原管理接口，创建功能由 `/ui-capabilities` 控制，本地后端仍禁止新增账户 |
+| 新版 Administration | `frontend/src/admin/AdminPage.tsx` | Admin 入口、账户搜索/选择、操作状态和查询更新；`CreateAccount.tsx` 新建账户弹窗（顶部按钮打开，成功后关闭，取消/Esc/遮罩关闭检查本窗口草稿，提交时禁止关闭，错误在窗口内显示）与 `UserEditor.tsx` 共用 `OrganizationFields.tsx`；`UserEditor.tsx` 角色/部门/负责人及关联人员，`ContractEditor.tsx` 合同历史，`GroupEditor.tsx` 部门创建/修改，`api.ts` 请求类型；复用原管理接口，创建功能由 `/ui-capabilities` 控制，本地后端仍禁止新增账户 |
 | 新版能力配置 | `frontend/src/capabilities.ts`、`backend/ui_capabilities.py` | `GET /ui-capabilities` 只返回环境与布尔功能开关；界面无法核对时禁用新增账户和邮件，权限仍由各业务接口执行；本地入口另外拦截创建、找回邮件与提醒发送/重发 |
 | 新版仪表板 | `frontend/src/dashboard/DashboardPage.tsx` | 合同到期、面谈统计及名单、Admin 提醒偏好及发送/重发确认窗口；`InterviewEditor.tsx` 编辑面谈，`api.ts` 共用原接口；本地禁用真实提醒发送 |
 | 新版账户设置 | `frontend/src/profile/ProfilePage.tsx` | 本人用户名/邮箱/密码修改及当前密码确认；成功后交给 `App.tsx` 更新会话令牌、清理查询缓存并重载账户状态 |

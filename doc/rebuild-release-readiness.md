@@ -95,3 +95,10 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 月份修改继续经过草稿确认，清空旧月份勾选；筛选、归档和权限逻辑不变。
 - 构建与 oxlint 通过；线上首页、Documents 模块与本地构建逐字节一致。未上传文件、发送邮件或修改业务数据，后端未重启。
 - 上次版本保留；界面回退命令：`sudo /var/backups/presence-react/documents-period-20261015T123341Z/rollback-ui.sh`。
+
+### 2026-10-15 创建账户弹窗
+
+- 前端静态版本 `create-account-dialog-20261015T125621Z`：Administration 顶部按钮打开创建账户窗口，替代原展开区；复用原创建接口与字段。
+- 取消、Esc 与点击遮罩关闭检查窗口草稿；提交期间阻止关闭，失败在窗口内显示错误，成功后关闭。保留环境能力控制及后端鉴权。
+- TypeScript/Vite 构建与 oxlint 通过，线上 HTML 与 Admin 模块逐字节核对一致；没有创建账户或发送邮件，后端未重启。
+- 回退：`sudo /var/backups/presence-react/create-account-dialog-20261015T125621Z/rollback-ui.sh`，上次静态版本保留。
