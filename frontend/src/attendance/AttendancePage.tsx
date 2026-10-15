@@ -17,6 +17,7 @@ import { AccountOption } from './AccountOption'
 import { accountOptionLabel } from './types'
 import { FicheExportMenu } from './FicheExportMenu'
 import { DeleteAction } from '../components/DeleteAction'
+import { useDraftGuard } from '../draftGuard'
 
 interface EditorState { dirty: boolean; busy: boolean }
 
@@ -45,6 +46,8 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [pendingCalendar, setPendingCalendar] = useState(false)
+  const protectSelection = useDraftGuard(pendingCalendar, busy, 'Sélection du calendrier à appliquer')
   const operation = useRef(false)
   const revision = useRef(workspace.revision)
   const [conflict, setConflict] = useState(false)
@@ -61,7 +64,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   const visible = config.employes_data.filter(e => !e.contract_id || (e.sheet_month === month && e.sheet_year === year))
   const current = visible.find(e => String(e.id) === active[period]) || visible[0]
   const selection = (selected[period] || []).filter(id => visible.some(e => String(e.id) === id))
-  function setPeriod(m: number, y: number) { setMonth(m); setYear(y); setDeleteConfirm(false) }
+  function setPeriod(m: number, y: number) { protectSelection(() => { setMonth(m); setYear(y); setDeleteConfirm(false) }) }
   function update(values: Partial<Fiche>) {
     if (!current) return
     setConfig(previous => ({ ...previous, employes_data: previous.employes_data.map(e => e.id === current.id ? { ...e, ...values } : e) }))
@@ -112,12 +115,12 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
         } }}>
           <MenuItem value="">Sélectionner une personne</MenuItem>{workspace.accounts.map(a => <MenuItem key={a.username} value={a.username} aria-label={accountOptionLabel(a)} sx={{ py: 1, minHeight: 60 }}><AccountOption account={a} /></MenuItem>)}
         </TextField>
-        <Button variant="contained" disabled={!account || busy} onClick={() => void perform(async () => {
+        <Button variant="contained" disabled={!account || busy} onClick={() => protectSelection(() => void perform(async () => {
           if (dirty) await persist()
           const result = await attendanceApi.open(token, account, month, year, revision.current)
           revision.current = result.revision
           setConfig(result.config); setDirty(false); setActive(a => ({ ...a, [period]: result.active_id })); setMessage('Fiche ouverte.'); setVersion(v => v + 1)
-        })}>Ouvrir / créer sa fiche</Button>
+        }))}>Ouvrir / créer sa fiche</Button>
       </Box>
     </Paper>
     {error && <Alert severity="error" onClose={() => setError('')} sx={{ my: 2 }}>{error}</Alert>}
@@ -128,7 +131,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
     {busy && <Alert icon={<CircularProgress size={18} />} severity="info" sx={{ my: 2 }}>Traitement en cours…</Alert>}
     {!current && <Paper className="requests-panel"><Box className="empty-state"><Typography variant="h6">Aucune fiche pour ce mois</Typography><Typography color="text.secondary">Sélectionnez un compte existant pour ouvrir sa fiche liée au contrat.</Typography></Box></Paper>}
     {current && <>
-      <Tabs value={String(current.id)} onChange={(_, id: string) => { if (!busy) { setActive(a => ({ ...a, [period]: id })); setDeleteConfirm(false) } }} variant="scrollable" scrollButtons="auto" sx={{ mb: 2 }}>
+      <Tabs value={String(current.id)} onChange={(_, id: string) => { if (!busy && id !== String(current.id)) protectSelection(() => { setActive(a => ({ ...a, [period]: id })); setDeleteConfirm(false) }) }} variant="scrollable" scrollButtons="auto" sx={{ mb: 2 }}>
         {visible.map(e => <Tab key={String(e.id)} value={String(e.id)} label={ficheLabel(e)} />)}
       </Tabs>
       <Paper className="fiche-panel">
@@ -151,7 +154,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
           <Tab value="planning" id="fiche-tab-planning" aria-controls="fiche-panel-planning" label={current.type === 'Stagiaire' ? 'Rémunération et présence' : 'Planning hebdomadaire'} />
         </Tabs>
         <Box role="tabpanel" id="fiche-panel-calendar" aria-labelledby="fiche-tab-calendar" hidden={sheet !== 'calendar'}>
-          <AttendanceCalendar key={`${current.id}-${period}`} token={token} id={String(current.id)} month={month} year={year} version={version} busy={busy} active={sheet === 'calendar'} onPeriod={setPeriod} onApply={apply} />
+          <AttendanceCalendar key={`${current.id}-${period}`} token={token} id={String(current.id)} month={month} year={year} version={version} busy={busy} active={sheet === 'calendar'} onPeriod={setPeriod} onApply={apply} onSelectionPending={setPendingCalendar} />
         </Box>
         {(['identity', 'planning'] as const).map(section => <Box key={section} role="tabpanel" id={`fiche-panel-${section}`} aria-labelledby={`fiche-tab-${section}`} hidden={sheet !== section}>
           <FicheEditor key={String(current.id)} fiche={current} section={section} admin={workspace.can_edit_identity} disabled={busy} onChange={update} />
@@ -172,7 +175,10 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
       </Paper>
     </>}
     <Paper className="attendance-floating-save" sx={{ zIndex: theme => theme.zIndex.appBar }}>
-      <Button variant="contained" startIcon={<SaveOutlined />} disabled={busy} onClick={() => void perform(async () => { await persist(); setMessage('Configuration sauvegardée.') })}>Sauvegarder{dirty ? ' •' : ''}</Button>
+      <Typography variant="caption" color={dirty ? 'primary.main' : 'text.secondary'} sx={{ display: 'block', textAlign: 'center', mb: .5 }}>
+        {busy ? 'Traitement en cours…' : dirty ? 'Modifications à enregistrer' : pendingCalendar ? 'Sélection à appliquer' : 'Aucune modification en attente'}
+      </Typography>
+      <Button variant={dirty ? 'contained' : 'outlined'} startIcon={<SaveOutlined />} disabled={busy || (!dirty && pendingCalendar)} onClick={() => void perform(async () => { await persist(); setMessage('Configuration sauvegardée.') })}>{dirty ? 'Enregistrer les modifications' : 'Sauvegarder'}</Button>
     </Paper>
     {signing && <SignaturePreview token={token} {...signing} onClose={() => setSigning(null)} />}
     <Dialog open={reloadConfirm} onClose={() => { if (!busy) setReloadConfirm(false) }}><DialogTitle>Recharger la version du serveur ?</DialogTitle><DialogContent>Le brouillon affiché sera remplacé. Téléchargez-le d’abord si vous souhaitez le conserver.</DialogContent><DialogActions><Button disabled={busy} onClick={() => setReloadConfirm(false)}>Annuler</Button><Button disabled={busy} onClick={() => void perform(reload)}>Recharger</Button></DialogActions></Dialog>

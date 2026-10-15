@@ -126,3 +126,10 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 静态版本 `document-icons-20261015T133934Z`：卡片预览、下载、改月、归档分别用眼睛、下载、铅笔和归档盒图标，沿用垃圾桶删除；统一 44px 点击区域、法语 Tooltip 和 aria-label。
 - 原操作及权限保持不变。构建及 oxlint 通过，线上首页和 Documents 模块与本地构建字节一致；无业务写入，后端未重启。
 - 回退：`sudo /var/backups/presence-react/document-icons-20261015T133934Z/rollback-ui.sh`。
+
+### 2026-10-15 未保存提醒
+
+- 静态版本 `unsaved-reminder-20261015T134848Z`：复用现有草稿注册与关闭确认，上层统一显示法语待保存模块提示，仅传递状态标签，不记录表单值。考勤右下角显示待保存/待应用日历/无待修改状态，有字段修改才突出保存按钮。
+- 日历未应用选区也登记为草稿；切月、切员工或打开其他档案先确认，取消时保留选区。仅选区未应用时禁用普通保存，提示在日历点击 Appliquer；切内部 Sheet 保留选区。已有切模块、退出、刷新/关闭提醒继续有效，保存成功后字段提示消失，待应用选区继续提示。
+- 构建及 oxlint 通过；线上 HTML 与考勤模块逐字节核对一致。未执行保存、考勤应用或其他业务写入；仅前端发布，后端未重启。
+- 回退：`sudo /var/backups/presence-react/unsaved-reminder-20261015T134848Z/rollback-ui.sh`。

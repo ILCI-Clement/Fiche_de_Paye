@@ -1,6 +1,6 @@
 import { useCapabilities } from './capabilities'
 import { useCallback, useState } from 'react'
-import { Avatar, Box, Button, Chip, Drawer, IconButton, Typography } from '@mui/material'
+import { Alert, Avatar, Box, Button, Chip, Drawer, IconButton, Typography } from '@mui/material'
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined'
@@ -68,6 +68,11 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
         <Typography variant="body2" color="text.secondary">Espace RH <span className="breadcrumb-separator">/</span><strong>{({ attendance: 'Création de Fiches', documents: 'Documents', leave: 'Congés payés', team: 'Mon équipe', admin: 'Administration', dashboard: 'Tableau de bord', profile: 'Paramètres' })[page]}</strong></Typography>
         <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}><ThemeToggle /><Chip className="preview-chip" label={local ? 'Copie locale' : capabilities.data ? 'Serveur' : 'Configuration à vérifier'} variant="outlined" size="small" /></Box>
       </Box>
+
+      {guard.dirtyLabels.length > 0 && <Alert severity="info" role="status" sx={{ mx: { xs: 2, md: 5 }, mt: 2 }}>
+        <Typography variant="body2" sx={{ fontWeight: 650 }}>Modifications non enregistrées</Typography>
+        <Typography variant="body2">{guard.dirtyLabels.join(' · ')}. Enregistrez ou appliquez vos modifications avant de quitter.</Typography>
+      </Alert>}
 
       {attendanceAllowed && <Box sx={{ display: page === 'attendance' ? 'block' : 'none' }}><AttendancePage token={token} session={session} onState={onAttendanceState} /></Box>}
       {visited.leave && <Box sx={{ display: page === 'leave' ? 'block' : 'none' }}><LeaveWorkspace embedded token={token} session={session} logout={requestLogout} /></Box>}

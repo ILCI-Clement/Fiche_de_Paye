@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, MenuItem, TextField, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { attendanceApi } from './api'
@@ -10,18 +10,21 @@ import { calendarStatus, calendarStatuses } from './calendarStatus'
 
 const statuses = [...calendarStatuses, 'Réinitialiser']
 
-export function AttendanceCalendar({ token, id, month, year, busy, version, active, onPeriod, onApply }: {
+export function AttendanceCalendar({ token, id, month, year, busy, version, active, onPeriod, onApply, onSelectionPending }: {
   token: string; id: string; month: number; year: number; busy: boolean; version: number; active: boolean;
   onPeriod: (month: number, year: number) => void; onApply: (cells: Cell[], status: string, reason: string) => Promise<boolean | undefined>
+  onSelectionPending: (pending: boolean) => void
 }) {
   const { palette: { mode } } = useTheme()
   const { selection, clear, cellProps } = useCalendarSelection(busy)
+  const pending = selection.length > 0
+  useEffect(() => { onSelectionPending(pending); return () => onSelectionPending(false) }, [pending, onSelectionPending])
   const [status, setStatus] = useState('Congé payé')
   const [reason, setReason] = useState('')
   const query = useQuery({ queryKey: ['attendance-calendar', id, month, year, version],
     queryFn: ({ signal }) => attendanceApi.calendar(token, id, month, year, signal), enabled: active })
   return <Box>
-      <PeriodSelector month={month} year={year} disabled={busy} onChange={(m, y) => { clear(); onPeriod(m, y) }} />
+      <PeriodSelector month={month} year={year} disabled={busy} onChange={onPeriod} />
       <Typography variant="body2" color="text.secondary" sx={{ my: 2 }}>Cliquez ou glissez sur les demi-journées pour sélectionner. Glissez depuis une case sélectionnée pour désélectionner, puis choisissez un statut et appliquez.</Typography>
       <Box className="calendar-toolbar">
         <TextField select label="Statut" value={status} onChange={e => setStatus(e.target.value)} disabled={busy} sx={{ minWidth: 160 }}>
@@ -33,6 +36,7 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, acti
         <Button variant="contained" disabled={!selection.length || busy} onClick={async () => { if (await onApply(selection, status, reason)) clear() }}>Appliquer ({selection.length})</Button>
         <Button disabled={!selection.length || busy} onClick={clear}>Effacer la sélection</Button>
       </Box>
+      {pending && <Typography role="status" variant="body2" color="primary.main" sx={{ mb: 2 }}>{selection.length} demi-journée(s) sélectionnée(s) : cliquez sur « Appliquer » pour enregistrer ce statut.</Typography>}
       <Box aria-label="Légende des statuts" sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
         {calendarStatuses.map(s => {
           const color = calendarStatus(s, mode)

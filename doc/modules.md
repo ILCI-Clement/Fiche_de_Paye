@@ -51,7 +51,7 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | 提醒及仪表板 | `pages/Dashboard.py` | 合同到期提醒、年度面谈与设置展示 |
 | 新版带薪假申请 | `frontend/src/App.tsx` | React + TypeScript + Vite + Material UI；个人/团队申请、分页、过滤、系统内提醒、申请/审批窗口及操作历史，接口集中在 `src/api.ts` |
 | 新版总入口及请假页面 | `frontend/src/AppWorkspace.tsx`、`frontend/src/LeaveWorkspace.tsx` | `App.tsx` 只管理会话，外壳提供统一导航，旧请假页面独立嵌入；界面主题与角色菜单共用 |
-| 新版页面加载和草稿提醒 | `frontend/src/AppWorkspace.tsx` | 各模块独立加载与失败重试，已打开模块保留状态；`draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx` 共用草稿注册、确认与刷新/关闭提醒，覆盖考勤、管理表单、Documents 上传、请假、面谈、账户设置；提交期间阻止工作区切页/退出 |
+| 新版页面加载和草稿提醒 | `frontend/src/AppWorkspace.tsx` | 各模块独立加载与失败重试，已打开模块保留状态；`draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx` 共用草稿注册、确认与刷新/关闭提醒；上下文提供不含字段值的待保存模块标签，外壳持续显示法语提示，考勤保存区区分待保存/干净/待应用日历状态；未应用的日历选区在切换员工、打开其他档案或切月前确认，覆盖考勤、管理表单、Documents 上传、请假、面谈、账户设置；提交期间阻止工作区切页/退出 |
 | 新版考勤页面 | `frontend/src/attendance/AttendancePage.tsx` | 保留完整 JSON 草稿、稳定 ID 分页、保存、导出与勾选；保存固定在当前考勤页面右下角，单份 Excel/Word 和 PDF 收进 `FicheExportMenu.tsx` 的 More 菜单；编辑、日历及月份拆至同目录组件，API 复用总请求工具 |
 | 新版 Documents | `frontend/src/documents/DocumentsPage.tsx` | 单一吸顶月份栏同时控制上传与文件列表，保留草稿切月确认并清空旧月份勾选；待处理/归档、类型筛选、勾选及批量下载；`DocumentUpload.tsx` 上传，`DocumentCard.tsx` 卡片及操作确认（预览/下载/改月/归档/删除使用统一尺寸图标，法语悬停提示及 aria-label），`DocumentPreview.tsx` 通过原鉴权下载接口获取 Blob，在响应式弹窗中展示图片（内存 data URL）或延迟加载 `PdfPreview.tsx` 用 PDF.js/Canvas 渲染 PDF，支持翻页及缩放；Vite 将版本化字体、CMap 和解码器复制到被忽略的 public/pdfjs 并打包，全部同站加载，保持现有 CSP 不变；提供新标签页/下载回退、取消加载与关闭后释放 URL，不持久化或发送文件至第三方；`api.ts` 类型与请求；共用 `src/download.ts` 下载工具 |
 | 新版 Mon équipe | `frontend/src/team/TeamPage.tsx` | 以横向标签页切换人员名单和公司架构，默认显示名单；按角色请求本组目录或授权员工列表，支持搜索且切页保留搜索内容；`OrganizationCards.tsx` 在架构标签页直接渲染响应式部门卡片，`api.ts` 定义只读请求与类型；服务端复用 `organization_model.py` 投影 |

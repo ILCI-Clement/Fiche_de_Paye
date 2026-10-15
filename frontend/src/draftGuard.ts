@@ -5,6 +5,7 @@ export const DraftContext = createContext<{
   set: (id: string, state?: Draft) => void
   request: (action: () => void, only?: string, exceptLabel?: string) => void
   busy: boolean
+  dirtyLabels: string[]
 } | null>(null)
 
 export function useWorkspaceGuard() { return useContext(DraftContext) }

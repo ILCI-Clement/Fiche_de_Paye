@@ -16,6 +16,7 @@ export function DraftGuardProvider({ children }: { children: ReactNode }) {
   }), [])
   const busy = Object.values(drafts).some(draft => draft.busy)
   const dirty = Object.values(drafts).some(draft => draft.dirty)
+  const dirtyLabels = useMemo(() => [...new Set(Object.values(drafts).filter(draft => draft.dirty).map(draft => draft.label))], [drafts])
   useEffect(() => {
     if (!dirty && !busy) return
     const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
@@ -28,7 +29,7 @@ export function DraftGuardProvider({ children }: { children: ReactNode }) {
     if (labels.length) setPending({ action, labels })
     else action()
   }, [drafts])
-  const value = useMemo(() => ({ set, request, busy }), [set, request, busy])
+  const value = useMemo(() => ({ set, request, busy, dirtyLabels }), [set, request, busy, dirtyLabels])
   return <DraftContext.Provider value={value}>{children}
     <Dialog open={!!pending} onClose={() => setPending(null)}>
       <DialogTitle>Modifications non enregistrées</DialogTitle>
