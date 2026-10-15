@@ -1,5 +1,6 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Chip, Paper, Typography } from '@mui/material'
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
+import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded'
 import type { Department, Organization } from './api'
 
 function DepartmentCard({ department, general = false }: { department: Department; general?: boolean }) {
@@ -7,7 +8,7 @@ function DepartmentCard({ department, general = false }: { department: Departmen
     <Typography variant="h6" sx={{ overflowWrap: 'anywhere', borderBottom: '1px solid', borderColor: 'divider', pb: 1.5 }}>{department.name}</Typography>
     <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Responsable</Typography>
     <Typography color="primary.main" sx={{ fontWeight: 650, overflowWrap: 'anywhere' }}>{department.leaders.join(', ') || 'Responsable à désigner'}</Typography>
-    <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Équipe</Typography>
+    <Typography variant="overline" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: .75, mt: 1 }}><PersonOutlineRounded aria-hidden="true" sx={{ fontSize: 18 }} />Équipe</Typography>
     {department.members.length ? <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>{department.members.map((name, index) => <Typography component="li" key={`${name}-${index}`} variant="body2" sx={{ overflowWrap: 'anywhere', py: .4 }}>{name}</Typography>)}</Box>
       : <Typography variant="body2" color="text.secondary">Aucun membre affecté</Typography>}
   </Paper>

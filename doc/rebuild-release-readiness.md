@@ -148,3 +148,9 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 修复同一组织更新端点：事务锁串行化角色编辑并重新读取操作者权限，拒绝自我移除 Admin；提交后的角色改变记录 actor/target/before/after（不记录凭据）。当前 API 与保留的旧 API 只替换该函数，保留服务器其他差异；源文件和数据库备份 `/var/backups/presence-react/admin-guard-20261015T152805Z`。两个服务已恢复 ready。
 - 前端版本 `admin-guard-20261015T152823Z`：本人 Admin 项不能取消，其他角色变更在提交前展示新旧角色确认。构建/oxlint 与 Python 语法检查通过；公开认证 GET /leave/session 返回 Admin、Employe，GET /groups 返回 200，未执行降权请求测试。前端资源逐字节核对一致。
 - 用户现有会话可能仍显示旧菜单，应刷新或退出重登。前端回退：`sudo /var/backups/presence-react/admin-guard-20261015T152823Z/rollback-ui.sh`；不建议回退后端防误降级修复。
+
+### 2026-10-15 Équipe 人头图标
+
+- 前端版本 `team-person-icon-20261015T153021Z`：部门卡片 Équipe 标签前增加 18px 装饰性人头图标，统一垂直对齐，保留文字。无权限或业务行为改动。
+- 构建及 oxlint 通过，线上首页和 Team 模块与本地构建字节一致；后端未重启。
+- 回退：`sudo /var/backups/presence-react/team-person-icon-20261015T153021Z/rollback-ui.sh`。
