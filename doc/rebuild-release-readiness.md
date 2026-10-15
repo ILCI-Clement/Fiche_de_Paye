@@ -112,3 +112,11 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 后端文件/数据库/私有文件备份：`/var/backups/presence-react/document-numbers-20261015T131336Z-backend`。原文件字节和原有记录字段前后完全一致；公开认证 Documents API 返回 200，4 份均带编号。Python 语法、前端构建与 oxlint 通过；未实际新增上传或执行并发压力测试，未发送邮件。
 - 首次发布因 FastAPI 启动钩子名称不兼容自动回退，修改为 router 注册后重新发布成功；两个 API 服务均 active。
 - 前端回退：`sudo /var/backups/presence-react/document-numbers-20261015T131336Z/rollback-ui.sh`；后端回退：`sudo python3 /var/backups/presence-react/document-numbers-20261015T131336Z-backend/rollback-backend.py`。回退保留增量编号列及计数表，不覆盖后续上传数据；旧版本上传的空编号在重新启用编号版本启动时补齐。
+
+### 2026-10-15 Documents 在线预览
+
+- 静态版本 `document-preview-20261015T133312Z`：文件卡片增加 Aperçu，弹窗显示 PDF/JPG/PNG，保留编号、下载、新标签页和关闭操作，小屏全屏。
+- 复用原带令牌下载接口，响应以 Blob 留在内存；PDF.js 延迟加载、独立 worker、Canvas 渲染，支持逐页与 50–200% 缩放。图片用内存 data URL，关闭时取消未完成请求、销毁 PDF worker 并回收 URL。
+- 保留服务器 CSP（object-src none、img-src self/data），没有改为公网文件地址或外部预览服务。Vite 把 PDF.js 6.4.299 的 CMap、字体、WASM/ICC 资源打包到版本目录，生成文件忽略入 Git；构建需要 Node >=22.13（或 >=24）。
+- 构建、oxlint 通过；本地已打开现有 Test-PDF.pdf，正文实际渲染；未新增上传，也未改动文件、数据库或权限。线上 HTML、Documents/PdfPreview、worker、CMap、字体及 WASM 抽样与本地字节一致，worker 返回正确 JavaScript MIME。尚未逐一验证所有移动浏览器或复杂 PDF。
+- 只发布前端，未重启后端；界面回退：`sudo /var/backups/presence-react/document-preview-20261015T133312Z/rollback-ui.sh`。

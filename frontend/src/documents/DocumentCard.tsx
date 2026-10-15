@@ -5,9 +5,9 @@ import type { Receipt } from './api'
 import { periodLabel, receiptPeriod } from './api'
 import { DeleteAction } from '../components/DeleteAction'
 
-export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, onSelect, onDownload, onArchive, onDelete, onPeriod }: {
+export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, onSelect, onPreview, onDownload, onArchive, onDelete, onPeriod }: {
   receipt: Receipt; admin: boolean; canDelete: boolean; selected: boolean; busy: boolean;
-  onSelect: () => void; onDownload: () => void; onArchive: () => void;
+  onSelect: () => void; onPreview: () => void; onDownload: () => void; onArchive: () => void;
   onDelete: () => Promise<boolean>; onPeriod: (month: number, year: number) => Promise<boolean>
 }) {
   const [dialog, setDialog] = useState<'delete' | 'period' | null>(null)
@@ -26,6 +26,7 @@ export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, onS
     <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Employé : {r.employee_username.split('@')[0]}</Typography>
     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>Déposé par {r.uploaded_by.split('@')[0]} · {r.created_at.slice(0, 10)} · {(r.size_bytes / 1024).toFixed(0)} Ko</Typography>
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5, mt: 'auto', pt: 1 }}>
+      <Button size="small" disabled={busy} onClick={onPreview}>Aperçu</Button>
       <Button size="small" disabled={busy} onClick={onDownload}>Télécharger</Button>
       {admin && <Button size="small" disabled={busy} onClick={() => { setPeriod(initial); setDialog('period') }}>Mois</Button>}
       {admin && !r.archived && <Button size="small" disabled={busy} onClick={onArchive}>Archiver</Button>}

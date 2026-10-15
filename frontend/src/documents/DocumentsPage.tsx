@@ -8,6 +8,8 @@ import { PeriodSelector } from '../attendance/PeriodSelector'
 import { documentsApi, receiptPeriod } from './api'
 import { DocumentUpload } from './DocumentUpload'
 import { DocumentCard } from './DocumentCard'
+import { DocumentPreview } from './DocumentPreview'
+import type { Receipt } from './api'
 
 export function DocumentsPage({ token, session }: { token: string; session: Session }) {
   const admin = session.role_tags.includes('Admin')
@@ -17,6 +19,7 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   const [archived, setArchived] = useState(false)
   const [type, setType] = useState('all')
   const [selected, setSelected] = useState<number[]>([])
+  const [preview, setPreview] = useState<Receipt | null>(null)
   const [busy, setBusy] = useState(false)
   const guard = useWorkspaceGuard()
   useDraftGuard(false, busy, 'Documents')
@@ -79,12 +82,14 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 2 }}>
         {!visible.length && <Typography color="text.secondary">Aucun document dans ce dossier pour ce mois.</Typography>}
         {visible.map(r => <DocumentCard key={r.id} receipt={r} admin={admin} canDelete={admin || (!manager && r.uploaded_by === session.username)} selected={selected.includes(r.id)} busy={busy}
+          onPreview={() => setPreview(r)}
           onSelect={() => setSelected(previous => previous.includes(r.id) ? previous.filter(id => id !== r.id) : [...previous, r.id])}
           onDownload={() => void run(async () => downloadFile(await documentsApi.file(token, r.id)), 'Document prêt à télécharger.')}
           onArchive={() => void run(async () => { await documentsApi.archive(token, r.id) }, 'Document déplacé dans les archives.')}
           onDelete={() => run(async () => { await documentsApi.remove(token, r.id) }, 'Document supprimé.')}
           onPeriod={(m, y) => run(async () => { await documentsApi.period(token, r.id, m, y) }, 'Mois de rattachement mis à jour.')} />)}
       </Box>}
+    {preview && <DocumentPreview key={preview.id} token={token} receipt={preview} onClose={() => setPreview(null)} />}
     <Snackbar open={!!message} autoHideDuration={5000} onClose={() => setMessage('')}><Alert severity="success" variant="filled" onClose={() => setMessage('')}>{message}</Alert></Snackbar>
   </Box>
 }

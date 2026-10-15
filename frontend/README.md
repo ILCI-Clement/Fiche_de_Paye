@@ -35,3 +35,15 @@ npm run dev
 覆盖 `.env.local` 中 `VITE_PREVIEW=false` 和 `PRESENCE_API_PROXY`，重启 Vite。仅连接已升级且包含带薪假路由的后端。生产构建不包含演示身份选择；静态部署时反向代理负责将 `/api/` 转发至 FastAPI，并去掉前缀。
 
 API key、密码和数据库配置不得写入任何 `VITE_*` 变量，它们会进入浏览器产物。`leave_preview.py` 只用于 loopback 本地预览，不能作为正式服务。
+
+## Documents preview
+
+PDF/JPG/PNG previews reuse the authenticated file API. `DocumentPreview.tsx` owns
+the dialog and in-memory resources; `PdfPreview.tsx` lazily renders PDF pages on
+canvas with PDF.js. No third-party preview service or public document URL is used.
+
+Use Node >=22.13 or >=24 for the current PDF.js/Vite toolchain. Vite copies the
+installed PDF.js fonts, CMaps and decoders into ignored `public/pdfjs/<version>`
+at configuration time for development and production. Deploy the entire `dist`
+(including `pdfjs/` and the worker asset), not only JavaScript chunks. Keep older
+version directories available while serving already-open clients.
