@@ -1244,8 +1244,18 @@ def update_user_organization(
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
+            # Serialize role edits and re-read the actor after acquiring the lock.
+            # Two administrators must not concurrently demote each other.
+            cursor.execute("SELECT username FROM users ORDER BY username FOR UPDATE")
+            cursor.fetchall()
+            current_actor = load_user(cursor, actor["username"])
+            if not current_actor or "Admin" not in current_actor["role_tags"]:
+                raise HTTPException(status_code=403, detail="Votre rôle Admin a changé. Reconnectez-vous avant de continuer.")
+            actor = current_actor
             target = require_target_access(cursor, actor, target_username, edit=True)
             tags = requested_role_tags(payload, target["role_tags"])
+            if target_username == actor["username"] and "Admin" not in tags:
+                raise HTTPException(status_code=400, detail="Vous ne pouvez pas retirer votre propre rôle Admin. Demandez à un autre administrateur.")
             employee_type = str(payload.get("employee_type", target["employee_type"]))
             if employee_type not in VALID_EMPLOYEE_TYPES:
                 raise HTTPException(status_code=400, detail="Type de personnel invalide.")
@@ -1295,6 +1305,12 @@ def update_user_organization(
             replace_memberships(cursor, target_username, "manager", managed_group_ids if "Responsable" in tags else [])
             updated = load_user(cursor, target_username)
         connection.commit()
+        if set(tags) != set(target["role_tags"]):
+            import logging
+            logging.getLogger("uvicorn.error").info("Organization role change %s", json.dumps({
+                "actor": actor["username"], "target": target_username,
+                "before": target["role_tags"], "after": tags,
+            }, ensure_ascii=True))
         return {"status": "success", "user": public_user(updated)}
     finally:
         connection.close()

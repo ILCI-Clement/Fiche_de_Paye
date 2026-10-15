@@ -140,3 +140,11 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 签署预检显示选中、有效及待修复数量；处理时显示当前员工、已处理进度和秒数。结果区分已创建（有 accepted 回执及引用）、校验不通过未发送、提交异常待核查；异常可能已受理，不自动重发。结果明细可下载，不导出带权限的签署链接；发送期间接入全局关闭提醒，页面卸载后不继续提交剩余人员。
 - 构建和 oxlint 通过，线上 HTML/考勤/Documents 模块与本地构建字节一致；没有实际创建签署请求、发送邮件、导出真实业务批次或执行保存。仅前端发布，后端未重启。
 - 回退：`sudo /var/backups/presence-react/batch-feedback-20261015T135445Z/rollback-ui.sh`。
+
+### 2026-10-15 ChristopheH 管理员权限事件
+
+- 用户报告管理菜单消失；只读数据库核对确认 ChristopheH 的 role/role_tags/is_admin 均为普通员工值，非前端缓存。当天存在多次对该账户 organization 接口的成功 PUT 日志；此前未记录操作者，无法确认具体操作人或仅凭访问日志还原每次请求内容。个人资料更新代码不写角色字段。
+- 在核验用户名与邮箱后，仅恢复原有 Admin + Employe 权限及兼容 is_admin/role 字段，未改密码、合同、部门或其他账户；变更前备份 `/var/backups/presence-react/admin-incident-20261015T152544Z/role-before.json`。
+- 修复同一组织更新端点：事务锁串行化角色编辑并重新读取操作者权限，拒绝自我移除 Admin；提交后的角色改变记录 actor/target/before/after（不记录凭据）。当前 API 与保留的旧 API 只替换该函数，保留服务器其他差异；源文件和数据库备份 `/var/backups/presence-react/admin-guard-20261015T152805Z`。两个服务已恢复 ready。
+- 前端版本 `admin-guard-20261015T152823Z`：本人 Admin 项不能取消，其他角色变更在提交前展示新旧角色确认。构建/oxlint 与 Python 语法检查通过；公开认证 GET /leave/session 返回 Admin、Employe，GET /groups 返回 200，未执行降权请求测试。前端资源逐字节核对一致。
+- 用户现有会话可能仍显示旧菜单，应刷新或退出重登。前端回退：`sudo /var/backups/presence-react/admin-guard-20261015T152823Z/rollback-ui.sh`；不建议回退后端防误降级修复。

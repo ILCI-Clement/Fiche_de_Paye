@@ -16,13 +16,18 @@ export function UserEditor({ token, user, users, groups, actor, busy, run }: { t
   const [remove, setRemove] = useState(false)
   const [confirmation, setConfirmation] = useState('')
   const [employee, setEmployee] = useState('')
+  const [roleConfirm, setRoleConfirm] = useState(false)
+  async function saveOrganization() {
+    const ok = await run(() => adminApi.organization(token, user.username, draft), 'Organisation enregistrée.')
+    if (ok) { setBaseline(JSON.stringify(draft)); setRoleConfirm(false) }
+  }
   const reports = users.filter(p => p.manager_id === user.username)
   return <>
     <Typography variant="h6" sx={{ mb: 1, overflowWrap: 'anywhere' }}>Fiche de {user.username}</Typography>
     <Typography color="text.secondary" sx={{ mb: 2, overflowWrap: 'anywhere' }}>{user.email}</Typography>
     <Accordion disableGutters><AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography>Fonction, départements et responsable</Typography></AccordionSummary><AccordionDetails>
-      <Box component="form" onSubmit={e => { e.preventDefault(); void run(() => adminApi.organization(token, user.username, draft), 'Organisation enregistrée.').then(ok => { if (ok) setBaseline(JSON.stringify(draft)) }) }} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-        <OrganizationFields value={draft} onChange={setDraft} users={users} groups={groups} username={user.username} disabled={busy} />
+      <Box component="form" onSubmit={e => { e.preventDefault(); if ([...draft.role_tags].sort().join() !== [...user.role_tags].sort().join()) setRoleConfirm(true); else void saveOrganization() }} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+        <OrganizationFields value={draft} onChange={setDraft} users={users} groups={groups} username={user.username} disabled={busy} preserveAdmin={user.username === actor && user.role_tags.includes('Admin')} />
         <Button variant="contained" type="submit" disabled={busy || !draft.role_tags.length}>Enregistrer l’organisation</Button>
       </Box>
     </AccordionDetails></Accordion>
@@ -36,6 +41,11 @@ export function UserEditor({ token, user, users, groups, actor, busy, run }: { t
       </Box>}
     </AccordionDetails></Accordion>
     {user.username !== actor && <Box sx={{ mt: 2 }}><DeleteAction label="Supprimer le compte" disabled={busy} onClick={() => confirmChange(() => setRemove(true))} /></Box>}
+    <Dialog open={roleConfirm} onClose={() => { if (!busy) setRoleConfirm(false) }}><DialogTitle>Confirmer le changement de droits</DialogTitle><DialogContent>
+      <Alert severity="warning" sx={{ mb: 2 }}>Les accès de {user.username} seront modifiés.</Alert>
+      <Typography>Actuellement : {user.role_tags.join(' · ')}</Typography>
+      <Typography>Après modification : {draft.role_tags.join(' · ')}</Typography>
+    </DialogContent><DialogActions><Button disabled={busy} onClick={() => setRoleConfirm(false)}>Annuler</Button><Button variant="contained" disabled={busy} onClick={() => void saveOrganization()}>Confirmer les nouveaux droits</Button></DialogActions></Dialog>
     <Dialog open={remove} onClose={() => { if (!busy) setRemove(false) }}><DialogTitle>Supprimer le compte et ses données associées ?</DialogTitle><DialogContent>
       <Alert severity="warning" sx={{ mb: 2 }}>Cette opération supprime le compte, ses contrats, les fiches associées et les documents liés, y compris ceux déposés pour d’autres personnes. Elle est définitive.</Alert>
       <TextField fullWidth label={`Saisissez ${user.username} pour confirmer`} value={confirmation} onChange={e => setConfirmation(e.target.value)} disabled={busy} />
