@@ -88,3 +88,10 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 前端静态版本 `attendance-sheets-20261015T105159Z`：三个编辑区域改为独立页签，默认日历；法语日期控件替代受系统语言影响的原生日期控件，API 保留 ISO 值。
 - TypeScript/Vite 构建及 oxlint 通过，本地只读查看页签与法语日期；线上 HTML、考勤和日期模块与本地构建逐字节一致。未执行业务写入、邮件或签署测试。
 - 仅发布前端，后端未重启。上次静态版本保留；本次界面回退：`sudo /var/backups/presence-react/attendance-sheets-20261015T105159Z/rollback-ui.sh`。
+
+### 2026-10-15 Documents 月份栏简化
+
+- 静态版本 `documents-period-20261015T123341Z`：删除文件列表中的重复月份选择，仅保留顶部单一吸顶月份栏，同时控制上传与查询；上传绑定月份提示保留。
+- 月份修改继续经过草稿确认，清空旧月份勾选；筛选、归档和权限逻辑不变。
+- 构建与 oxlint 通过；线上首页、Documents 模块与本地构建逐字节一致。未上传文件、发送邮件或修改业务数据，后端未重启。
+- 上次版本保留；界面回退命令：`sudo /var/backups/presence-react/documents-period-20261015T123341Z/rollback-ui.sh`。

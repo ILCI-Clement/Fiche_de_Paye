@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { Session } from '../types'
 import { downloadFile } from '../download'
 import { PeriodSelector } from '../attendance/PeriodSelector'
-import { documentsApi, periodLabel, receiptPeriod } from './api'
+import { documentsApi, receiptPeriod } from './api'
 import { DocumentUpload } from './DocumentUpload'
 import { DocumentCard } from './DocumentCard'
 
@@ -48,12 +48,14 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
       <Typography variant="h4" component="h1">Documents et justificatifs</Typography>
       <Typography color="text.secondary" sx={{ mt: 1 }}>Déposez et retrouvez vos documents par mois.</Typography>
     </Box></Box>
-    <Paper sx={{ p: 2, mb: 2 }}><PeriodSelector month={month} year={year} disabled={busy} onChange={setPeriod} /></Paper>
+    <Paper component="section" aria-label="Mois des documents" sx={{ p: 2, mb: 2, position: 'sticky', top: 0, zIndex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5, border: 1, borderColor: 'divider' }}>
+      <PeriodSelector month={month} year={year} disabled={busy} onChange={setPeriod} />
+      <Typography variant="caption" color="text.secondary">Mois de dépôt et de consultation</Typography>
+    </Paper>
     {owners.error ? <Alert severity="error" sx={{ mb: 2 }}>{owners.error.message}<Button onClick={() => void owners.refetch()}>Réessayer</Button></Alert>
       : owners.isPending ? <CircularProgress size={22} /> : <DocumentUpload token={token} username={session.username} admin={admin} users={owners.data.users} month={month} year={year} busy={busy} run={run} />}
     <Paper sx={{ p: 2, my: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-        <Box><PeriodSelector month={month} year={year} disabled={busy} onChange={setPeriod} /><Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Documents rattachés à {periodLabel(month, year)}</Typography></Box>
         <Box sx={{ flex: 1 }}><Typography variant="h6">{archived ? 'Archives' : 'Tous les justificatifs'}</Typography><Typography variant="body2" color="text.secondary">{visible.length} document(s) correspondant aux filtres</Typography></Box>
         <Button disabled={busy || list.isFetching} onClick={() => void list.refetch()}>Actualiser</Button>
       </Box>
