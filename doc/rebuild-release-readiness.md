@@ -120,3 +120,9 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 保留服务器 CSP（object-src none、img-src self/data），没有改为公网文件地址或外部预览服务。Vite 把 PDF.js 6.4.299 的 CMap、字体、WASM/ICC 资源打包到版本目录，生成文件忽略入 Git；构建需要 Node >=22.13（或 >=24）。
 - 构建、oxlint 通过；本地已打开现有 Test-PDF.pdf，正文实际渲染；未新增上传，也未改动文件、数据库或权限。线上 HTML、Documents/PdfPreview、worker、CMap、字体及 WASM 抽样与本地字节一致，worker 返回正确 JavaScript MIME。尚未逐一验证所有移动浏览器或复杂 PDF。
 - 只发布前端，未重启后端；界面回退：`sudo /var/backups/presence-react/document-preview-20261015T133312Z/rollback-ui.sh`。
+
+### 2026-10-15 Documents 操作图标
+
+- 静态版本 `document-icons-20261015T133934Z`：卡片预览、下载、改月、归档分别用眼睛、下载、铅笔和归档盒图标，沿用垃圾桶删除；统一 44px 点击区域、法语 Tooltip 和 aria-label。
+- 原操作及权限保持不变。构建及 oxlint 通过，线上首页和 Documents 模块与本地构建字节一致；无业务写入，后端未重启。
+- 回退：`sudo /var/backups/presence-react/document-icons-20261015T133934Z/rollback-ui.sh`。

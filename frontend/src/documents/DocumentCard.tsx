@@ -1,9 +1,20 @@
 import { useState } from 'react'
-import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Typography } from '@mui/material'
+import type { ReactNode } from 'react'
+import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Tooltip, Typography } from '@mui/material'
+import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
+import DownloadOutlined from '@mui/icons-material/DownloadOutlined'
+import EditOutlined from '@mui/icons-material/EditOutlined'
+import ArchiveOutlined from '@mui/icons-material/ArchiveOutlined'
 import { PeriodSelector } from '../attendance/PeriodSelector'
 import type { Receipt } from './api'
 import { periodLabel, receiptPeriod } from './api'
 import { DeleteAction } from '../components/DeleteAction'
+
+function DocumentAction({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: () => void; children: ReactNode }) {
+  return <Tooltip title={label} arrow describeChild><span style={{ display: 'inline-flex' }}>
+    <IconButton color="primary" aria-label={label} disabled={disabled} onClick={onClick} sx={{ width: 44, height: 44 }}>{children}</IconButton>
+  </span></Tooltip>
+}
 
 export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, onSelect, onPreview, onDownload, onArchive, onDelete, onPeriod }: {
   receipt: Receipt; admin: boolean; canDelete: boolean; selected: boolean; busy: boolean;
@@ -26,10 +37,10 @@ export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, onS
     <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Employé : {r.employee_username.split('@')[0]}</Typography>
     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>Déposé par {r.uploaded_by.split('@')[0]} · {r.created_at.slice(0, 10)} · {(r.size_bytes / 1024).toFixed(0)} Ko</Typography>
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5, mt: 'auto', pt: 1 }}>
-      <Button size="small" disabled={busy} onClick={onPreview}>Aperçu</Button>
-      <Button size="small" disabled={busy} onClick={onDownload}>Télécharger</Button>
-      {admin && <Button size="small" disabled={busy} onClick={() => { setPeriod(initial); setDialog('period') }}>Mois</Button>}
-      {admin && !r.archived && <Button size="small" disabled={busy} onClick={onArchive}>Archiver</Button>}
+      <DocumentAction label="Aperçu du document" disabled={busy} onClick={onPreview}><VisibilityOutlined fontSize="small" /></DocumentAction>
+      <DocumentAction label="Télécharger le document" disabled={busy} onClick={onDownload}><DownloadOutlined fontSize="small" /></DocumentAction>
+      {admin && <DocumentAction label="Modifier le mois de rattachement" disabled={busy} onClick={() => { setPeriod(initial); setDialog('period') }}><EditOutlined fontSize="small" /></DocumentAction>}
+      {admin && !r.archived && <DocumentAction label="Archiver le document" disabled={busy} onClick={onArchive}><ArchiveOutlined fontSize="small" /></DocumentAction>}
       {canDelete && <DeleteAction label="Supprimer ce document" disabled={busy} onClick={() => setDialog('delete')} />}
     </Box>
     <Dialog open={dialog !== null} onClose={() => { if (!busy) setDialog(null) }}>
