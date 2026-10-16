@@ -6,6 +6,7 @@ import CloseRounded from '@mui/icons-material/CloseRounded'
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded'
 import ZoomInRounded from '@mui/icons-material/ZoomInRounded'
 import { useQuery } from '@tanstack/react-query'
+import { alpha } from '@mui/material/styles'
 import type { Session } from '../types'
 import { downloadFile } from '../download'
 import { PeriodSelector } from '../attendance/PeriodSelector'
@@ -91,18 +92,24 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
       }
     }, `${ids.length} document(s) préparé(s). Téléchargement déclenché.`)
   }
-  return <Box className="workspace">
-    <Box className="page-heading"><Box><Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>DOCUMENTS</Typography>
+  return <Box className="workspace documents-workspace" sx={theme => ({
+    '& .MuiTypography-h4': { fontWeight: 600 }, '& .MuiTypography-h6': { fontWeight: 600 },
+    '& .MuiButton-root, & .MuiToggleButton-root, & .MuiAccordionSummary-root .MuiTypography-root': { fontWeight: 500 },
+    '& .MuiTypography-body2': { color: 'text.secondary' },
+    '& .MuiToggleButtonGroup-root': { gap: .75, flexWrap: 'wrap' },
+    '& .MuiToggleButtonGroup-root .MuiToggleButton-root': { border: '1px solid', borderColor: alpha(theme.palette.text.primary, .12), borderRadius: '24px !important', px: 2, minHeight: 38, textTransform: 'none', color: 'text.secondary', '&.Mui-selected': { color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, .12), borderColor: alpha(theme.palette.primary.main, .4) }, '&:hover': { bgcolor: alpha(theme.palette.primary.main, .08) } },
+  })}>
+    <Box className="page-heading"><Box><Typography variant="overline" color="text.secondary" sx={{ fontWeight: 500, letterSpacing: 2 }}>DOCUMENTS</Typography>
       <Typography variant="h4" component="h1">Documents et justificatifs</Typography>
       <Typography color="text.secondary" sx={{ mt: 1 }}>Déposez et retrouvez vos documents par mois.</Typography>
     </Box></Box>
-    <Paper component="section" aria-label="Mois des documents" sx={{ p: 2, mb: 2, position: 'sticky', top: 0, zIndex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5, border: 1, borderColor: 'divider' }}>
+    <Paper component="section" aria-label="Mois des documents" sx={{ p: 2, mb: 2, position: 'sticky', top: 0, zIndex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, border: 1, borderColor: 'divider', borderRadius: 3 }}>
       <PeriodSelector month={month} year={year} disabled={busy} onChange={setPeriod} />
-      <Typography variant="caption" color="text.secondary">Mois de dépôt et de consultation</Typography>
+      <Typography variant="body2" color="text.secondary">Dépôt et consultation · {periodLabel(month, year)}</Typography>
     </Paper>
     {owners.error ? <Alert severity="error" sx={{ mb: 2 }}>{owners.error.message}<Button onClick={() => void owners.refetch()}>Réessayer</Button></Alert>
       : owners.isPending ? <CircularProgress size={22} /> : <DocumentUpload token={token} username={session.username} admin={admin} users={owners.data.users} month={month} year={year} busy={busy} run={run} />}
-    <Paper sx={{ p: 2, my: 2 }}>
+    <Paper sx={{ p: { xs: 2, sm: 2.5 }, my: 2, borderRadius: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Box sx={{ flex: 1 }}><Typography variant="h6">{archived ? 'Archives' : 'Tous les justificatifs'}</Typography><Typography variant="body2" color="text.secondary">{visible.length} document(s) correspondant aux filtres</Typography></Box>
         <Box role="group" aria-label="Taille des cartes" sx={{ display: 'flex', alignItems: 'center', gap: .5 }}>
@@ -112,10 +119,10 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
         </Box>
         <Button disabled={busy || list.isFetching} onClick={() => void list.refetch()}>Actualiser</Button>
       </Box>
-      <TextField label="Rechercher un document" placeholder="Nom, numéro, employé, déposé par, type…"
+      <TextField placeholder="Rechercher un document · nom, numéro, employé…"
         value={search} disabled={busy} onChange={event => { setSearch(event.target.value); setSelected([]) }}
-        fullWidth size="small" sx={{ mt: 2 }} helperText="Recherche dans le mois et le dossier sélectionnés."
-        slotProps={{ input: {
+        fullWidth size="small" sx={{ mt: 2, '& .MuiOutlinedInput-root': { borderRadius: 2.5 } }}
+        slotProps={{ htmlInput: { 'aria-label': 'Rechercher un document dans le mois et le dossier sélectionnés' }, input: {
           startAdornment: <InputAdornment position="start"><SearchRounded fontSize="small" /></InputAdornment>,
           endAdornment: search ? <InputAdornment position="end"><Tooltip title="Effacer la recherche"><IconButton
             aria-label="Effacer la recherche" size="small" disabled={busy} onClick={() => { setSearch(''); setSelected([]) }}><CloseRounded fontSize="small" /></IconButton></Tooltip></InputAdornment> : undefined,

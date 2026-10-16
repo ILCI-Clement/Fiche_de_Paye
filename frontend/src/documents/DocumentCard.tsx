@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import type { ReactNode } from 'react'
-import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Tooltip, Typography } from '@mui/material'
+import type { MouseEvent, ReactNode } from 'react'
+import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, ListItemIcon, Menu, MenuItem, Paper, Tooltip, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
+import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded'
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded'
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined'
 import EditOutlined from '@mui/icons-material/EditOutlined'
@@ -8,11 +11,10 @@ import ArchiveOutlined from '@mui/icons-material/ArchiveOutlined'
 import { PeriodSelector } from '../attendance/PeriodSelector'
 import type { Receipt } from './api'
 import { periodLabel, receiptPeriod } from './api'
-import { DeleteAction } from '../components/DeleteAction'
 
-function DocumentAction({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: () => void; children: ReactNode }) {
+function DocumentAction({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: (event: MouseEvent<HTMLButtonElement>) => void; children: ReactNode }) {
   return <Tooltip title={label} arrow describeChild><span style={{ display: 'inline-flex' }}>
-    <IconButton color="primary" aria-label={label} disabled={disabled} onClick={onClick} sx={{ width: 44, height: 44 }}>{children}</IconButton>
+    <IconButton aria-label={label} disabled={disabled} onClick={onClick} sx={theme => ({ width: 44, height: 44, borderRadius: 2, color: 'text.secondary', bgcolor: alpha(theme.palette.text.primary, .035), '&:hover': { color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, .12) } })}>{children}</IconButton>
   </span></Tooltip>
 }
 
@@ -25,29 +27,33 @@ export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, den
   onDelete: () => Promise<boolean>; onPeriod: (month: number, year: number) => Promise<boolean>
 }) {
   const [dialog, setDialog] = useState<'delete' | 'period' | null>(null)
+  const [menu, setMenu] = useState<HTMLElement | null>(null)
   const initial = receiptPeriod(r)
   const [period, setPeriod] = useState(initial)
   const compact = density === 'compact'
   const comfortable = density === 'comfortable'
-  return <Paper variant="outlined" sx={{ p: compact ? 1.25 : comfortable ? 3 : 2, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
+  return <Paper variant="outlined" sx={theme => ({ p: compact ? 2 : comfortable ? 3 : 2.5, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 3, borderColor: selected ? 'primary.main' : alpha(theme.palette.text.primary, .1), transition: 'border-color .15s, box-shadow .15s', '&:hover': { borderColor: alpha(theme.palette.primary.main, .45), boxShadow: `0 6px 20px ${alpha('#000', .08)}` }, '& .MuiChip-root': { border: 0, fontWeight: 400 } })}>
     <Box sx={{ display: 'flex', alignItems: 'start', gap: 1 }}>
       <Checkbox checked={selected} onChange={onSelect} disabled={busy} slotProps={{ input: { 'aria-label': `Sélectionner ${r.original_filename}` } }} sx={{ p: .5 }} />
-      <Typography sx={{ fontWeight: 650, fontSize: compact ? 14 : comfortable ? 18 : 16, overflowWrap: 'anywhere', flex: 1 }}>{r.original_filename} <Typography component="span" color="primary.main" sx={{ fontSize: compact ? 12 : 13 }}>· {periodLabel(initial.month, initial.year)}</Typography></Typography>
+      <Typography sx={{ fontWeight: 500, fontSize: compact ? 14 : comfortable ? 18 : 16, overflowWrap: 'anywhere', flex: 1 }}>{r.original_filename}<Typography component="span" color="text.secondary" sx={{ display: 'block', fontSize: 12, mt: .5 }}>{periodLabel(initial.month, initial.year)}</Typography></Typography>
     </Box>
-    <Box sx={{ my: compact ? .5 : 1, display: 'flex', flexWrap: 'wrap', gap: compact ? .5 : 1, '& .MuiChip-root': { maxWidth: '100%', ...(compact ? { fontSize: 11, height: 22 } : {}) } }}>
-      {r.document_number && <Chip size="small" label={`N° ${r.document_number}`} variant="outlined" sx={{ fontFamily: 'monospace', userSelect: 'text', fontWeight: 650 }} />}
-      <Chip size="small" label={r.document_type === 'autre' ? `Autre · ${r.other_type}` : r.document_type === 'transport' ? 'Transport' : 'Non renseigné'} color={r.document_type === 'transport' ? 'info' : 'secondary'} variant="outlined" />
-      {r.archived && <Chip size="small" label="Archivé" variant="outlined" />}
+    <Box sx={{ my: 1.5, display: 'flex', flexWrap: 'wrap', gap: 1, '& .MuiChip-root': { maxWidth: '100%', ...(compact ? { fontSize: 11, height: 22 } : {}) } }}>
+      {r.document_number && <Chip size="small" label={`N° ${r.document_number}`} sx={theme => ({ fontFamily: 'monospace', userSelect: 'text', bgcolor: alpha(theme.palette.primary.main, .12), color: 'primary.main' })} />}
+      <Chip size="small" label={r.document_type === 'autre' ? `Autre · ${r.other_type || 'Non précisé'}` : r.document_type === 'transport' ? 'Transport' : 'Non renseigné'} sx={theme => { const color = r.document_type === 'transport' ? theme.palette.info.main : theme.palette.secondary.main; return { bgcolor: alpha(color, .15), color } }} />
+      {r.archived && <Chip size="small" label="Archivé" sx={theme => ({ bgcolor: alpha(theme.palette.text.primary, .08), color: 'text.secondary' })} />}
     </Box>
     <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Employé : {r.employee_username.split('@')[0]}</Typography>
-    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>Déposé par {r.uploaded_by.split('@')[0]} · {r.created_at.slice(0, 10)} · {(r.size_bytes / 1024).toFixed(0)} Ko</Typography>
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: compact ? 0 : .5, mt: 'auto', pt: compact ? .5 : 1 }}>
+    <Typography variant="caption" sx={theme => ({ color: alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? .45 : .6), display: 'block', overflowWrap: 'anywhere', mt: 1 })}>Déposé par {r.uploaded_by.split('@')[0]} · {r.created_at.slice(0, 10)} · {(r.size_bytes / 1024).toFixed(0)} Ko</Typography>
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 'auto', pt: 2 }}>
       <DocumentAction label="Aperçu du document" disabled={busy} onClick={onPreview}><VisibilityOutlined fontSize="small" /></DocumentAction>
       <DocumentAction label="Télécharger le document" disabled={busy} onClick={onDownload}><DownloadOutlined fontSize="small" /></DocumentAction>
-      {admin && <DocumentAction label="Modifier le mois de rattachement" disabled={busy} onClick={() => { setPeriod(initial); setDialog('period') }}><EditOutlined fontSize="small" /></DocumentAction>}
-      {admin && !r.archived && <DocumentAction label="Archiver le document" disabled={busy} onClick={onArchive}><ArchiveOutlined fontSize="small" /></DocumentAction>}
-      {canDelete && <DeleteAction label="Supprimer ce document" disabled={busy} onClick={() => setDialog('delete')} />}
+      {(admin || canDelete) && <Box sx={{ ml: 'auto' }}><DocumentAction label="Autres actions" disabled={busy} onClick={event => setMenu(event.currentTarget)}><MoreHorizRounded fontSize="small" /></DocumentAction></Box>}
     </Box>
+    <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)}>
+      {admin && <MenuItem disabled={busy} onClick={() => { setMenu(null); setPeriod(initial); setDialog('period') }}><ListItemIcon><EditOutlined fontSize="small" /></ListItemIcon>Modifier le mois</MenuItem>}
+      {admin && !r.archived && <MenuItem disabled={busy} onClick={() => { setMenu(null); onArchive() }}><ListItemIcon><ArchiveOutlined fontSize="small" /></ListItemIcon>Archiver</MenuItem>}
+      {canDelete && <MenuItem disabled={busy} sx={{ color: 'error.main' }} onClick={() => { setMenu(null); setDialog('delete') }}><ListItemIcon sx={{ color: 'inherit' }}><DeleteOutlineRounded fontSize="small" /></ListItemIcon>Supprimer</MenuItem>}
+    </Menu>
     <Dialog open={dialog !== null} onClose={() => { if (!busy) setDialog(null) }}>
       <DialogTitle>{dialog === 'delete' ? 'Supprimer ce document ?' : 'Modifier le mois de rattachement'}</DialogTitle>
       <DialogContent>{dialog === 'delete' ? <Typography sx={{ overflowWrap: 'anywhere' }}>{r.original_filename} sera supprimé définitivement.</Typography> : <Box sx={{ pt: 2 }}><PeriodSelector {...period} disabled={busy} onChange={(month, year) => setPeriod({ month, year })} /></Box>}</DialogContent>
