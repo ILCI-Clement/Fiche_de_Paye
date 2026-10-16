@@ -3,6 +3,8 @@ import { useRef, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Snackbar, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material'
 import SearchRounded from '@mui/icons-material/SearchRounded'
 import CloseRounded from '@mui/icons-material/CloseRounded'
+import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded'
+import ZoomInRounded from '@mui/icons-material/ZoomInRounded'
 import { useQuery } from '@tanstack/react-query'
 import type { Session } from '../types'
 import { downloadFile } from '../download'
@@ -10,12 +12,23 @@ import { PeriodSelector } from '../attendance/PeriodSelector'
 import { documentsApi, receiptPeriod } from './api'
 import { DocumentUpload } from './DocumentUpload'
 import { DocumentCard } from './DocumentCard'
+import type { DocumentDensity } from './DocumentCard'
 import { DocumentPreview } from './DocumentPreview'
 import type { Receipt } from './api'
 import { BatchExportResult } from '../components/BatchExportResult'
 import type { ExportResult } from '../components/BatchExportResult'
 import { periodLabel } from './api'
 import { matchesDocumentSearch } from './documentSearch'
+
+const densities: DocumentDensity[] = ['compact', 'standard', 'comfortable']
+const densityLabels = { compact: 'Compact', standard: 'Standard', comfortable: 'Confort' }
+const densityKey = 'presence-document-density'
+function initialDensity(): DocumentDensity {
+  try {
+    const saved = localStorage.getItem(densityKey)
+    return densities.find(value => value === saved) || 'standard'
+  } catch { return 'standard' }
+}
 
 export function DocumentsPage({ token, session }: { token: string; session: Session }) {
   const admin = session.role_tags.includes('Admin')
@@ -25,6 +38,12 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   const [archived, setArchived] = useState(false)
   const [type, setType] = useState('all')
   const [search, setSearch] = useState('')
+  const [density, setDensity] = useState<DocumentDensity>(initialDensity)
+  function changeDensity(direction: number) {
+    const next = densities[Math.max(0, Math.min(densities.length - 1, densities.indexOf(density) + direction))]
+    setDensity(next)
+    try { localStorage.setItem(densityKey, next) } catch { /* Display preferences are optional. */ }
+  }
   const [selected, setSelected] = useState<number[]>([])
   const [preview, setPreview] = useState<Receipt | null>(null)
   const [busy, setBusy] = useState(false)
@@ -86,6 +105,11 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
     <Paper sx={{ p: 2, my: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Box sx={{ flex: 1 }}><Typography variant="h6">{archived ? 'Archives' : 'Tous les justificatifs'}</Typography><Typography variant="body2" color="text.secondary">{visible.length} document(s) correspondant aux filtres</Typography></Box>
+        <Box role="group" aria-label="Taille des cartes" sx={{ display: 'flex', alignItems: 'center', gap: .5 }}>
+          <Tooltip title="Réduire les cartes"><span><IconButton aria-label="Réduire les cartes" disabled={density === 'compact'} onClick={() => changeDensity(-1)}><ZoomOutRounded /></IconButton></span></Tooltip>
+          <Typography variant="body2" aria-live="polite" sx={{ minWidth: 64, textAlign: 'center' }}>{densityLabels[density]}</Typography>
+          <Tooltip title="Agrandir les cartes"><span><IconButton aria-label="Agrandir les cartes" disabled={density === 'comfortable'} onClick={() => changeDensity(1)}><ZoomInRounded /></IconButton></span></Tooltip>
+        </Box>
         <Button disabled={busy || list.isFetching} onClick={() => void list.refetch()}>Actualiser</Button>
       </Box>
       <TextField label="Rechercher un document" placeholder="Nom, numéro, employé, déposé par, type…"
@@ -114,9 +138,12 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
     {exportResult && <BatchExportResult result={exportResult} />}
     {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
     {list.error ? <Alert severity="error">{list.error.message}<Button onClick={() => void list.refetch()}>Réessayer</Button></Alert> : list.isPending ? <CircularProgress size={28} /> :
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 2 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: density === 'compact'
+        ? { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }
+        : density === 'comfortable' ? { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' }
+          : { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: density === 'compact' ? 1 : density === 'comfortable' ? 3 : 2 }}>
         {!visible.length && <Typography color="text.secondary">{search.trim() ? 'Aucun document ne correspond à la recherche et aux filtres.' : 'Aucun document dans ce dossier pour ce mois.'}</Typography>}
-        {visible.map(r => <DocumentCard key={r.id} receipt={r} admin={admin} canDelete={admin || (!manager && r.uploaded_by === session.username)} selected={selected.includes(r.id)} busy={busy}
+        {visible.map(r => <DocumentCard key={r.id} receipt={r} density={density} admin={admin} canDelete={admin || (!manager && r.uploaded_by === session.username)} selected={selected.includes(r.id)} busy={busy}
           onPreview={() => setPreview(r)}
           onSelect={() => setSelected(previous => previous.includes(r.id) ? previous.filter(id => id !== r.id) : [...previous, r.id])}
           onDownload={() => void run(async () => downloadFile(await documentsApi.file(token, r.id)), 'Document prêt à télécharger.')}

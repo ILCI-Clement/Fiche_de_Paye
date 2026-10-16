@@ -16,27 +16,32 @@ function DocumentAction({ label, disabled, onClick, children }: { label: string;
   </span></Tooltip>
 }
 
-export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, onSelect, onPreview, onDownload, onArchive, onDelete, onPeriod }: {
+export type DocumentDensity = 'compact' | 'standard' | 'comfortable'
+
+export function DocumentCard({ receipt: r, admin, canDelete, selected, busy, density = 'standard', onSelect, onPreview, onDownload, onArchive, onDelete, onPeriod }: {
   receipt: Receipt; admin: boolean; canDelete: boolean; selected: boolean; busy: boolean;
+  density?: DocumentDensity;
   onSelect: () => void; onPreview: () => void; onDownload: () => void; onArchive: () => void;
   onDelete: () => Promise<boolean>; onPeriod: (month: number, year: number) => Promise<boolean>
 }) {
   const [dialog, setDialog] = useState<'delete' | 'period' | null>(null)
   const initial = receiptPeriod(r)
   const [period, setPeriod] = useState(initial)
-  return <Paper variant="outlined" sx={{ p: 2, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
+  const compact = density === 'compact'
+  const comfortable = density === 'comfortable'
+  return <Paper variant="outlined" sx={{ p: compact ? 1.25 : comfortable ? 3 : 2, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
     <Box sx={{ display: 'flex', alignItems: 'start', gap: 1 }}>
       <Checkbox checked={selected} onChange={onSelect} disabled={busy} slotProps={{ input: { 'aria-label': `Sélectionner ${r.original_filename}` } }} sx={{ p: .5 }} />
-      <Typography sx={{ fontWeight: 650, overflowWrap: 'anywhere', flex: 1 }}>{r.original_filename} <Typography component="span" color="primary.main" sx={{ fontSize: 13 }}>· {periodLabel(initial.month, initial.year)}</Typography></Typography>
+      <Typography sx={{ fontWeight: 650, fontSize: compact ? 14 : comfortable ? 18 : 16, overflowWrap: 'anywhere', flex: 1 }}>{r.original_filename} <Typography component="span" color="primary.main" sx={{ fontSize: compact ? 12 : 13 }}>· {periodLabel(initial.month, initial.year)}</Typography></Typography>
     </Box>
-    <Box sx={{ my: 1, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+    <Box sx={{ my: compact ? .5 : 1, display: 'flex', flexWrap: 'wrap', gap: compact ? .5 : 1, '& .MuiChip-root': { maxWidth: '100%', ...(compact ? { fontSize: 11, height: 22 } : {}) } }}>
       {r.document_number && <Chip size="small" label={`N° ${r.document_number}`} variant="outlined" sx={{ fontFamily: 'monospace', userSelect: 'text', fontWeight: 650 }} />}
       <Chip size="small" label={r.document_type === 'autre' ? `Autre · ${r.other_type}` : r.document_type === 'transport' ? 'Transport' : 'Non renseigné'} color={r.document_type === 'transport' ? 'info' : 'secondary'} variant="outlined" />
       {r.archived && <Chip size="small" label="Archivé" variant="outlined" />}
     </Box>
     <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Employé : {r.employee_username.split('@')[0]}</Typography>
     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>Déposé par {r.uploaded_by.split('@')[0]} · {r.created_at.slice(0, 10)} · {(r.size_bytes / 1024).toFixed(0)} Ko</Typography>
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5, mt: 'auto', pt: 1 }}>
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: compact ? 0 : .5, mt: 'auto', pt: compact ? .5 : 1 }}>
       <DocumentAction label="Aperçu du document" disabled={busy} onClick={onPreview}><VisibilityOutlined fontSize="small" /></DocumentAction>
       <DocumentAction label="Télécharger le document" disabled={busy} onClick={onDownload}><DownloadOutlined fontSize="small" /></DocumentAction>
       {admin && <DocumentAction label="Modifier le mois de rattachement" disabled={busy} onClick={() => { setPeriod(initial); setDialog('period') }}><EditOutlined fontSize="small" /></DocumentAction>}
