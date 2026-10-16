@@ -163,3 +163,12 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 发布前构建、lint 与差异检查通过。线上原静态根为 `team-person-icon-20261015T153021Z`，保留其全部资源，并保留旧哈希资源以兼容已打开页面。Nginx 配置检查成功后 reload。公网 HTML、入口资源、Documents 模块与 PDF worker 共 7 个资源和本地构建逐字节一致；新旧后端、旧 Streamlit 及 Nginx 均 active。未执行真实上传、邮件或签署，也未做登录后的浏览器交互回归。
 
 回退：`sudo /var/backups/presence-react/documents-search-density-20261016T091655Z/rollback-ui.sh`。脚本仅在当前静态根仍为本版本时恢复旧 Nginx 配置，不操作数据库。浏览器刷新后可使用新功能；未保存表单请先保存。
+
+
+## 2026-10-16 Documents 视觉版发布
+
+前端版本 `documents-visual-20261016T095254Z`，用户已在独立本地版确认效果后授权上线。降低 Documents 标题/控件字重，胶囊筛选与统一淡色标签，搜索使用占位提示与无障碍名称，卡片内边距至少 16px，预览/下载常驻，改月/归档/删除移入更多菜单。保留权限、删除确认、搜索和密度设置；未改全局导航或其他页面。
+
+沿用已构建并经 lint、本地深浅主题及菜单查看的产物。发布前线上静态根为 `documents-search-density-20261016T091655Z`；备份 Nginx 配置，保留前一版静态文件和旧哈希资源，Nginx 检查通过后 reload。公网 HTML 和 7 个资源与本地逐字节一致，新旧 API、旧 Streamlit 与 Nginx 均 active。未修改后端、数据库或上传文件；未发送邮件或签署。
+
+回退：`sudo /var/backups/presence-react/documents-visual-20261016T095254Z/rollback-ui.sh`。仅在当前静态根为本版本时恢复上一版 Nginx 配置，不操作数据库。
