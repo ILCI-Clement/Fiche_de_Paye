@@ -31,7 +31,7 @@ export function PersonnelDistribution({ token, username }: { token: string; user
     {query.isPending ? <CircularProgress size={28} sx={{ m: 3 }} /> : query.error ? <Alert severity="error" sx={{ mt: 2 }}>{query.error.message}<Button onClick={() => void query.refetch()}>Réessayer</Button></Alert>
       : !total ? <Typography color="text.secondary" sx={{ mt: 2 }}>Aucune personne dans le répertoire.</Typography> : <>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(220px, 300px) minmax(0, 1fr)' }, alignItems: 'center', gap: 3, mt: 2 }}>
-          <Box sx={{ width: '100%', maxWidth: 280, mx: 'auto' }}>
+          <Box sx={{ width: '100%', maxWidth: 280, mx: 'auto', '& svg:focus, & svg circle:focus': { outline: 'none' } }}>
             <svg viewBox="0 0 240 240" style={{ width: '100%', display: 'block', overflow: 'visible' }} role="group" aria-label="Répartition des comptes par département">
               <circle cx="120" cy="120" r="90" fill="none" stroke={theme.palette.divider} strokeWidth="32" />
               {slices.map(slice => {
