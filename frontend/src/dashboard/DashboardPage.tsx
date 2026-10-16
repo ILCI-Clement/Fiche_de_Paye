@@ -8,9 +8,12 @@ import type { Session } from '../types'
 import { dashboardApi } from './api'
 import type { Deadline, Interview } from './api'
 import { InterviewEditor } from './InterviewEditor'
+import { PersonnelDistribution } from './PersonnelDistribution'
+import { useQueryClient } from '@tanstack/react-query'
 
 export function DashboardPage({ token, session }: { token: string; session: Session }) {
   const capabilities = useCapabilities()
+  const client = useQueryClient()
   const [mailTarget, setMailTarget] = useState<Deadline | 'all' | null>(null)
   const allowed = session.role_tags.some(role => ['Admin', 'Responsable'].includes(role))
   const admin = session.role_tags.includes('Admin')
@@ -30,7 +33,8 @@ export function DashboardPage({ token, session }: { token: string; session: Sess
   }
   if (!allowed) return <Box className="workspace"><Alert severity="error">Accès réservé aux administrateurs et responsables.</Alert></Box>
   const data = query.data
-  return <Box className="workspace"><Box className="page-heading"><Box><Typography variant="h4" component="h1">Tableau de bord</Typography><Typography color="text.secondary" sx={{ mt: 1 }}>Échéances contractuelles et entretiens annuels.</Typography></Box><Button disabled={busy || query.isFetching} onClick={() => void query.refetch()}>Actualiser</Button></Box>
+  return <Box className="workspace"><Box className="page-heading"><Box><Typography variant="h4" component="h1">Tableau de bord</Typography><Typography color="text.secondary" sx={{ mt: 1 }}>Effectifs, échéances contractuelles et entretiens annuels.</Typography></Box><Button disabled={busy || query.isFetching} onClick={() => { void query.refetch(); void client.invalidateQueries({ queryKey: ['organization', session.username] }) }}>Actualiser</Button></Box>
+    <PersonnelDistribution token={token} username={session.username} />
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     {query.isPending ? <CircularProgress /> : query.error ? <Alert severity="error">{query.error.message}</Alert> : data && <>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2, mb: 3 }}>{[

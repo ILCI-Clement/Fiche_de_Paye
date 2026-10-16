@@ -17,7 +17,7 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 2026-10-15：考勤表内三个区域改为横向页签（日历、个人与合同、每周安排；实习生第三页为报酬与出勤），默认显示日历，窄屏可横向滚动。隐藏面板保留状态，日历只在激活时请求；个人字段与安排仍由 `FicheEditor.tsx` 按 section 渲染，切页不写入服务器。
 新版日期输入统一由 `components/FrenchDateField.tsx` 使用 MUI DatePicker 与 Day.js；`main.tsx` 设置法语本地化，显示 DD/MM/YYYY（占位 JJ/MM/AAAA），接口继续使用 ISO 日期。应用于考勤合同、Admin 合同、面谈、请假；保留必填、起止限制和禁用权限，非法日期不能保存考勤。
 新版各页面可折叠区统一默认收起：`theme.ts` 设置 MuiAccordion 默认值，页面不再单独默认展开；考勤日历受控状态也从 false 开始。用户主动展开后，当前会话切页继续保留页面状态，不强制关闭未保存表单。
-新版视觉公共组件：`components/DepartmentBadge.tsx` 提供固定列宽、稳定配色、长名称省略与全名提示；`attendance/AccountOption.tsx` 提供部门/姓名分列选人；同一标签共用于团队名单与 Admin 部门选择。`theme.ts` 统一控件高度、表格及折叠区；`index.css` 管理页面间距、人员控件与窄屏月份对齐。
+新版视觉公共组件：`components/DepartmentBadge.tsx` 提供固定列宽、长名称省略与全名提示；`departmentColor.ts` 共享稳定部门配色（标签与人员分布图）；`attendance/AccountOption.tsx` 提供部门/姓名分列选人；同一标签共用于团队名单与 Admin 部门选择。`theme.ts` 统一控件高度、表格及折叠区；`index.css` 管理页面间距、人员控件与窄屏月份对齐。
 新版配色在 2026-10-15 按用户反馈改为蓝色系：深色模式主色 `#7aa7f8`、浅色模式 `#285fbd`；保留深色背景 `#0e1117` 与灰色控件 `#262730`。姓名高亮、常规按钮、标签页与日历选择框使用主题主色；错误和删除继续采用语义红色。
 新版日历拖选由 `frontend/src/attendance/useCalendarSelection.ts` 管理：鼠标/触摸 Pointer Events 沿经过的半天格添加或取消选择，支持键盘点击；`AttendanceCalendar.tsx` 仍负责显示和统一应用状态。
 新版日历状态颜色集中在 `frontend/src/attendance/calendarStatus.ts`，共用于半天格、状态选择器及图例，分别适配 Light/Dark；拖选使用主题色边框保留状态底色。成功提示统一由 `theme.ts` 使用中性灰色呈现。
@@ -44,7 +44,7 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | 新版 Mon équipe | `frontend/src/team/TeamPage.tsx` | 以横向标签页切换人员名单和公司架构，默认显示名单；按角色请求本组目录或授权员工列表，支持搜索且切页保留搜索内容；`OrganizationCards.tsx` 在架构标签页直接渲染响应式部门卡片，Équipe 标签前有装饰性人头图标，`api.ts` 定义只读请求与类型；服务端复用 `organization_model.py` 投影 |
 | 新版 Administration | `frontend/src/admin/AdminPage.tsx` | Admin 入口、账户搜索/选择、操作状态和查询更新；`CreateAccount.tsx` 新建账户弹窗（顶部按钮打开，成功后关闭，取消/Esc/遮罩关闭检查本窗口草稿，提交时禁止关闭，错误在窗口内显示）与 `UserEditor.tsx` 共用 `OrganizationFields.tsx`；`UserEditor.tsx` 角色/部门/负责人及关联人员，角色变化提交前显示新旧权限确认，`OrganizationFields.tsx` 禁止在编辑本人时取消 Admin；后端组织更新事务串行锁定角色修改并重新读取操作者权限，禁止自行移除 Admin，提交后记录角色变更操作者和前后角色；`ContractEditor.tsx` 合同历史，`GroupEditor.tsx` 部门创建/修改，`api.ts` 请求类型；复用原管理接口，创建功能由 `/ui-capabilities` 控制，本地后端仍禁止新增账户 |
 | 新版能力配置 | `frontend/src/capabilities.ts`、`backend/ui_capabilities.py` | `GET /ui-capabilities` 只返回环境与布尔功能开关；界面无法核对时禁用新增账户和邮件，权限仍由各业务接口执行；本地入口另外拦截创建、找回邮件与提醒发送/重发 |
-| 新版仪表板 | `frontend/src/dashboard/DashboardPage.tsx` | 合同到期、面谈统计及名单、Admin 提醒偏好及发送/重发确认窗口；`InterviewEditor.tsx` 编辑面谈，`api.ts` 共用原接口；本地禁用真实提醒发送 |
+| 新版仪表板 | `frontend/src/dashboard/DashboardPage.tsx` | 合同到期、面谈统计及名单、Admin 提醒偏好及发送/重发确认窗口；`PersonnelDistribution.tsx` 复用已认证组织目录，以轻量 SVG 环形图及可操作图例展示部门人数/比例；悬停、键盘聚焦和触屏选择显示明细，按 username 去重并仅计实际 member 归属，未分配和多部门账号单列，不把管理多个部门重复计算，刷新共用组织缓存；当前无可靠测试账号标记，统计包含目录返回的全部账号（本地试版）。`InterviewEditor.tsx` 编辑面谈，`api.ts` 共用原接口；本地禁用真实提醒发送 |
 | 新版账户设置 | `frontend/src/profile/ProfilePage.tsx` | 本人用户名/邮箱/密码修改及当前密码确认；成功后交给 `App.tsx` 更新会话令牌、清理查询缓存并重载账户状态 |
 | 新版持久登录与密码重置 | `frontend/src/authSession.ts`、`components/PasswordRecovery.tsx` | 可选记住登录、恢复/撤销；访问令牌保存在 sessionStorage、持久随机令牌保存在 localStorage，密码不持久化；支持 `?token=` 重置入口，本地不发送找回邮件 |
 | 新版考勤签署 | `frontend/src/attendance/SignaturePreview.tsx`、`backend/attendance_signatures.py` | 单份/勾选人员预检、确认及逐份发送；直接复用旧版签署服务。`signature_attempts.py` 用本地 SQLite 记录提交回执，防同一次请求重复发送；仅沙盒配置就绪时启用 |
