@@ -105,3 +105,12 @@
 保留 Streamlit 回退入口、页面、模板与共用生成逻辑，保留旧合同接口的路径和鉴权。线上回退服务及原有备份未删除。README、开发导航和模块索引已改为 React 主入口；早期试点说明保留为历史记录。
 
 验证：前端生产构建与 ESLint 通过；Python 源码 AST 静态解析和 Git 差异检查。未运行自动化测试，未上传文件、发邮件或签署，未修改数据库。本次清理未部署到服务器。
+
+
+## 2026-10-16 本地目录清理盘点
+
+核对 96 个候选文件，总计约 409.18 MiB，清单保存在忽略目录 `.local-test/folder-cleanup-20261016.json`。候选包括两份 LibreOffice MSI 安装包、解压日志、旧界面截图、临时生成的 PDF/ZIP、停用的组织预览脚本及应用目录的 Python 编译缓存。已确认 LibreOffice 的 `program/soffice.exe` 存在，安装包不是运行入口。
+
+工具自动审批拒绝了批量删除命令（blocked by policy），因此这些候选文件尚未删除。不得把本条记录当作已执行的清理结果。空的 `docx_preview` 目录也可随候选清理。
+
+继续保留 `.local-test/rebuild/mysql-data`、snapshot、backups、esign-documents、签署记录数据库、环境配置、签署后的 PDF、发布工具和备份；保留 `.venv`、`frontend/node_modules`、当前 dist 和 PDF.js 静态资源，避免影响正在运行的本地服务。历史无效 metadata 目录作为依赖修复备份保留。未触及线上文件或数据库。
