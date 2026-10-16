@@ -79,6 +79,14 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
             details = inspect(employee, payload.month, payload.year, actor)
             if details['fingerprint'] != payload.fingerprint:
                 raise HTTPException(409, 'La fiche ou son responsable a changé. Actualisez la préparation.')
+            db = get_db_connection()
+            try:
+                with db.cursor() as cursor:
+                    cursor.execute('SELECT username FROM users WHERE LOWER(email)=LOWER(%s)', (details['employee_email'],))
+                    subjects = cursor.fetchall()
+                subject_username = subjects[0]['username'] if len(subjects) == 1 else None
+            finally:
+                db.close()
             existing = attempts.begin(actor['username'], payload.request_id, payload.fingerprint)
             if existing is not None:
                 return existing
@@ -90,6 +98,7 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
                     month=payload.month, year=payload.year, filename=item['filename'],
                     file_b64=base64.b64encode(item['data']).decode()), actor)
                 response = {'id': payload.id, 'status': 'accepted', 'document_id': result.get('document_id', ''),
+                            'profile_subject': {'username': subject_username, 'month': payload.month, 'year': payload.year},
                             'mode': ready.get('mode', 'sandbox-only'),
                             'message': result.get('message', ''), 'request_id': payload.request_id,
                             'signing_links': result.get('signing_links', []),

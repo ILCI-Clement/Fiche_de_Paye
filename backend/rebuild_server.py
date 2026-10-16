@@ -11,6 +11,7 @@ from .attendance_api import register_attendance_routes
 from .attendance_signatures import register_signature_preflight
 from .signature_attempts import SignatureAttempts
 from .server_signing_readiness import server_signing_readiness
+from .person_profiles import register_profile_routes
 
 app = main.app
 # During a reversible cutover, the retained legacy API owns the single worker.
@@ -28,6 +29,8 @@ def readiness():
 
 
 attempts_path = Path(os.getenv('PRESENCE_SIGNATURE_ATTEMPTS_DB', '/var/lib/presence-app/signature-attempts.sqlite3'))
+register_profile_routes(app, get_db_connection=main.get_db_connection, get_current_user=main.get_current_user,
+                        load_user=main.load_user, attempts=SignatureAttempts(attempts_path))
 register_signature_preflight(
     app, get_current_user=main.get_current_user, get_db_connection=main.get_db_connection,
     load_user=main.load_user, require_target_access=main.require_target_access,

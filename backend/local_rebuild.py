@@ -38,6 +38,7 @@ from . import main
 from .attendance_api import register_attendance_routes
 from .attendance_signatures import register_signature_preflight
 from .signature_attempts import SignatureAttempts
+from .person_profiles import register_profile_routes
 from urllib.parse import urlsplit
 
 main.DB_CONFIG.update(host='127.0.0.1', port=3307, database=runtime['database'])
@@ -66,6 +67,8 @@ async def local_only(request, call_next):
 register_attendance_routes(app, get_db_connection=main.get_db_connection,
     get_current_user=main.get_current_user, load_user=main.load_user,
     can_manage=main.user_can_manage, save_config=main.save_config, save_checked=main.save_config_checked)
+register_profile_routes(app, get_db_connection=main.get_db_connection, get_current_user=main.get_current_user,
+    load_user=main.load_user, attempts=SignatureAttempts(STATE / 'signature-attempts.sqlite3'))
 
 def signing_readiness():
     mode = signing_policy.mode

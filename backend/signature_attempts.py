@@ -38,3 +38,23 @@ class SignatureAttempts:
         with closing(self.connect()) as db, db:
             db.execute('UPDATE attempts SET status=?,result=? WHERE owner=? AND request_id=?',
                        (status, json.dumps(result, ensure_ascii=False) if result else None, owner, request_id))
+
+    def profile_receipts(self, username, year):
+        """Only linked acceptance metadata; never expose signing URLs or raw responses."""
+        if not self.path.exists():
+            return [], True
+        try:
+            with closing(sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True, timeout=15)) as db:
+                rows = db.execute("SELECT result,created_at FROM attempts WHERE status='accepted' AND result IS NOT NULL").fetchall()
+            receipts = []
+            for raw, created in rows:
+                value = json.loads(raw)
+                subject = value.get('profile_subject') or {}
+                month = subject.get('month')
+                if subject.get('username') == username and subject.get('year') == year and isinstance(month, int) and 1 <= month <= 12:
+                    if value.get('document_id'):
+                        receipts.append({'month': month, 'document_id': str(value['document_id']), 'created_at': created,
+                                         'mode': value.get('mode', 'unknown'), 'status': 'sent'})
+            return receipts, True
+        except (sqlite3.Error, ValueError, TypeError, AttributeError):
+            return [], False
