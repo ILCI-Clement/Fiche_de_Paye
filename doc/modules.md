@@ -2,6 +2,8 @@
 
 2026-10-15：React 重制版已发布至 `https://app.presence.217.65.145.103.nip.io/`，版本 `react-20261015T101334Z`。新版服务 `presence-react-api` 使用 127.0.0.1:8015；原 Streamlit 与旧 API 保留运行以供回退。服务器使用原线上数据库与文件，未导入本地快照。发布与回退记录见 `rebuild-release-readiness.md`。
 
+2026-10-16：Documents 搜索及三档卡片密度已随前端 `documents-search-density-20261016T091655Z` 上线；回退记录见 `rebuild-release-readiness.md`。
+
 本索引用于按功能定位代码，减少每次开发重复阅读整个项目。当前前端入口是 `frontend/src/main.tsx`，线上后端入口是 `backend/rebuild_server.py`（复用 `backend/main.py`）。旧版 UI 仅供回退，职责映射见 `architecture.md` 的旧版表。路径均相对于仓库根目录。
 
 Documents 的功能、使用流程和上线状态见 [Documents 开发报告](documents-report.md)。

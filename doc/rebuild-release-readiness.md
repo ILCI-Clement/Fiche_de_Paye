@@ -154,3 +154,12 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 - 前端版本 `team-person-icon-20261015T153021Z`：部门卡片 Équipe 标签前增加 18px 装饰性人头图标，统一垂直对齐，保留文字。无权限或业务行为改动。
 - 构建及 oxlint 通过，线上首页和 Team 模块与本地构建字节一致；后端未重启。
 - 回退：`sudo /var/backups/presence-react/team-person-icon-20261015T153021Z/rollback-ui.sh`。
+
+
+## 2026-10-16 Documents 搜索与卡片大小发布
+
+前端版本 `documents-search-density-20261016T091655Z`：新增当前月份/文件夹内的文件名、编号、员工、上传人及类型说明搜索；新增 Compact/Standard/Confort 卡片密度与浏览器偏好保存。同时包含已提交的前端旧预览清理。后端清理仅在 Git 中，本次不覆盖服务器 Python、不重启后端、不修改数据库。
+
+发布前构建、lint 与差异检查通过。线上原静态根为 `team-person-icon-20261015T153021Z`，保留其全部资源，并保留旧哈希资源以兼容已打开页面。Nginx 配置检查成功后 reload。公网 HTML、入口资源、Documents 模块与 PDF worker 共 7 个资源和本地构建逐字节一致；新旧后端、旧 Streamlit 及 Nginx 均 active。未执行真实上传、邮件或签署，也未做登录后的浏览器交互回归。
+
+回退：`sudo /var/backups/presence-react/documents-search-density-20261016T091655Z/rollback-ui.sh`。脚本仅在当前静态根仍为本版本时恢复旧 Nginx 配置，不操作数据库。浏览器刷新后可使用新功能；未保存表单请先保存。
