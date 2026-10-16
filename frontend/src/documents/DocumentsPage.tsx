@@ -1,6 +1,8 @@
 import { useDraftGuard, useWorkspaceGuard } from '../draftGuard'
 import { useRef, useState } from 'react'
-import { Alert, Box, Button, CircularProgress, Paper, Snackbar, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Snackbar, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material'
+import SearchRounded from '@mui/icons-material/SearchRounded'
+import CloseRounded from '@mui/icons-material/CloseRounded'
 import { useQuery } from '@tanstack/react-query'
 import type { Session } from '../types'
 import { downloadFile } from '../download'
@@ -13,6 +15,7 @@ import type { Receipt } from './api'
 import { BatchExportResult } from '../components/BatchExportResult'
 import type { ExportResult } from '../components/BatchExportResult'
 import { periodLabel } from './api'
+import { matchesDocumentSearch } from './documentSearch'
 
 export function DocumentsPage({ token, session }: { token: string; session: Session }) {
   const admin = session.role_tags.includes('Admin')
@@ -21,6 +24,7 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   const [year, setYear] = useState(() => new Date().getFullYear())
   const [archived, setArchived] = useState(false)
   const [type, setType] = useState('all')
+  const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<number[]>([])
   const [preview, setPreview] = useState<Receipt | null>(null)
   const [busy, setBusy] = useState(false)
@@ -47,6 +51,7 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
     const period = receiptPeriod(r)
     return period.month === month && period.year === year && r.archived === archived
       && (type === 'all' || (type === 'unset' ? !r.document_type : r.document_type === type))
+      && matchesDocumentSearch(r, search)
   })
   const selection = visible.filter(r => selected.includes(r.id))
   const totalBytes = selection.reduce((total, r) => total + r.size_bytes, 0)
@@ -83,6 +88,14 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
         <Box sx={{ flex: 1 }}><Typography variant="h6">{archived ? 'Archives' : 'Tous les justificatifs'}</Typography><Typography variant="body2" color="text.secondary">{visible.length} document(s) correspondant aux filtres</Typography></Box>
         <Button disabled={busy || list.isFetching} onClick={() => void list.refetch()}>Actualiser</Button>
       </Box>
+      <TextField label="Rechercher un document" placeholder="Nom, numéro, employé, déposé par, type…"
+        value={search} disabled={busy} onChange={event => { setSearch(event.target.value); setSelected([]) }}
+        fullWidth size="small" sx={{ mt: 2 }} helperText="Recherche dans le mois et le dossier sélectionnés."
+        slotProps={{ input: {
+          startAdornment: <InputAdornment position="start"><SearchRounded fontSize="small" /></InputAdornment>,
+          endAdornment: search ? <InputAdornment position="end"><Tooltip title="Effacer la recherche"><IconButton
+            aria-label="Effacer la recherche" size="small" disabled={busy} onClick={() => { setSearch(''); setSelected([]) }}><CloseRounded fontSize="small" /></IconButton></Tooltip></InputAdornment> : undefined,
+        } }} />
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, my: 2 }}>
         <ToggleButtonGroup exclusive value={archived ? 'archives' : 'active'} size="small" disabled={busy} aria-label="Dossier" onChange={(_, value) => { if (value) { setArchived(value === 'archives'); setSelected([]) } }}>
           <ToggleButton value="active">À traiter</ToggleButton><ToggleButton value="archives">Archives</ToggleButton>
@@ -102,7 +115,7 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
     {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
     {list.error ? <Alert severity="error">{list.error.message}<Button onClick={() => void list.refetch()}>Réessayer</Button></Alert> : list.isPending ? <CircularProgress size={28} /> :
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 2 }}>
-        {!visible.length && <Typography color="text.secondary">Aucun document dans ce dossier pour ce mois.</Typography>}
+        {!visible.length && <Typography color="text.secondary">{search.trim() ? 'Aucun document ne correspond à la recherche et aux filtres.' : 'Aucun document dans ce dossier pour ce mois.'}</Typography>}
         {visible.map(r => <DocumentCard key={r.id} receipt={r} admin={admin} canDelete={admin || (!manager && r.uploaded_by === session.username)} selected={selected.includes(r.id)} busy={busy}
           onPreview={() => setPreview(r)}
           onSelect={() => setSelected(previous => previous.includes(r.id) ? previous.filter(id => id !== r.id) : [...previous, r.id])}
