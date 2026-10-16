@@ -1,12 +1,12 @@
 import { useDraftGuard } from '../draftGuard'
 import { useRef, useState } from 'react'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, MenuItem, TextField, Typography } from '@mui/material'
-import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField, Typography } from '@mui/material'
 import { documentsApi, periodLabel } from './api'
 
-export function DocumentUpload({ token, username, admin, users, month, year, busy, run }: {
+export function DocumentUpload({ token, username, admin, users, month, year, busy, run, requestError, onClose }: {
   token: string; username: string; admin: boolean; users: string[]; month: number; year: number; busy: boolean;
   run: (action: () => Promise<void>, message: string) => Promise<boolean>
+  requestError: string; onClose: () => void;
 }) {
   const [owner, setOwner] = useState(username)
   const [type, setType] = useState('transport')
@@ -14,7 +14,7 @@ export function DocumentUpload({ token, username, admin, users, month, year, bus
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
   const input = useRef<HTMLInputElement>(null)
-  useDraftGuard(!!file || !!other, busy, 'Document à déposer')
+  const close = useDraftGuard(!!file || !!other || owner !== username || type !== 'transport', busy, 'Document à déposer')
   async function upload() {
     if (!file) { setError('Choisissez un fichier.'); return }
     if (!file.size || file.size > 10 * 1024 * 1024) { setError('Le fichier doit contenir entre 1 octet et 10 Mo.'); return }
@@ -31,11 +31,12 @@ export function DocumentUpload({ token, username, admin, users, month, year, bus
       await documentsApi.upload(token, { employee_username: admin ? owner : username, original_filename: file.name, file_b64: encoded,
         document_type: type, other_type: other.trim(), receipt_month: month, receipt_year: year })
     }, 'Document enregistré.')
-    if (success) { setFile(null); setOther(''); if (input.current) input.current.value = '' }
+    if (success) onClose()
   }
-  return <Accordion disableGutters>
-    <AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography sx={{ fontWeight: 650 }}>Déposer un document</Typography></AccordionSummary>
-    <AccordionDetails>
+  return <Dialog open fullWidth maxWidth="sm" aria-labelledby="document-upload-title" onClose={() => { if (!busy) close(onClose) }}>
+    <DialogTitle id="document-upload-title">Déposer un document</DialogTitle>
+    <DialogContent dividers>
+      <Chip color="primary" variant="outlined" label={`Mois de rattachement : ${periodLabel(month, year)}`} sx={{ mb: 3 }} />
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
         {admin && <TextField select label="Employé concerné" value={owner} disabled={busy} onChange={e => setOwner(e.target.value)} sx={{ minWidth: 220 }}>
           {[...new Set([username, ...users])].map(user => <MenuItem key={user} value={user}>{user.split('@')[0]}</MenuItem>)}
@@ -49,10 +50,13 @@ export function DocumentUpload({ token, username, admin, users, month, year, bus
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mt: 2 }}>
         <Typography sx={{ overflowWrap: 'anywhere' }}>{file?.name || 'Aucun fichier sélectionné'}</Typography>
-        <Chip color="primary" variant="outlined" label={`Mois de rattachement : ${periodLabel(month, year)}`} />
-        <Button variant="contained" disabled={busy || !file} onClick={() => void upload()}>Envoyer le document</Button>
       </Box>
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-    </AccordionDetails>
-  </Accordion>
+      {requestError && <Alert severity="error" sx={{ mt: 2 }}>{requestError}</Alert>}
+    </DialogContent>
+    <DialogActions sx={{ p: 2 }}>
+      <Button disabled={busy} onClick={() => close(onClose)}>Annuler</Button>
+      <Button variant="contained" disabled={busy || !file} onClick={() => void upload()}>{busy ? 'Envoi…' : 'Envoyer le document'}</Button>
+    </DialogActions>
+  </Dialog>
 }

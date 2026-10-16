@@ -5,6 +5,7 @@ import SearchRounded from '@mui/icons-material/SearchRounded'
 import CloseRounded from '@mui/icons-material/CloseRounded'
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded'
 import ZoomInRounded from '@mui/icons-material/ZoomInRounded'
+import UploadFileRounded from '@mui/icons-material/UploadFileRounded'
 import { useQuery } from '@tanstack/react-query'
 import { alpha } from '@mui/material/styles'
 import type { Session } from '../types'
@@ -47,6 +48,7 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   }
   const [selected, setSelected] = useState<number[]>([])
   const [preview, setPreview] = useState<Receipt | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const guard = useWorkspaceGuard()
   useDraftGuard(false, busy, 'Documents')
@@ -105,10 +107,12 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
     </Box></Box>
     <Paper component="section" aria-label="Mois des documents" sx={{ p: 2, mb: 2, position: 'sticky', top: 0, zIndex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, border: 1, borderColor: 'divider', borderRadius: 3 }}>
       <PeriodSelector month={month} year={year} disabled={busy} onChange={setPeriod} />
-      <Typography variant="body2" color="text.secondary">Dépôt et consultation · {periodLabel(month, year)}</Typography>
+      <Button variant="contained" startIcon={<UploadFileRounded />} disabled={busy || !owners.data || !!owners.error}
+        onClick={() => { setError(''); setUploadOpen(true) }}>Déposer un document</Button>
     </Paper>
     {owners.error ? <Alert severity="error" sx={{ mb: 2 }}>{owners.error.message}<Button onClick={() => void owners.refetch()}>Réessayer</Button></Alert>
-      : owners.isPending ? <CircularProgress size={22} /> : <DocumentUpload token={token} username={session.username} admin={admin} users={owners.data.users} month={month} year={year} busy={busy} run={run} />}
+      : owners.isPending ? <CircularProgress size={22} /> : null}
+    {uploadOpen && owners.data && <DocumentUpload token={token} username={session.username} admin={admin} users={owners.data.users} month={month} year={year} busy={busy} run={run} requestError={error} onClose={() => setUploadOpen(false)} />}
     <Paper sx={{ p: { xs: 2, sm: 2.5 }, my: 2, borderRadius: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Box sx={{ flex: 1 }}><Typography variant="h6">{archived ? 'Archives' : 'Tous les justificatifs'}</Typography><Typography variant="body2" color="text.secondary">{visible.length} document(s) correspondant aux filtres</Typography></Box>
