@@ -1,6 +1,8 @@
 # 脚本职责与应用入口
 
-新增入口（2026-10-14）：`frontend/index.html` → `frontend/src/main.tsx` → `frontend/src/App.tsx` 为 React 带薪假试点，默认连接 `backend/leave_preview.py` 的独立本地数据库；正式业务路由由 `backend/main.py` 注入认证及 MariaDB 连接。规则、存储、接口分别放在 `backend/leave_rules.py`、`backend/leave_store.py`、`backend/leave_requests.py`。详见 [试点模块说明](leave-pilot.md)。旧 Streamlit 入口继续保留，此新模块尚未部署。
+当前入口（2026-10-16）：`frontend/index.html` → `frontend/src/main.tsx` → `frontend/src/App.tsx` → `AppWorkspace.tsx`。React 已于 2026-10-15 上线，线上后端使用 `backend/rebuild_server.py`，本地真实数据副本使用 `backend/local_rebuild.py`。登录统一使用真实账号，虚构身份预览已删除。当前模块职责见 [模块索引](modules.md)，启动方式见 [前端说明](../frontend/README.md)。
+
+以下第 1–4 节记录旧 Streamlit 的调用关系，仅用于维护回退版本；其中仍被新版复用的生成、权限及数据兼容模块继续保留。
 
 本文解释程序怎样启动、脚本如何协作，以及本次 Mon équipe 拆分。按功能查文件时，先读 [模块索引](modules.md)。
 
@@ -8,7 +10,7 @@
 
 | 入口 | 执行方式 | 负责什么 |
 | --- | --- | --- |
-| `online_test.py` | `python -m streamlit run online_test.py` | 页面配置、登录恢复、角色导航、执行选中的页面。名称保留历史兼容，实际是正式前端入口 |
+| `online_test.py` | `python -m streamlit run online_test.py` | 页面配置、登录恢复、角色导航、执行选中的页面。名称保留历史兼容，现为旧版回退前端入口 |
 | `backend/main.py` | 本地包导入 `backend.main`；服务器 `uvicorn main:app` | 创建 FastAPI、读取环境配置、连接数据库、认证和组织权限、注册功能接口及启动迁移 |
 
 前端不直接连接数据库。前端通过 `api_client.py` 携带登录令牌请求后端，最终访问权限由后端判断。生产前端目录为 `/var/www/presence-interface`，后端目录为 `/var/www/presence-app`。密钥保留在服务器环境配置中。
@@ -35,7 +37,6 @@ flowchart TD
 | `organization_model.py` | 纯数据投影：活跃部门、负责人、成员、未分配名单及旧数据冲突提示；无 HTTP、数据库或 Streamlit 依赖 | Python 标准库 |
 | `organization_cards.py` | HTML 转义和响应式卡片：宽屏三列、中屏两列、窄屏一列；无部门连线 | Python 标准库 |
 | `organization_ui.py` | 默认折叠的架构区域、人数、卡片、未分配名单、冲突提示；无接口请求或虚构数据 | `organization_model`、`organization_cards`、Streamlit |
-| `organization_chart.py` | 旧导入路径兼容层，实际逻辑转到 `organization_model.py` | `organization_model` |
 | `backend/team_directory.py` | 只读 SQL 查询、基础字段投影、两个接口注册；数据库与认证依赖由总入口注入 | FastAPI；不反向导入 `main.py` |
 
 请求流程：
@@ -51,7 +52,7 @@ flowchart TD
 
 `.local-test/organization_preview.py` 是独立预览入口，读取本地只读快照，不接生产 API；账号选择仅模拟名单，不是鉴权测试。虚构布局数据在 `.local-test/organization_fixture.py`，不被正式页面导入，也不部署。该目录、快照和截图被 Git 忽略。
 
-早期 `organization_echarts.py`、`organization_zoom.js` 属于停用的树图原型，不在正式入口依赖链中。本次卡片界面不加载 ECharts。`streamlit-echarts` 暂保留供历史原型复现。
+早期树图原型、无引用的 `organization_chart.py` 兼容层及 `streamlit-echarts` 依赖已于 2026-10-16 删除；卡片界面不依赖 ECharts。
 
 ## 4. 其他脚本的阅读顺序
 
@@ -76,3 +77,27 @@ flowchart TD
 执行完整回归：`python -m unittest discover -v`。生产发布还需比较服务器差异、备份被替换的源码和 MariaDB、验证平铺模块导入、重启服务并检查健康状态。详细发布记录见 [重构记录](refactoring.md)。
 
 当前是只读展示升级。测试账号的持久化标记/公开隐藏、单部门归属与单负责人强制约束、负责人变更自动调整权限仍待实现；旧冲突数据只提示，不删除。新模块没有数据库结构迁移。
+
+## 2026-10-16 旧版 UI 回退职责映射
+
+下表仅供维护保留的 Streamlit 回退版本。当前 React 导航见 modules.md；不要为新功能从旧页面开始阅读。
+
+| 功能 | 入口 | 职责 |
+| --- | --- | --- |
+| 导航与登录状态 | `online_test.py` | `access_control.py` 解析前端角色；`remember_me.py` 同步持久登录令牌 |
+| 登录及找回密码 | `pages/Login.py` | `api_client.py` 提供 API 地址、认证头、请求异常和错误信息解析 |
+| 账户设置 | `pages/Profile.py` | 调用后端资料更新接口 |
+| 考勤表创建与编辑 | `pages/Fiches.py` | 组织人员选择、合同绑定、分页、保存与导出操作 |
+| 考勤批量选择 | `fiche_batch_ui.py` | 按账号和月份隔离勾选状态，提供全选、取消全选；下载与签署仅处理勾选的表单 |
+| 合同编辑界面 | `contract_ui.py` | 管理员维护合同的共用界面 |
+| 前端 PDF 转换请求 | `pdf_export.py` | 调用 `/fiches/pdf` 并检查返回内容 |
+| Documents 页面 | `pages/TransportReceipts.py` | 上传表单、顶部与文件列表上方联动的月份选择、横向标题和过滤栏、待处理或归档视图、三列卡片 |
+| Documents 卡片与操作 | `document_ui.py` | 月份显示、下载准备、归档、删除确认、月份修正、勾选和 ZIP 下载控件 |
+| 人员及组织管理 | `pages/Admin.py` | 账户、角色、部门、负责人及合同管理 |
+| 团队查看 | `pages/People.py` | Mon équipe：架构默认收起；员工查看本组基础名单，经理与 Admin 的原表格保留 |
+| 团队数据请求与名单 | `team_api.py`、`team_ui.py` | 带认证读取与表格整理；普通员工本组名单与管理人员原授权名单分开 |
+| 部门架构 | `organization_model.py`、`organization_ui.py` | 纯数据投影与折叠展示分开，无示例数据和预览控制；旧树图适配器已移除 |
+| 响应式部门卡片 | `organization_cards.py` | 部门独立卡片与 CSS Grid 自动换行，Direction Générale 位于顶部；部门之间无连线，无拖动、缩放或固定画布高度 |
+| 提醒及仪表板 | `pages/Dashboard.py` | 合同到期提醒、年度面谈与设置展示 |
+| 调整文件卡片、勾选或显示 | `document_ui.py` |
+| 改上传类型或绑定月份 | `pages/TransportReceipts.py`、`backend/documents.py` |

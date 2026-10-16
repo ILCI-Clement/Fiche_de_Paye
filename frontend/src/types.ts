@@ -46,4 +46,3 @@ export interface LeaveEvent {
   created_at: string
 }
 export interface LeaveDetail { request: LeaveRequest; history: LeaveEvent[] }
-export interface PreviewAccount { username: string; name: string; role: string }

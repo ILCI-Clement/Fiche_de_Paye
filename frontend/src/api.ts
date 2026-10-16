@@ -1,6 +1,4 @@
-import type { Filter, LeaveDetail, LeaveInput, LeaveList, LeaveRequest, PreviewAccount, Scope, Session } from './types'
-
-export const isPreview = import.meta.env.DEV && import.meta.env.VITE_PREVIEW === 'true'
+import type { Filter, LeaveDetail, LeaveInput, LeaveList, LeaveRequest, Scope, Session } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -40,8 +38,6 @@ export async function request<T>(path: string, token: string | null, init?: Requ
 
 export const api = {
   session: (token: string, signal?: AbortSignal) => request<Session>('/leave/session', token, { signal }),
-  accounts: () => request<PreviewAccount[]>('/preview/accounts', null),
-  previewLogin: (username: string) => request<{ auth_token: string }>('/preview/login', null, { method: 'POST', body: JSON.stringify({ username }) }),
   login: (username: string, password: string, remember_me = false) => request<{ auth_token: string; remember_token?: string }>('/login', null, { method: 'POST', body: JSON.stringify({ username, password, remember_me }) }),
   list: (token: string, scope: Scope, status: Filter, page: number, signal?: AbortSignal) =>
     request<LeaveList>(`/leave-requests?scope=${scope}&status=${status}&page=${page}`, token, { signal }),

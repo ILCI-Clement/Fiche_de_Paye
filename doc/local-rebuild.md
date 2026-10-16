@@ -210,7 +210,7 @@ Admin / Manager 可访问 Tableau de bord，复用 `/dashboard` 的合同到期�
 ./scripts/start_local_rebuild.ps1
 ```
 
-启动脚本读取现有测试目录，不重新导入快照，不覆盖测试操作。前端的 `.env.local` 指向 `http://127.0.0.1:8013`，`VITE_PREVIEW=false`；登录页使用真实账户，不显示旧的虚构演示员工。
+启动脚本读取现有测试目录，不重新导入快照，不覆盖测试操作。前端的 `.env.local` 指向 `http://127.0.0.1:8013`；登录页使用真实账户，不显示旧的虚构演示员工。
 
 如果电脑重启后依赖发生变化，安装命令为：
 

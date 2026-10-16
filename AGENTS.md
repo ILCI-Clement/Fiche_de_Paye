@@ -4,13 +4,14 @@
 
 ## 常用入口
 
-- 考勤页面：`pages/Fiches.py`；统一校验与生成：`fiche_exports.py`。
-- 日历：`calendar_view.py`、`calendar_selector_component/index.html`；默认安排：`planning.py`。
+- React 入口：`frontend/src/main.tsx` → `App.tsx` → `AppWorkspace.tsx`；线上 API：`backend/rebuild_server.py`。
+- 考勤页面：`frontend/src/attendance/AttendancePage.tsx`；适配：`backend/attendance_api.py`；统一生成：`fiche_exports.py`。
+- 新版日历：`frontend/src/attendance/AttendanceCalendar.tsx`、`useCalendarSelection.ts`；共享日期规则仍在 `calendar_view.py`，默认安排在 `planning.py`。
 - 合同：`contract_periods.py`、`contract_ui.py`、`backend/contract_history.py`。
-- Documents：`pages/TransportReceipts.py`、`document_ui.py`、`document_downloads.py`、`backend/documents.py`。
+- Documents：`frontend/src/documents/`、`backend/documents.py`、`backend/document_numbers.py`；ZIP 共用工具：`document_downloads.py`。
 - PDF 与签署：`pdf_export.py`、`backend/esign.py`、`backend/signature_flow.py`、`backend/signature_placement.py`。
 - 人员、组织、认证、数据库迁移、提醒：`backend/main.py`；前端对应页面见模块索引。
-- 前端 API 公共工具：`api_client.py`；后端考勤写入权限：`backend/attendance_permissions.py`。
+- React 请求：`frontend/src/api.ts`；后端考勤权限：`backend/attendance_permissions.py`。旧版 Streamlit 回退入口 `online_test.py` / `pages/` 保留，只有维护回退版本时才读。
 
 ## 维护约束
 

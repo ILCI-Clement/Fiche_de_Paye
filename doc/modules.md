@@ -2,7 +2,7 @@
 
 2026-10-15：React 重制版已发布至 `https://app.presence.217.65.145.103.nip.io/`，版本 `react-20261015T101334Z`。新版服务 `presence-react-api` 使用 127.0.0.1:8015；原 Streamlit 与旧 API 保留运行以供回退。服务器使用原线上数据库与文件，未导入本地快照。发布与回退记录见 `rebuild-release-readiness.md`。
 
-本索引用于按功能定位代码，减少每次开发重复阅读整个项目。前端入口是 `online_test.py`，后端入口是 `backend/main.py`。路径均相对于仓库根目录。
+本索引用于按功能定位代码，减少每次开发重复阅读整个项目。当前前端入口是 `frontend/src/main.tsx`，线上后端入口是 `backend/rebuild_server.py`（复用 `backend/main.py`）。旧版 UI 仅供回退，职责映射见 `architecture.md` 的旧版表。路径均相对于仓库根目录。
 
 Documents 的功能、使用流程和上线状态见 [Documents 开发报告](documents-report.md)。
 总入口、脚本依赖和 Mon équipe 阅读顺序见 [脚本职责与应用入口](architecture.md)。
@@ -24,33 +24,18 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 
 | 功能 | 入口 | 共用模块与职责 |
 | --- | --- | --- |
-| 导航与登录状态 | `online_test.py` | `access_control.py` 解析前端角色；`remember_me.py` 同步持久登录令牌 |
-| 登录及找回密码 | `pages/Login.py` | `api_client.py` 提供 API 地址、认证头、请求异常和错误信息解析 |
-| 账户设置 | `pages/Profile.py` | 调用后端资料更新接口 |
-| 考勤表创建与编辑 | `pages/Fiches.py` | 组织人员选择、合同绑定、分页、保存与导出操作 |
 | 考勤校验与生成 | `fiche_exports.py` | `fiche_name`、`validate_fiche`、`generate_fiche_file`，供单份、批量导出和批量签署共用 |
-| 考勤批量选择 | `fiche_batch_ui.py` | 按账号和月份隔离勾选状态，提供全选、取消全选；下载与签署仅处理勾选的表单 |
 | 考勤日期序列化 | `fiche_serialization.py` | 保存时日期转 ISO 字符串；读取时恢复日期对象 |
 | 默认工作安排 | `planning.py` | 工作日名称、默认时段及新记录的默认安排；不覆盖已保存安排 |
 | 日历显示与修改 | `calendar_view.py` | 半天状态解析、例外记录同步、批量编辑与预览 |
 | 日历浏览器组件 | `calendar_selector_component/index.html` | 日历交互与拖动选择；组件加载由 `calendar_view.py` 管理 |
 | 月份选择 | `period_selector.py` | 法语月份名和同一页面月份选择器之间的状态联动 |
 | 合同与月份匹配 | `contract_periods.py` | 合同快照、月份内有效区间、跨月例外过滤及合同文件名 |
-| 合同编辑界面 | `contract_ui.py` | 管理员维护合同的共用界面 |
 | Excel 模板生成 | `ExcelGen.py` | 将工资与考勤数据写入 `Fiche_Exemple.xlsx` |
 | 实习生 Word 生成 | `DocxGen.py` | 使用 `template_stagiaire.docx` 生成文件 |
-| 前端 PDF 转换请求 | `pdf_export.py` | 调用 `/fiches/pdf` 并检查返回内容 |
-| Documents 页面 | `pages/TransportReceipts.py` | 上传表单、顶部与文件列表上方联动的月份选择、横向标题和过滤栏、待处理或归档视图、三列卡片 |
-| Documents 卡片与操作 | `document_ui.py` | 月份显示、下载准备、归档、删除确认、月份修正、勾选和 ZIP 下载控件 |
 | Documents ZIP 内容生成 | `document_downloads.py` | 逐个鉴权下载、文件名清理、100 MB 上限；失败时不返回部分 ZIP |
-| 人员及组织管理 | `pages/Admin.py` | 账户、角色、部门、负责人及合同管理 |
-| 团队查看 | `pages/People.py` | Mon équipe：架构默认收起；员工查看本组基础名单，经理与 Admin 的原表格保留 |
-| 团队数据请求与名单 | `team_api.py`、`team_ui.py` | 带认证读取与表格整理；普通员工本组名单与管理人员原授权名单分开 |
-| 部门架构 | `organization_model.py`、`organization_ui.py` | 纯数据投影与折叠展示分开，无示例数据和预览控制；`organization_chart.py` 仅保留旧导入兼容 |
-| 响应式部门卡片 | `organization_cards.py` | 部门独立卡片与 CSS Grid 自动换行，Direction Générale 位于顶部；部门之间无连线，无拖动、缩放或固定画布高度 |
-| 提醒及仪表板 | `pages/Dashboard.py` | 合同到期提醒、年度面谈与设置展示 |
 | 新版带薪假申请 | `frontend/src/App.tsx` | React + TypeScript + Vite + Material UI；个人/团队申请、分页、过滤、系统内提醒、申请/审批窗口及操作历史，接口集中在 `src/api.ts` |
-| 新版总入口及请假页面 | `frontend/src/AppWorkspace.tsx`、`frontend/src/LeaveWorkspace.tsx` | `App.tsx` 只管理会话，外壳提供统一导航，旧请假页面独立嵌入；界面主题与角色菜单共用 |
+| 新版总入口及请假页面 | `frontend/src/AppWorkspace.tsx`、`frontend/src/LeaveWorkspace.tsx` | `App.tsx` 只管理会话，外壳提供统一导航，请假页面只保留业务内容，导航统一由 AppWorkspace 提供；界面主题与角色菜单共用 |
 | 新版页面加载和草稿提醒 | `frontend/src/AppWorkspace.tsx` | 各模块独立加载与失败重试，已打开模块保留状态；`draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx` 共用草稿注册、确认与刷新/关闭提醒；上下文提供不含字段值的待保存模块标签，外壳持续显示法语提示，考勤保存区区分待保存/干净/待应用日历状态；未应用的日历选区在切换员工、打开其他档案或切月前确认，覆盖考勤、管理表单、Documents 上传、请假、面谈、账户设置；提交期间阻止工作区切页/退出 |
 | 新版考勤页面 | `frontend/src/attendance/AttendancePage.tsx` | 保留完整 JSON 草稿、稳定 ID 分页、保存、导出与勾选；保存固定在当前考勤页面右下角，`components/BatchExportResult.tsx` 共用完整导出结果、期间选区快照、失败原因与 JSON 明细（失败不推断单项成功）；单份 Excel/Word 和 PDF 收进 `FicheExportMenu.tsx` 的 More 菜单；编辑、日历及月份拆至同目录组件，API 复用总请求工具 |
 | 新版 Documents | `frontend/src/documents/DocumentsPage.tsx` | 单一吸顶月份栏同时控制上传与文件列表，保留草稿切月确认并清空旧月份勾选；待处理/归档、类型筛选、勾选及批量下载；`DocumentUpload.tsx` 上传，`DocumentCard.tsx` 卡片及操作确认（预览/下载/改月/归档/删除使用统一尺寸图标，法语悬停提示及 aria-label），`DocumentPreview.tsx` 通过原鉴权下载接口获取 Blob，在响应式弹窗中展示图片（内存 data URL）或延迟加载 `PdfPreview.tsx` 用 PDF.js/Canvas 渲染 PDF，支持翻页及缩放；Vite 将版本化字体、CMap 和解码器复制到被忽略的 public/pdfjs 并打包，全部同站加载，保持现有 CSP 不变；提供新标签页/下载回退、取消加载与关闭后释放 URL，不持久化或发送文件至第三方；`api.ts` 类型与请求；共用 `src/download.ts` 下载工具 |
@@ -80,7 +65,6 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | `backend/team_directory.py` | 登录用户查看基础架构；目录响应新增 `organization` 投影供 React 使用，保留旧字段；按服务端部门归属查询员工本组名单，不暴露合同、完整邮箱或财务资料 | `/organization-directory`、`/my-team` |
 | `backend/leave_requests.py` | 带薪假接口，注入认证/连接；跟随当前直接负责人，Admin 代审，员工审批前撤回 | `/leave/session`、`/leave-requests`、`/{id}`、`/{id}/decision`、`/{id}/withdraw` |
 | `backend/leave_rules.py`、`backend/leave_store.py` | 日期/半天/权限与存储分离；事务内保存状态和操作历史，建表；账号关联字段排序规则按 `users.username` 对齐，保留旧数据；入口账号改名/删除时同步或解绑申请归属 | 正式 MariaDB；独立本地预览使用 SQLite |
-| `backend/leave_preview.py` | 本地虚构身份选择、独立预览库，不能部署到生产 | `/preview/accounts`、`/preview/login`；共用正式带薪假路由 |
 | `backend/ui_capabilities.py` | 提供环境及账户创建/邮件开关，不含密码、密钥或数据；不替代鉴权 | `GET /ui-capabilities` |
 | `backend/rebuild_server.py`、`server_signing_readiness.py` | 2026-10-15 已上线的新版服务器入口，完整仓库运行；复用原鉴权与保存、添加 React 考勤/签署路由；服务器密钥与公开 PDF 地址就绪检查、持久回执存储 | 新版 `/attendance/*`；部署样例在 `deploy/` |
 | `backend/local_rebuild.py` | 独立真实数据副本入口，固定本地连接、独立会话/文件、关闭真实邮件及正式签署 key；不部署到线上 | 复用 `main.py` 路由并挂接新考勤接口 |
@@ -107,8 +91,6 @@ Documents、eSign 和合同模块通过注册函数挂到同一个 FastAPI 应�
 
 | 需求 | 先读 |
 | --- | --- |
-| 调整文件卡片、勾选或显示 | `document_ui.py` |
-| 改上传类型或绑定月份 | `pages/TransportReceipts.py`、`backend/documents.py` |
 | 改 ZIP 文件名或容量 | `document_downloads.py` |
 | 改考勤必填校验或文件命名 | `fiche_exports.py` |
 | 改 Excel 样式或单元格 | `ExcelGen.py`、`Fiche_Exemple.xlsx` |
@@ -126,7 +108,7 @@ Documents 的文件默认保存在 `/var/lib/presence-app/transport-receipts`，
 
 供 ClawShow 获取的临时 PDF 默认保存在 `/var/lib/presence-app/esign-documents`，有效期为 24 小时；它与长期保存的员工凭证是不同的存储机制。
 
-## 已知限制
+## 历史限制清单（含旧版 Streamlit，不能直接作为新版现状）
 
 - ClawShow 已支持通过 `party: 1` 签名字段开启负责人手写。员工沙盒样本已完成双签并验证最终 PDF；用户随后通过本地页面连接正式后端确认真实双签流程跑通。2026 年 10 月 14 日前后端模块化版本已整体部署，公网健康检查通过。实习生完整双签仍待验证。
 - Documents 上传目标已限制为本人，适用于员工与经理；Admin 可代传。非 Admin 的所属人员接口只返回本人，后端拒绝将上传目标改为他人。经理继续查看授权团队范围，归档、月份修正及删除权限未扩展；已有文件归属不变。

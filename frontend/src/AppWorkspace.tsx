@@ -75,7 +75,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
       </Alert>}
 
       {attendanceAllowed && <Box sx={{ display: page === 'attendance' ? 'block' : 'none' }}><AttendancePage token={token} session={session} onState={onAttendanceState} /></Box>}
-      {visited.leave && <Box sx={{ display: page === 'leave' ? 'block' : 'none' }}><LeaveWorkspace embedded token={token} session={session} logout={requestLogout} /></Box>}
+      {visited.leave && <Box sx={{ display: page === 'leave' ? 'block' : 'none' }}><LeaveWorkspace token={token} session={session} /></Box>}
       {visited.documents && <Box sx={{ display: page === 'documents' ? 'block' : 'none' }}><DocumentsPage token={token} session={session} /></Box>}
       {visited.team && <Box sx={{ display: page === 'team' ? 'block' : 'none' }}><TeamPage token={token} session={session} onAttendance={() => navigate('attendance')} /></Box>}
       {visited.admin && <Box sx={{ display: page === 'admin' ? 'block' : 'none' }}><AdminPage token={token} session={session} /></Box>}

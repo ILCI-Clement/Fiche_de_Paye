@@ -15,10 +15,9 @@ The entry point also updates request ownership on account rename and detaches it
 on account deletion, preserving immutable operation history. Back up both source
 and MariaDB before restarting, and verify authorization and transactions first.
 
-`leave_preview.py` provides fictitious identities and a private local SQLite file
-for loopback development only. Never deploy it as the production service. The new
-frontend needs a same-origin `/api/` reverse proxy to FastAPI. See
-[`doc/leave-pilot.md`](../doc/leave-pilot.md) for scope, startup and validation status.
+The retired fictitious-account preview was removed on 2026-10-16. Use
+`local_rebuild.py` with the isolated authorized data snapshot for local work.
+The production React entry remains `rebuild_server.py`, reusing `main.py`.
 
 ## Production environment
 

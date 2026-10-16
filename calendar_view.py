@@ -11,7 +11,6 @@ import calendar
 from datetime import date
 from html import escape
 from pathlib import Path
-import re
 from typing import Any
 
 try:
@@ -19,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover - the production requirements include it
     holidays = None
 
-from planning import WEEKDAYS, DEFAULT_SCHEDULE, DEFAULT_WORKING_DAYS, default_planning as _default_planning
+from planning import WEEKDAYS, DEFAULT_SCHEDULE, DEFAULT_WORKING_DAYS
 
 STATUS_CLASS = {
     "Travail": "work",
@@ -212,22 +211,6 @@ def _short_cell_text(status: str, detail: str) -> str:
     label = labels.get(status, status)
     return f"{label} · {detail}" if detail else label
 
-
-def _short_button_text(period: str, status: str) -> str:
-    labels = {
-        "Travail": "Travail",
-        "Congé payé": "CP",
-        "Absence": "Abs.",
-        "Arrêt maladie": "Maladie",
-        "Férié": "Férié",
-        "Autre": "Autre",
-        "Repos": "Repos",
-    }
-    return f"{'AM' if period == 'matin' else 'PM'} · {labels.get(status, status)}"
-
-
-def _safe_key(value: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_-]", "-", value)
 
 
 def _render_styles() -> None:

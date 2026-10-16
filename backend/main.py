@@ -1323,30 +1323,6 @@ def update_user_contract(
     actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
 ) -> dict[str, Any]:
     raise HTTPException(status_code=409, detail="Utilisez la gestion de l'historique des contrats dans Administration.")
-    if payload.contract_start_date and payload.contract_end_date and payload.contract_end_date < payload.contract_start_date:
-        raise HTTPException(status_code=400, detail="La fin de contrat ne peut pas précéder le début.")
-    connection = get_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            require_target_access(cursor, actor, target_username, edit=True)
-            cursor.execute(
-                """
-                UPDATE users
-                SET contract_start_date = %s, contract_end_date = %s, is_cdi = %s
-                WHERE username = %s
-                """,
-                (
-                    payload.contract_start_date,
-                    None if payload.is_cdi else payload.contract_end_date,
-                    payload.is_cdi,
-                    target_username,
-                ),
-            )
-            updated = load_user(cursor, target_username)
-        connection.commit()
-        return {"status": "success", "user": public_user(updated)}
-    finally:
-        connection.close()
 
 
 @app.patch("/users/{target_username}/direct-manager")
