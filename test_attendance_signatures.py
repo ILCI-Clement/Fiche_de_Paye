@@ -3,7 +3,7 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from backend.attendance_signatures import register_signature_preflight
@@ -25,8 +25,10 @@ class AttendanceSignatureTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         self.generator = patch('backend.attendance_signatures.generate_fiche_file', return_value={'data': b'original', 'filename': 'fixture.xlsx'}).start()
         app = FastAPI()
+        self.connection = MagicMock()
+        self.connection.cursor.return_value.__enter__.return_value.fetchall.return_value = [{'username': 'fixture'}]
         register_signature_preflight(app, get_current_user=lambda: self.actor,
-            get_db_connection=Mock(), load_user=Mock(), require_target_access=Mock(),
+            get_db_connection=Mock(return_value=self.connection), load_user=Mock(), require_target_access=Mock(),
             get_config=lambda *_: copy.deepcopy(self.config), readiness=lambda: self.ready,
             sender=self.sender, attempts=SignatureAttempts(Path(self.temp.name) / 'attempts.sqlite3'), recipient_policy=self.policy)
         self.client = TestClient(app)

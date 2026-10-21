@@ -205,3 +205,12 @@ The new service disables its reminder worker using `PRESENCE_CONTRACT_REMINDER_W
 用户确认删除登录而保留历史资料。新增 `users.login_deleted_at`（默认 NULL），状态日志增加 `action`（默认 activation，兼容旧记录）。新 DELETE `/users/{username}/login` 必须携带 `{ "confirmation": "完整用户名" }`，仅活跃 Admin 可操作；先锁定并重新验权，要求目标已停用、不是本人。删除使用身份墓碑：只更新登录标记、随机替换旧密码哈希、递增会话版本并清除登录/重置令牌，不 DELETE 任何业务行或 unlink 文件；用户名/邮箱保持占用，避免后续新账号取得原档案。重复删除幂等，不能通过 activation 重新启用。保留事件操作者、时间和 login_deleted 动作；历史资料仍可经授权查询。
 
 部署需要沿用上节全 API 一致性与备份要求；回退补丁还须识别 login_deleted_at，禁止恢复已删除身份的登录或 activation。不能把回退到不识别墓碑字段的旧代码当作安全回退。当前仅构建/lint/Python 静态检查与本地启动迁移；未实际删除任何账号，未运行删除功能回归或发布。
+
+
+### 账号流程测试入口（2026-10-21）
+
+- `.venv/Scripts/python.exe -m unittest test_account_lifecycle -v`：24 项隔离测试，不连 MySQL。
+- `.venv/Scripts/python.exe -m unittest discover -v`：默认跳过显式 opt-in 的 MySQL 测试。
+- 在本地 MySQL 3307 正常运行、私有 `.local-test/rebuild/runtime.json` 存在时，设置进程环境 `PRESENCE_MYSQL_TEMP_TEST=1` 后运行 discover；这次实际执行 179 项全部通过。连接固定 127.0.0.1:3307，数据库名必须 presence_local_rebuild，使用连接级 TEMPORARY 表覆盖测试连接内的 users/events，真实账户不变，不创建数据库或持久测试员工。连接关闭即清理；测试代理拒绝业务表写入。
+- 覆盖先停用再删除、精确用户名确认、普通员工/经理越权、自我停用、会话版本/旧令牌兼容、记住登录撤销、删除不可重新启用、重复请求、历史及他人文件保留、审计失败时事务回滚。MySQL 测试使用真实 SQL/哈希/事务；并发部分目前是 SQLite 事务模拟（25 次重复通过），未做线上或 MySQL 多连接压力测试。
+- 首轮失败来自旧测试模拟和 SQL 参数断言，已随新 Profile/编号/签署代码更新。当前改动仍未发布，现有本地员工和线上账号未实际停用或删除。

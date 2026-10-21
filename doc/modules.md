@@ -150,3 +150,6 @@ Documents 的文件默认保存在 `/var/lib/presence-app/transport-receipts`，
 
 
 2026-10-21 账号两步处理（本地，替代前述“仅停用”方案）：先停用，再通过 `DELETE /users/{username}/login` 删除登录能力。后端事务锁后重新确认 Admin、会话版本、非本人、已停用和完整用户名确认；正常账号不能直接删除。增量增加 `users.login_deleted_at` 与状态事件 action；删除时替换密码哈希、撤销所有登录凭证，记录 login_deleted，不物理删除身份行或任何业务记录。已删除登录不可重新启用，用户名/邮箱保留以防档案误关联；Admin 列表保留“Connexion supprimée”历史身份供查询。旧 /delete-user 路径继续返回 409。`AccountAccess.tsx` 仅对停用且尚未删除的账号显示删除图标和用户名二次确认，失败信息在弹窗内显示。未实际停用/删除现有账号，未运行功能回归，未上线。
+
+
+2026-10-21 账号流程补充验证（替代上文“未运行回归”的状态）：新增 `test_account_lifecycle.py`（24 项，临时 SQLite/隔离 HTTP，检查认证、保留数据、回滚和迁移）与 `test_account_lifecycle_mysql.py`（1 项端到端 MySQL 临时表流程，默认跳过，设置 PRESENCE_MYSQL_TEMP_TEST=1 显式运行）。使用本地 MySQL 3307 的单连接 TEMPORARY 表，关闭连接自动消失，不写入真实 users 或业务表；测试写入保护仅允许临时 users/account_status_events。开启该项后后端 discover 179 项全部通过；前端草稿测试 7 项、build/lint 通过。SQLite 删除/重新启用竞态模拟另外重复 25 次通过，不等于真实 MySQL 多连接负载测试。首轮回归发现旧测试未适配编号 SQL 字段、签署账号解析与 Profile 入口注册；已更新相应模拟/断言，未降低业务断言或修改产品代码以跳过检查。无真实停用、删除、上传、邮件或签署，未部署。

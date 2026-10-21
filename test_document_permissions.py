@@ -46,6 +46,9 @@ class DocumentPermissionTests(unittest.TestCase):
         self.assertEqual(response.status_code,400)
 
     def setUp(self):
+        # Keep number allocation independent of this permission-focused fixture.
+        self.number = patch('backend.documents.allocate_document_number', return_value='20261021-0001').start()
+        self.addCleanup(patch.stopall)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.storage = Path(self.temp.name)
@@ -102,7 +105,8 @@ class DocumentPermissionTests(unittest.TestCase):
         writes = [call.args[1] for call in self.cursor.execute.call_args_list
                   if 'INSERT INTO transport_receipts' in call.args[0]]
         self.assertEqual(writes[0][:2], (owner, self.actor['username']))
-        self.assertEqual(writes[0][-2:], (9, 2026))
+        self.assertEqual(writes[0][8:10], (9, 2026))
+        self.assertEqual(writes[0][10], '20261021-0001')
         self.assertEqual(next(self.storage.iterdir()).read_bytes(), self.content)
         self.connection.commit.assert_called_once()
 
