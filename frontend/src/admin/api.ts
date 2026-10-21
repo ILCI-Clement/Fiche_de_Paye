@@ -2,7 +2,7 @@ import { request } from '../api'
 import type { Group } from '../team/api'
 
 export interface AdminUser {
-  is_active?: boolean;
+  is_active?: boolean; login_deleted_at?: string | null;
   username: string; email: string; role_tags: string[]; employee_type: string;
   manager_id: string | null; group_ids: number[]; managed_group_ids: number[];
 }
@@ -19,7 +19,8 @@ export const adminApi = {
   organization: (token: string, name: string, data: OrganizationInput) => request(`${userPath(name)}/organization`, token, { method: 'PUT', body: JSON.stringify(data) }),
   manager: (token: string, name: string, manager: string) => request(`${userPath(name)}/direct-manager`, token, { method: 'PATCH', body: JSON.stringify({ manager_id: manager }) }),
   activation: (token: string, name: string, is_active: boolean) => request(`${userPath(name)}/activation`, token, { method: 'PATCH', body: JSON.stringify({ is_active }) }),
-  activationHistory: (token: string, name: string, signal?: AbortSignal) => request<{ events: { actor_username: string; was_active: boolean; is_active: boolean; created_at: string }[] }>(`${userPath(name)}/activation-history`, token, { signal }),
+  deleteLogin: (token: string, name: string, confirmation: string) => request(`${userPath(name)}/login`, token, { method: 'DELETE', body: JSON.stringify({ confirmation }) }),
+  activationHistory: (token: string, name: string, signal?: AbortSignal) => request<{ events: { actor_username: string; was_active: boolean; is_active: boolean; action?: string; created_at: string }[] }>(`${userPath(name)}/activation-history`, token, { signal }),
   saveGroup: (token: string, id: number | null, name: string, is_active: boolean) => request(id === null ? '/groups' : `/groups/${id}`, token, { method: id === null ? 'POST' : 'PUT', body: JSON.stringify({ name, is_active }) }),
   contracts: (token: string, name: string, signal?: AbortSignal) => request<{ contracts: Contract[] }>(`${userPath(name)}/contracts`, token, { signal }),
   saveContract: (token: string, name: string, id: number | null, data: ContractInput) => request(`${userPath(name)}/contracts${id === null ? '' : `/${id}`}`, token, { method: id === null ? 'POST' : 'PATCH', body: JSON.stringify(data) }),

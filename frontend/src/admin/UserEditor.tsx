@@ -9,7 +9,7 @@ import type { AdminUser, OrganizationInput, RunAction } from './api'
 import { ContractEditor } from './ContractEditor'
 import { AccountAccess } from './AccountAccess'
 
-export function UserEditor({ token, user, users, groups, actor, busy, run }: { token: string; user: AdminUser; users: AdminUser[]; groups: Group[]; actor: string; busy: boolean; run: RunAction }) {
+export function UserEditor({ token, user, users, groups, actor, busy, run, requestError = '' }: { token: string; user: AdminUser; users: AdminUser[]; groups: Group[]; actor: string; busy: boolean; run: RunAction; requestError?: string }) {
   const [draft, setDraft] = useState<OrganizationInput>({ role_tags: user.role_tags, employee_type: user.employee_type, group_ids: user.group_ids, managed_group_ids: user.managed_group_ids, manager_id: user.manager_id })
   const [baseline, setBaseline] = useState(() => JSON.stringify(draft))
   const confirmChange = useDraftGuard(JSON.stringify(draft) !== baseline, busy, `Compte · ${user.username}`)
@@ -38,7 +38,7 @@ export function UserEditor({ token, user, users, groups, actor, busy, run }: { t
         <Button disabled={busy || !employee} onClick={() => void run(() => adminApi.manager(token, employee, user.username), 'Employé affecté au responsable.')}>Affecter</Button>
       </Box>}
     </AccordionDetails></Accordion>
-    <AccountAccess token={token} user={user} actor={actor} busy={busy} run={run} confirmChange={confirmChange} />
+    <AccountAccess token={token} user={user} actor={actor} busy={busy} run={run} confirmChange={confirmChange} requestError={requestError} />
     <Dialog open={roleConfirm} onClose={() => { if (!busy) setRoleConfirm(false) }}><DialogTitle>Confirmer le changement de droits</DialogTitle><DialogContent>
       <Alert severity="warning" sx={{ mb: 2 }}>Les accès de {user.username} seront modifiés.</Alert>
       <Typography>Actuellement : {user.role_tags.join(' · ')}</Typography>

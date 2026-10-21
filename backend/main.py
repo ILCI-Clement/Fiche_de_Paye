@@ -344,7 +344,7 @@ def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] |
     cursor.execute(
         """
         SELECT username, email, password_hash, is_admin, role, role_tags, employee_type, manager_username,
-               contract_start_date, contract_end_date, is_cdi, created_at, is_active, session_version
+               contract_start_date, contract_end_date, is_cdi, created_at, is_active, session_version, login_deleted_at
         FROM users WHERE username = %s
         """,
         (username,),
@@ -394,6 +394,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "role_tags": user["role_tags"],
         "is_admin": bool(user.get("is_admin")),
         "is_active": bool(user.get("is_active", True)),
+        "login_deleted_at": user.get("login_deleted_at"),
         "employee_type": user.get("employee_type") or "salarie",
         "manager_id": user.get("manager_username"),
         "group_ids": user.get("group_ids", []),
@@ -651,7 +652,7 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict[s
     try:
         with connection.cursor() as cursor:
             user = load_user(cursor, username)
-        if not user or not user.get("is_active", True) or user.get("session_version", 0) != session["session_version"]:
+        if not user or not user.get("is_active", True) or user.get("login_deleted_at") or user.get("session_version", 0) != session["session_version"]:
             raise HTTPException(status_code=401, detail="Session invalide ou compte désactivé.")
         return user
     finally:
@@ -903,7 +904,7 @@ def login(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         with connection.cursor() as cursor:
             user = load_user(cursor, username)
-        if not user or not user.get("is_active", True) or not verify_password(password, user["password_hash"]):
+        if not user or not user.get("is_active", True) or user.get("login_deleted_at") or not verify_password(password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Identifiants incorrects.")
         response = public_user(user)
         response["status"] = "success"
@@ -928,7 +929,7 @@ def restore_session(payload: RememberSessionRequest) -> dict[str, Any]:
             )
             row = cursor.fetchone()
             user = load_user(cursor, row["username"]) if row else None
-        if not user or not user.get("is_active", True):
+        if not user or not user.get("is_active", True) or user.get("login_deleted_at"):
             raise HTTPException(status_code=401, detail="Session persistante expirée.")
         response = public_user(user)
         response["status"] = "success"
@@ -1582,7 +1583,7 @@ def forgot_password(payload: dict[str, Any]) -> dict[str, str]:
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT username FROM users WHERE email = %s AND is_active=1", (email,))
+            cursor.execute("SELECT username FROM users WHERE email = %s AND is_active=1 AND login_deleted_at IS NULL", (email,))
             user = cursor.fetchone()
             if not user:
                 return {"status": "success", "message": "Si l'adresse est valide, un e-mail a été envoyé."}
@@ -1608,7 +1609,7 @@ def reset_password(payload: dict[str, Any]) -> dict[str, str]:
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT username FROM users WHERE reset_token = %s AND reset_token_expires > %s AND is_active=1",
+                "SELECT username FROM users WHERE reset_token = %s AND reset_token_expires > %s AND is_active=1 AND login_deleted_at IS NULL",
                 (token, datetime.now()),
             )
             user = cursor.fetchone()
@@ -1714,7 +1715,7 @@ else:
     from documents import register_document_routes
     from esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
 
-register_account_lifecycle(app, get_db_connection=get_db_connection, get_current_user=get_current_user, load_user=load_user, public_user=public_user)
+register_account_lifecycle(app, get_db_connection=get_db_connection, get_current_user=get_current_user, load_user=load_user, public_user=public_user, hash_password=hash_password)
 register_ui_capabilities(app, mail_configured=lambda: bool(SMTP_SERVER and SMTP_USER and SMTP_PASSWORD))
 register_contract_history(app, get_db_connection, require_roles, get_current_user, require_target_access)
 register_team_directory(app, get_db_connection=get_db_connection, get_current_user=get_current_user)
