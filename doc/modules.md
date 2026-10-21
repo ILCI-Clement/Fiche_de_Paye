@@ -1,5 +1,7 @@
 # Presence 模块索引与维护说明
 
+2026-10-21 登录标识更新（独立补丁已上线 `email-login-20261021T151000Z`）：`backend/main.py` 的 `/login` 保留 username 请求字段，接受已绑定邮箱或用户名，忽略大小写及标识两端空格；先唯一解析为实际 username，再签发会话和记住登录令牌。用户名与邮箱跨账号冲突或历史重复邮箱导致多匹配时统一拒绝，不猜测身份；密码不去空格。本地保留停用/删除登录与会话版本校验。`components/Login.tsx` 提示邮箱或用户名，不新增账户、不改原密码或邮箱，不代表已完成邮箱所有权验证。线上按两套实际源码只替换 login 标识解析，保留各自既有认证逻辑；前端从已上线的 4d6e0ad 基线只更新登录框，不包含本地档案、停用或删除登录等新功能。185 项后端回归、7 项前端测试、构建与当前源码 lint 通过；两套实际 API 补丁另有 10 项隔离登录测试通过，MySQL 临时表补充真实 bcrypt 邮箱登录通过。线上 7 个现有身份的只读映射和会话检查通过，无真实密码修改、邮件或签署；备份及回退见 doc/rebuild-release-readiness.md。
+
 2026-10-15：React 重制版已发布至 `https://app.presence.217.65.145.103.nip.io/`，版本 `react-20261015T101334Z`。新版服务 `presence-react-api` 使用 127.0.0.1:8015；原 Streamlit 与旧 API 保留运行以供回退。服务器使用原线上数据库与文件，未导入本地快照。发布与回退记录见 `rebuild-release-readiness.md`。
 
 2026-10-16：Documents 搜索及三档卡片密度已随前端 `documents-search-density-20261016T091655Z` 上线；回退记录见 `rebuild-release-readiness.md`。

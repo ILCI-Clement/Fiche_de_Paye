@@ -172,3 +172,14 @@ sudo /var/backups/presence-react/react-20261015T101334Z/rollback.sh
 沿用已构建并经 lint、本地深浅主题及菜单查看的产物。发布前线上静态根为 `documents-search-density-20261016T091655Z`；备份 Nginx 配置，保留前一版静态文件和旧哈希资源，Nginx 检查通过后 reload。公网 HTML 和 7 个资源与本地逐字节一致，新旧 API、旧 Streamlit 与 Nginx 均 active。未修改后端、数据库或上传文件；未发送邮件或签署。
 
 回退：`sudo /var/backups/presence-react/documents-visual-20261016T095254Z/rollback-ui.sh`。仅在当前静态根为本版本时恢复上一版 Nginx 配置，不操作数据库。
+# 2026-10-21 邮箱登录独立发布记录
+
+- 发布 `email-login-20261021T151000Z`，公网入口不变。两套 API（8001 / 8015）均只修改实际源码的 login 函数，部署前后其余 AST 不变；未整体覆盖本地 main.py。
+- 前端基线为已发布 `4d6e0ad`，只替换 Login.tsx 的邮箱/用户名提示与输入属性。未夹带本地个人档案、停用、删除登录、环形图或上传弹窗。完整本地源码与线上部署范围有意不同。
+- 验证：185 项后端回归（含 MySQL 连接级临时表）、7 项前端规则测试、本地 build/lint；两套实际线上候选 login 函数各 5 项隔离测试（10 项）通过；补充 MySQL 临时表真实 bcrypt 邮箱登录通过。临时构建目录受 lint 隐藏目录忽略规则影响没有独立扫描，当前完整源码的 lint 通过，发布 Login.tsx 与当前源码一致。
+- 线上只读核查：7 个现有账户无登录标识冲突；所有邮箱/用户名大小写及空格归一化后均唯一映射到原身份；内部签发且未输出的令牌验证只读会话接口。未使用员工真实密码执行成功登录，未创建持久测试人员或修改密码/资料。
+- 发布后：两套 API 的源码哈希匹配，错误凭证及注入字符串返回 401，匿名人员列表请求被拒绝；新旧服务和 nginx active；公网 HTML 和入口资源逐字节匹配构建，登录提示为 Adresse e-mail ou nom de compte，公网错误凭证返回 401。
+- 新静态目录 `/var/www/presence-react/frontend-releases/email-login-20261021T151000Z`；保留旧目录 `documents-visual-20261016T095254Z` 及原哈希资源，兼容已打开页面。
+- 数据库和两套原 main.py 备份在 `/var/backups/presence-react/email-login-20261021T151000Z-backend`。联合回退命令：`sudo /var/backups/presence-react/email-login-20261021T151000Z-backend/rollback.sh`；脚本校验当前源码哈希并调用受保护 UI 回退，然后恢复原 API 源码、重启服务，不恢复数据库。
+- 这不是完整安全审计或负载测试；邮件所有权验证、OTP/CAPTCHA、登录限流仍属待开发需求。无真实发信、上传或签署验证。
+

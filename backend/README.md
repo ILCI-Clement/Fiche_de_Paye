@@ -138,6 +138,20 @@ To run only the local UI, use the project virtual environment:
 
 ## Release and rollback
 
+2026-10-21 email login patch: `/login` continues accepting the `username` JSON
+field, now resolving either username or bound email (case-insensitive, surrounding
+identifier whitespace ignored) to exactly one canonical username. Ambiguous
+cross-account matches fail with the same 401 as invalid credentials. Password
+whitespace is significant. Session and remember tokens use the canonical username.
+Both live APIs received only this login resolution patch against their reviewed
+source digests; no schema, passwords or business data were changed. The UI was
+built from deployed commit 4d6e0ad with only the login field updated. Local account
+lifecycle/profile work remains separate and is not deployed by this patch.
+Release: `email-login-20261021T151000Z`. Root-only source/database backup and guarded
+combined UI/API rollback: `/var/backups/presence-react/email-login-20261021T151000Z-backend/rollback.sh`.
+Rollback restores code and UI only, never the database dump. Email ownership
+verification, OTP and login throttling are not added by this patch.
+
 The 2026-10-14 modular release backup is
 `/var/backups/presence-interface/online-release-20261014T091212Z`. It contains a
 file manifest, the prior deployed source files and a MariaDB dump. Runtime keys

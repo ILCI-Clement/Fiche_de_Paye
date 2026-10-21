@@ -898,11 +898,22 @@ def start_contract_reminder_worker() -> None:
 
 @app.post("/login")
 def login(payload: dict[str, Any]) -> dict[str, Any]:
-    username = str(payload.get("username", ""))
+    identifier = str(payload.get("username", "")).strip()
     password = str(payload.get("password", ""))
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
+            # Resolve to the canonical account before issuing tokens. Ambiguous
+            # username/e-mail matches must never silently select an identity.
+            cursor.execute(
+                "SELECT username FROM users WHERE LOWER(TRIM(username)) = LOWER(%s) "
+                "OR LOWER(TRIM(email)) = LOWER(%s) LIMIT 2",
+                (identifier, identifier),
+            )
+            matches = cursor.fetchall() if identifier else []
+            if len(matches) != 1:
+                raise HTTPException(status_code=401, detail="Identifiants incorrects.")
+            username = matches[0]["username"]
             user = load_user(cursor, username)
         if not user or not user.get("is_active", True) or user.get("login_deleted_at") or not verify_password(password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Identifiants incorrects.")

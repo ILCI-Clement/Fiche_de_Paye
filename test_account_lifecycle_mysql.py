@@ -107,6 +107,9 @@ class AccountLifecycleMySQLTests(unittest.TestCase):
                 admin = {'Authorization': 'Bearer ' + main.create_session_token('fixture-admin')}
                 login = lambda: client.post('/login', json={'username': 'fixture-employee', 'password': secret, 'remember_me': True})
                 session = login().json()
+                by_email = client.post('/login', json={'username': '  FIXTURE-EMPLOYEE@EXAMPLE.TEST  ', 'password': secret})
+                self.assertEqual(by_email.status_code, 200)
+                self.assertEqual(main.read_session_token(by_email.json()['auth_token']), 'fixture-employee')
                 old = {'Authorization': 'Bearer ' + session['auth_token']}
                 target = '/users/fixture-employee'
                 before = read_business()

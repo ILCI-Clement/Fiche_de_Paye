@@ -35,7 +35,7 @@ export function Login({ onLogin }: { onLogin: (token: string) => void }) {
       {login.error && <Alert severity="error" sx={{ mb: 2 }}>{login.error.message}</Alert>}
       <Box component="form" onSubmit={event => { event.preventDefault(); login.mutate() }}>
         <Stack spacing={2.5}>
-          <TextField label="Nom de compte" autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} required fullWidth />
+          <TextField label="Adresse e-mail ou nom de compte" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={event => setUsername(event.target.value)} required fullWidth />
           <TextField label="Mot de passe" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required fullWidth />
           <Button type="submit" variant="contained" disabled={login.isPending || !username || !password}>Se connecter</Button>
           <FormControlLabel control={<Checkbox checked={remember} disabled={login.isPending} onChange={e => setRemember(e.target.checked)} />} label="Se souvenir de moi sur cet appareil (30 jours)" />

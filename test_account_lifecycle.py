@@ -139,6 +139,41 @@ class AccountLifecycleTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as db:
             return db.execute('SELECT * FROM retained_business ORDER BY kind,owner').fetchall(), self.invoice.read_bytes()
 
+    def test_email_login_uses_canonical_identity_and_remember_token(self):
+        response = self.login('  EMPLOYEE@EXAMPLE.TEST  ', remember=True)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(main.read_session_token(data['auth_token']), 'employee')
+        self.assertEqual(self.client.get('/private', headers={'Authorization': 'Bearer ' + data['auth_token']}).json()['username'], 'employee')
+        restored = self.client.post('/restore-session', json={'remember_token': data['remember_token']})
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(main.read_session_token(restored.json()['auth_token']), 'employee')
+
+    def test_username_login_is_case_insensitive_and_trimmed(self):
+        self.assertEqual(self.login(' EMPLOYEE ').status_code, 200)
+
+    def test_email_login_rejects_wrong_password_and_unknown_or_empty_identifier(self):
+        response = self.client.post('/login', json={'username': 'employee@example.test', 'password': self.password + 'x'})
+        self.assertEqual(response.status_code, 401)
+        for identifier in ['', '  ', 'missing@example.test', "' OR 1=1 --"]:
+            self.assertEqual(self.login(identifier).status_code, 401)
+
+    def test_email_login_rejects_username_email_collision(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('UPDATE users SET username=? WHERE username=?', ('employee@example.test', 'manager'))
+        self.assertEqual(self.login('employee@example.test').status_code, 401)
+
+    def test_email_login_rejects_case_variant_duplicate_addresses(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('UPDATE users SET email=? WHERE username=?', ('EMPLOYEE@example.test', 'manager'))
+        self.assertEqual(self.login('employee@example.test').status_code, 401)
+
+    def test_email_login_cannot_bypass_inactive_or_deleted_status(self):
+        self.assertEqual(self.activation(False).status_code, 200)
+        self.assertEqual(self.login('employee@example.test').status_code, 401)
+        self.assertEqual(self.delete().status_code, 200)
+        self.assertEqual(self.login('employee@example.test').status_code, 401)
+
     def test_deletion_requires_deactivation_first(self):
         self.assertEqual(self.delete().status_code, 409)
         self.assertIsNone(self.stored()['login_deleted_at'])
