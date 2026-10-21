@@ -112,7 +112,7 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                 group_names = {row['id']: row['name'] for row in cursor.fetchall()}
                 catalog = []
                 for user in users:
-                    if user and ('Admin' in actor['role_tags'] or can_manage(cursor, actor, user)):
+                    if user and user.get('is_active', True) and ('Admin' in actor['role_tags'] or can_manage(cursor, actor, user)):
                         cursor.execute('SELECT * FROM personnel_contracts WHERE username=%s ORDER BY start_date,id', (user['username'],))
                         manager = next((u for u in users if u and u['username'] == user.get('manager_username')), None)
                         catalog.append({'username': user['username'], 'email': user['email'],

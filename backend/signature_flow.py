@@ -22,11 +22,13 @@ def resolve_manager(recipient_email, actor, connect, load_user, access):
             if len(matches) != 1:
                 raise HTTPException(400, 'Le salarié doit être associé à un compte unique enregistré.')
             employee = access(cursor, actor, matches[0]['username'], edit=False)
+            if not employee.get('is_active', True):
+                raise HTTPException(400, 'Le compte du salarié est désactivé.')
             manager_username = employee.get('manager_username')
             if not manager_username or manager_username == employee['username']:
                 raise HTTPException(400, 'Configurez le responsable direct de cette personne dans Administration avant l’envoi.')
             manager = load_user(cursor, manager_username)
-            if not manager or not ({'Admin','Responsable'} & set(manager['role_tags'])) or not str(manager.get('email') or '').strip():
+            if not manager or not manager.get('is_active', True) or not ({'Admin','Responsable'} & set(manager['role_tags'])) or not str(manager.get('email') or '').strip():
                 raise HTTPException(400, 'Le responsable direct doit avoir un compte valide et une adresse e-mail.')
             if manager['email'].strip().casefold() == str(recipient_email).strip().casefold():
                 raise HTTPException(400, 'Le salarié et le responsable doivent avoir des adresses e-mail distinctes.')

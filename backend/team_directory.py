@@ -38,7 +38,7 @@ def register_team_directory(app, *, get_db_connection, get_current_user):
             with connection.cursor() as cursor:
                 cursor.execute('SELECT id,name,is_active FROM organization_groups ORDER BY name')
                 groups = cursor.fetchall()
-                cursor.execute('SELECT username,email FROM users ORDER BY username')
+                cursor.execute('SELECT username,email FROM users WHERE is_active=1 ORDER BY username')
                 rows = cursor.fetchall()
                 cursor.execute('SELECT username,group_id,relation FROM user_group_memberships')
                 memberships = cursor.fetchall()
@@ -65,7 +65,7 @@ def register_team_directory(app, *, get_db_connection, get_current_user):
                 placeholders = ','.join(['%s'] * len(ids))
                 cursor.execute(f'''SELECT u.username, u.email, m.group_id, m.relation
                     FROM user_group_memberships m JOIN users u ON u.username=m.username
-                    WHERE m.group_id IN ({placeholders}) ORDER BY u.username''', tuple(ids))
+                    WHERE u.is_active=1 AND m.group_id IN ({placeholders}) ORDER BY u.username''', tuple(ids))
                 rows = cursor.fetchall()
                 return {'groups': groups, 'members': team_members(rows)}
         finally:

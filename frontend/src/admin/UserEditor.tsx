@@ -7,14 +7,12 @@ import { OrganizationFields } from './OrganizationFields'
 import { adminApi } from './api'
 import type { AdminUser, OrganizationInput, RunAction } from './api'
 import { ContractEditor } from './ContractEditor'
-import { DeleteAction } from '../components/DeleteAction'
+import { AccountAccess } from './AccountAccess'
 
 export function UserEditor({ token, user, users, groups, actor, busy, run }: { token: string; user: AdminUser; users: AdminUser[]; groups: Group[]; actor: string; busy: boolean; run: RunAction }) {
   const [draft, setDraft] = useState<OrganizationInput>({ role_tags: user.role_tags, employee_type: user.employee_type, group_ids: user.group_ids, managed_group_ids: user.managed_group_ids, manager_id: user.manager_id })
   const [baseline, setBaseline] = useState(() => JSON.stringify(draft))
   const confirmChange = useDraftGuard(JSON.stringify(draft) !== baseline, busy, `Compte · ${user.username}`)
-  const [remove, setRemove] = useState(false)
-  const [confirmation, setConfirmation] = useState('')
   const [employee, setEmployee] = useState('')
   const [roleConfirm, setRoleConfirm] = useState(false)
   async function saveOrganization() {
@@ -40,15 +38,11 @@ export function UserEditor({ token, user, users, groups, actor, busy, run }: { t
         <Button disabled={busy || !employee} onClick={() => void run(() => adminApi.manager(token, employee, user.username), 'Employé affecté au responsable.')}>Affecter</Button>
       </Box>}
     </AccordionDetails></Accordion>
-    {user.username !== actor && <Box sx={{ mt: 2 }}><DeleteAction label="Supprimer le compte" disabled={busy} onClick={() => confirmChange(() => setRemove(true))} /></Box>}
+    <AccountAccess token={token} user={user} actor={actor} busy={busy} run={run} confirmChange={confirmChange} />
     <Dialog open={roleConfirm} onClose={() => { if (!busy) setRoleConfirm(false) }}><DialogTitle>Confirmer le changement de droits</DialogTitle><DialogContent>
       <Alert severity="warning" sx={{ mb: 2 }}>Les accès de {user.username} seront modifiés.</Alert>
       <Typography>Actuellement : {user.role_tags.join(' · ')}</Typography>
       <Typography>Après modification : {draft.role_tags.join(' · ')}</Typography>
     </DialogContent><DialogActions><Button disabled={busy} onClick={() => setRoleConfirm(false)}>Annuler</Button><Button variant="contained" disabled={busy} onClick={() => void saveOrganization()}>Confirmer les nouveaux droits</Button></DialogActions></Dialog>
-    <Dialog open={remove} onClose={() => { if (!busy) setRemove(false) }}><DialogTitle>Supprimer le compte et ses données associées ?</DialogTitle><DialogContent>
-      <Alert severity="warning" sx={{ mb: 2 }}>Cette opération supprime le compte, ses contrats, les fiches associées et les documents liés, y compris ceux déposés pour d’autres personnes. Elle est définitive.</Alert>
-      <TextField fullWidth label={`Saisissez ${user.username} pour confirmer`} value={confirmation} onChange={e => setConfirmation(e.target.value)} disabled={busy} />
-    </DialogContent><DialogActions><Button disabled={busy} onClick={() => setRemove(false)}>Annuler</Button><Button disabled={busy || confirmation !== user.username} onClick={() => void run(() => adminApi.remove(token, user.username), 'Compte supprimé.')}>Supprimer définitivement</Button></DialogActions></Dialog>
   </>
 }

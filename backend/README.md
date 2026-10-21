@@ -188,3 +188,13 @@ starting it against production is a release action, requiring backup and approva
 See `../doc/rebuild-release-readiness.md` for acceptance and remaining boundaries.
 
 The new service disables its reminder worker using `PRESENCE_CONTRACT_REMINDER_WORKER=0` while the retained legacy API owns the worker. If retiring the legacy API later, enable this worker on the new service. Manual reminders remain authorized normally. Source rollback switches the UI and stops the new service; it does not restore the database dump or remove uploaded files.
+
+
+## 账号停用改版（2026-10-21，仅本地，未部署）
+
+- `account_lifecycle.py` 的增量迁移增加 `users.is_active`（默认 1）、`users.session_version`（默认 0）与 `account_status_events`，不删除业务数据。现有零日期默认值会触发部分 MySQL 严格模式的 DDL 失败；迁移仅在当前连接的新增 DDL 期间去掉 NO_ZERO_DATE/NO_ZERO_IN_DATE，并在 finally 恢复原 session sql_mode，不修改全局配置或旧日期值。
+- 前端改用激活接口；旧 `/delete-user/{username}` 必须返回 409。Admin 停用自己被拒绝。状态变化与审计记录在同一事务提交，按用户名排序锁定账户，与角色更改使用相同锁顺序；锁后再次读取操作者的活跃状态、Admin 权限及会话版本。
+- 登录、持久会话恢复、每次鉴权均检查状态；会话携带版本，旧会话按 0 兼容。停用及重新启用均递增版本、清空记住登录和重置令牌，重新启用不会恢复旧登录。密码保留。停用不会撤回已发给 ClawShow 的签署链接，外部待签请求需要在 ClawShow 另行处理。
+- 上线前按本文原有流程备份数据库和所有拟替换源码；分别比对新 React API 与仍运行的旧 API。**所有仍可访问的认证入口、旧永久删除接口都必须同步保护**，再开放前端停用功能，否则旧 API 可能绕过停用限制。不能整体覆盖有未同步差异的服务器 main.py。
+- 回退时保留新增表和列及已发生的状态记录，不恢复数据库旧备份。不得直接运行不识别 is_active/session_version 的旧后端：它会重新放行停用账号和旧会话。必要的 UI 回退可以保留新认证/停用保护并禁用旧删除入口；后端回退须保留这些补丁。
+- 本地已启动增量迁移并只读查看 Admin 确认窗口；未实际修改任何账号状态，未运行功能测试/真实邮件/签署，未部署服务器。

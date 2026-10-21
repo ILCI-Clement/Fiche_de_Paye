@@ -160,9 +160,9 @@ def decode_segment(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def create_session_token(username: str) -> str:
+def create_session_token(username: str, session_version: int = 0) -> str:
     payload = json.dumps(
-        {"username": username, "expires_at": int(time.time()) + SESSION_DURATION_SECONDS},
+        {"username": username, "expires_at": int(time.time()) + SESSION_DURATION_SECONDS, "session_version": session_version},
         separators=(",", ":"),
     ).encode("utf-8")
     payload_part = encode_segment(payload)
@@ -170,7 +170,7 @@ def create_session_token(username: str) -> str:
     return f"{payload_part}.{encode_segment(signature)}"
 
 
-def read_session_token(token: str) -> str:
+def read_session_token(token: str, *, with_version: bool = False):
     try:
         payload_part, signature_part = token.split(".", 1)
         expected = hmac.new(API_TOKEN.encode("utf-8"), payload_part.encode("ascii"), hashlib.sha256).digest()
@@ -179,7 +179,7 @@ def read_session_token(token: str) -> str:
         payload = json.loads(decode_segment(payload_part))
         if int(payload["expires_at"]) < int(time.time()):
             raise ValueError("Expired token")
-        return str(payload["username"])
+        return {"username": str(payload["username"]), "session_version": int(payload.get("session_version", 0))} if with_version else str(payload["username"])
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise HTTPException(status_code=401, detail="Session invalide ou expirée.") from None
 
@@ -189,6 +189,11 @@ def ensure_organization_schema() -> None:
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
+            if __package__:
+                from .account_lifecycle import ensure_account_lifecycle_schema
+            else:
+                from account_lifecycle import ensure_account_lifecycle_schema
+            ensure_account_lifecycle_schema(cursor)
             cursor.execute("SHOW COLUMNS FROM users")
             columns = {item["Field"] for item in cursor.fetchall()}
             if "employee_type" not in columns:
@@ -339,7 +344,7 @@ def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] |
     cursor.execute(
         """
         SELECT username, email, password_hash, is_admin, role, role_tags, employee_type, manager_username,
-               contract_start_date, contract_end_date, is_cdi, created_at
+               contract_start_date, contract_end_date, is_cdi, created_at, is_active, session_version
         FROM users WHERE username = %s
         """,
         (username,),
@@ -388,6 +393,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "role": user["role"],
         "role_tags": user["role_tags"],
         "is_admin": bool(user.get("is_admin")),
+        "is_active": bool(user.get("is_active", True)),
         "employee_type": user.get("employee_type") or "salarie",
         "manager_id": user.get("manager_username"),
         "group_ids": user.get("group_ids", []),
@@ -639,13 +645,14 @@ def users_visible_to_actor(cursor: pymysql.cursors.Cursor, actor: dict[str, Any]
 def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authentification requise.")
-    username = read_session_token(authorization.removeprefix("Bearer "))
+    session = read_session_token(authorization.removeprefix("Bearer "), with_version=True)
+    username = session["username"]
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             user = load_user(cursor, username)
-        if not user:
-            raise HTTPException(status_code=401, detail="Session invalide.")
+        if not user or not user.get("is_active", True) or user.get("session_version", 0) != session["session_version"]:
+            raise HTTPException(status_code=401, detail="Session invalide ou compte désactivé.")
         return user
     finally:
         connection.close()
@@ -672,7 +679,7 @@ def user_can_manage(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], targe
 
 def is_valid_direct_manager(user: dict[str, Any] | None) -> bool:
     """An administrator can also be assigned as an employee's direct manager."""
-    return bool(user and ({"Admin", "Responsable"} & set(user["role_tags"])))
+    return bool(user and user.get("is_active", True) and ({"Admin", "Responsable"} & set(user["role_tags"])))
 
 
 def would_create_management_cycle(
@@ -797,13 +804,15 @@ def send_contract_end_reminder_email(recipient_email: str, contract: dict[str, A
 
 def contract_reminder_recipients(cursor: pymysql.cursors.Cursor, contract: dict[str, Any]) -> set[str]:
     """Return the administrators and direct manager who must receive a reminder."""
+    users = all_users(cursor)
+    inactive_emails = {str(user.get("email") or "").strip().casefold() for user in users if not user.get("is_active", True)}
     recipients = {
         str(user["email"]).strip()
-        for user in all_users(cursor)
-        if "Admin" in user["role_tags"] and str(user.get("email") or "").strip()
+        for user in users
+        if user.get("is_active", True) and "Admin" in user["role_tags"] and str(user.get("email") or "").strip()
     }
     manager_email = str(contract.get("manager_email") or "").strip()
-    if manager_email:
+    if manager_email and manager_email.casefold() not in inactive_emails:
         recipients.add(manager_email)
     return recipients
 
@@ -894,11 +903,11 @@ def login(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         with connection.cursor() as cursor:
             user = load_user(cursor, username)
-        if not user or not verify_password(password, user["password_hash"]):
+        if not user or not user.get("is_active", True) or not verify_password(password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Identifiants incorrects.")
         response = public_user(user)
         response["status"] = "success"
-        response["auth_token"] = create_session_token(username)
+        response["auth_token"] = create_session_token(username, user.get("session_version", 0))
         if bool(payload.get("remember_me")):
             with connection.cursor() as cursor:
                 response["remember_token"] = create_remember_token(cursor, username)
@@ -919,11 +928,11 @@ def restore_session(payload: RememberSessionRequest) -> dict[str, Any]:
             )
             row = cursor.fetchone()
             user = load_user(cursor, row["username"]) if row else None
-        if not user:
+        if not user or not user.get("is_active", True):
             raise HTTPException(status_code=401, detail="Session persistante expirée.")
         response = public_user(user)
         response["status"] = "success"
-        response["auth_token"] = create_session_token(user["username"])
+        response["auth_token"] = create_session_token(user["username"], user.get("session_version", 0))
         return response
     finally:
         connection.close()
@@ -1249,7 +1258,7 @@ def update_user_organization(
             cursor.execute("SELECT username FROM users ORDER BY username FOR UPDATE")
             cursor.fetchall()
             current_actor = load_user(cursor, actor["username"])
-            if not current_actor or "Admin" not in current_actor["role_tags"]:
+            if not current_actor or not current_actor.get("is_active", True) or "Admin" not in current_actor["role_tags"] or current_actor.get("session_version", 0) != actor.get("session_version", 0):
                 raise HTTPException(status_code=403, detail="Votre rôle Admin a changé. Reconnectez-vous avant de continuer.")
             actor = current_actor
             target = require_target_access(cursor, actor, target_username, edit=True)
@@ -1475,46 +1484,7 @@ def purge_user_from_saved_fiches(cursor: pymysql.cursors.Cursor, username: str, 
 
 @app.delete("/delete-user/{username_to_delete}")
 def delete_user(username_to_delete: str, actor: dict[str, Any] = Depends(require_roles("Admin"))) -> dict[str, Any]:
-    if username_to_delete == actor["username"]:
-        raise HTTPException(status_code=400, detail="Vous ne pouvez pas supprimer votre propre compte.")
-    connection = get_db_connection()
-    receipt_files: list[str] = []
-    try:
-        with connection.cursor() as cursor:
-            target = require_target_access(cursor, actor, username_to_delete, edit=True)
-            if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"] and "Employe" not in target["role_tags"]:
-                raise HTTPException(status_code=403, detail="Un Responsable ne peut supprimer qu'un Employé.")
-            cursor.execute(
-                """
-                SELECT stored_filename FROM transport_receipts
-                WHERE employee_username = %s OR uploaded_by = %s OR archived_by = %s
-                """,
-                (username_to_delete, username_to_delete, username_to_delete),
-            )
-            receipt_files = [str(row["stored_filename"]) for row in cursor.fetchall()]
-            purge_user_from_saved_fiches(cursor, username_to_delete, str(target["email"]))
-            cursor.execute("UPDATE users SET manager_username = NULL WHERE manager_username = %s", (username_to_delete,))
-            cursor.execute(
-                "DELETE FROM transport_receipts WHERE employee_username = %s OR uploaded_by = %s OR archived_by = %s",
-                (username_to_delete, username_to_delete, username_to_delete),
-            )
-            cursor.execute("DELETE FROM annual_interviews WHERE employee_username = %s", (username_to_delete,))
-            cursor.execute("UPDATE annual_interviews SET completed_by = NULL WHERE completed_by = %s", (username_to_delete,))
-            cursor.execute(
-                "DELETE FROM contract_end_reminders WHERE employee_username = %s OR recipient_email = %s",
-                (username_to_delete, target["email"]),
-            )
-            cursor.execute("DELETE FROM user_group_memberships WHERE username = %s", (username_to_delete,))
-            cursor.execute("DELETE FROM personnel_contracts WHERE username = %s", (username_to_delete,))
-            detach_leave_owner(cursor, username_to_delete)
-            cursor.execute("DELETE FROM users WHERE username = %s", (username_to_delete,))
-        connection.commit()
-    finally:
-        connection.close()
-    for stored_name in receipt_files:
-        if Path(stored_name).name == stored_name:
-            (TRANSPORT_RECEIPTS_DIR / stored_name).unlink(missing_ok=True)
-    return {"status": "success", "message": "Compte et données associées supprimés définitivement."}
+    raise HTTPException(status_code=409, detail="La suppression définitive est désactivée. Désactivez le compte dans Administration pour conserver ses données.")
 
 
 @app.put("/update_profile/{username}")
@@ -1556,6 +1526,7 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                 if target_username != username:
                     cursor.execute("UPDATE Presence SET user_id = %s WHERE user_id = %s", (target_username, username))
                     cursor.execute("UPDATE user_group_memberships SET username = %s WHERE username = %s", (target_username, username))
+                    cursor.execute("UPDATE account_status_events SET target_username = %s WHERE target_username = %s", (target_username, username))
                     cursor.execute("UPDATE users SET manager_username = %s WHERE manager_username = %s", (target_username, username))
                     cursor.execute(
                         "UPDATE transport_receipts SET employee_username = %s WHERE employee_username = %s",
@@ -1597,7 +1568,7 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
             "status": "success",
             "message": "Profil mis à jour.",
             "username": target_username,
-            "auth_token": create_session_token(target_username),
+            "auth_token": create_session_token(target_username, user.get("session_version", 0)),
         }
     except pymysql.err.IntegrityError:
         raise HTTPException(status_code=400, detail="Ce nom ou cet e-mail est déjà utilisé.") from None
@@ -1611,7 +1582,7 @@ def forgot_password(payload: dict[str, Any]) -> dict[str, str]:
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT username FROM users WHERE email = %s", (email,))
+            cursor.execute("SELECT username FROM users WHERE email = %s AND is_active=1", (email,))
             user = cursor.fetchone()
             if not user:
                 return {"status": "success", "message": "Si l'adresse est valide, un e-mail a été envoyé."}
@@ -1637,7 +1608,7 @@ def reset_password(payload: dict[str, Any]) -> dict[str, str]:
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT username FROM users WHERE reset_token = %s AND reset_token_expires > %s",
+                "SELECT username FROM users WHERE reset_token = %s AND reset_token_expires > %s AND is_active=1",
                 (token, datetime.now()),
             )
             user = cursor.fetchone()
@@ -1723,6 +1694,7 @@ def save_config_checked(user_id, data, actor, expected_revision=None):
 
 # Support both package imports locally and `uvicorn main:app` on the server.
 if __package__:
+    from .account_lifecycle import register_account_lifecycle
     from .ui_capabilities import register_ui_capabilities
     from .leave_requests import register_leave_routes
     from .leave_store import rename_leave_owner, detach_leave_owner
@@ -1732,6 +1704,7 @@ if __package__:
     from .documents import register_document_routes
     from .esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
 else:
+    from account_lifecycle import register_account_lifecycle
     from ui_capabilities import register_ui_capabilities
     from leave_requests import register_leave_routes
     from leave_store import rename_leave_owner, detach_leave_owner
@@ -1741,6 +1714,7 @@ else:
     from documents import register_document_routes
     from esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
 
+register_account_lifecycle(app, get_db_connection=get_db_connection, get_current_user=get_current_user, load_user=load_user, public_user=public_user)
 register_ui_capabilities(app, mail_configured=lambda: bool(SMTP_SERVER and SMTP_USER and SMTP_PASSWORD))
 register_contract_history(app, get_db_connection, require_roles, get_current_user, require_target_access)
 register_team_directory(app, get_db_connection=get_db_connection, get_current_user=get_current_user)

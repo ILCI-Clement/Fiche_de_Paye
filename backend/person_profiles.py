@@ -14,7 +14,7 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                 # Re-read actor and target: neither role nor relationship comes from the client.
                 current = load_user(cursor, actor['username'])
                 target = load_user(cursor, username)
-                if not current or not target or not (
+                if not current or not current.get('is_active', True) or not target or not (
                     current['username'] == target['username']
                     or 'Admin' in current.get('role_tags', [])
                     or current['username'] == target.get('manager_username')
