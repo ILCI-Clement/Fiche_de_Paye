@@ -58,7 +58,9 @@ class DocumentPermissionTests(unittest.TestCase):
         self.connection.cursor.return_value.__enter__.return_value = self.cursor
         self.connect = MagicMock(return_value=self.connection)
         self.cursor.lastrowid = 11
-        self.load_user = MagicMock(side_effect=lambda cursor, name: {'username': name})
+        # Resource writes now re-read the actor inside the transaction.
+        self.load_user = MagicMock(side_effect=lambda cursor, name:
+            dict(self.actor) if self.actor and name == self.actor['username'] else {'username': name})
         self.manage = MagicMock(side_effect=lambda cursor, actor, target: target['username'] == 'team-member')
 
         def authenticated():
@@ -133,17 +135,32 @@ class DocumentPermissionTests(unittest.TestCase):
         self.assertEqual(list(self.storage.iterdir()), [])
 
     def test_non_admin_assignees_include_only_self(self):
-        for tags in [['Employe'], ['Responsable']]:
-            self.actor['role_tags'] = tags
-            result = self.client.get('/transport-receipts/assignees')
-            self.assertEqual(result.json(), {'users': ['employee']})
-        self.connect.assert_not_called()
+        self.cursor.fetchall.return_value = [{'username': 'employee', 'email': 'mailbox@example.test'}]
+        with patch('backend.documents.load_person_names', return_value={'employee': 'Synthetic Employee'}):
+            for tags in [['Employe'], ['Responsable']]:
+                self.actor['role_tags'] = tags
+                result = self.client.get('/transport-receipts/assignees')
+                self.assertEqual(result.status_code, 200)
+                self.assertEqual(result.json(), {'users': ['employee'], 'accounts': [{
+                    'username': 'employee', 'email': 'mailbox@example.test',
+                    'full_name': 'Synthetic Employee', 'display_name': 'Synthetic Employee',
+                }]})
+                sql, params = self.cursor.execute.call_args.args
+                self.assertIn('WHERE username=%s', sql)
+                self.assertEqual(params, ('employee',))
+        self.assertEqual(self.connect.call_count, 2)
 
     def test_admin_assignees_include_all_accounts(self):
         self.actor['role_tags'] = ['Admin']
-        self.cursor.fetchall.return_value = [{'username': 'admin'}, {'username': 'employee'}]
-        result = self.client.get('/transport-receipts/assignees')
+        self.cursor.fetchall.return_value = [
+            {'username': 'admin', 'email': 'admin-mail@example.test'},
+            {'username': 'employee', 'email': 'employee-mail@example.test'},
+        ]
+        with patch('backend.documents.load_person_names', return_value={'admin': 'Synthetic Admin'}):
+            result = self.client.get('/transport-receipts/assignees')
         self.assertEqual(result.json()['users'], ['admin', 'employee'])
+        self.assertEqual([account['display_name'] for account in result.json()['accounts']],
+                         ['Synthetic Admin', 'employee-mail'])
 
     def test_unauthenticated_upload_and_assignees_are_rejected(self):
         self.actor = None

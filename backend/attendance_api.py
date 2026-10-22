@@ -18,6 +18,8 @@ from fiche_exports import generate_fiche_file, validate_fiche
 from fiche_serialization import deserialize_dates, serialize_dates
 from planning import default_planning
 from .attendance_revision import config_revision
+from .role_policy import is_admin, is_super_admin
+from .person_names import load_person_names, person_display_name
 
 
 class OpenSheet(BaseModel):
@@ -29,6 +31,7 @@ class OpenSheet(BaseModel):
 class SaveWorkspace(BaseModel):
     config: dict
     revision: str = Field(min_length=64, max_length=64)
+    deleted_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
 class ExportSheets(OpenSheet):
@@ -49,7 +52,7 @@ class CalendarEdit(OpenSheet):
 
 def register_attendance_routes(app, *, get_db_connection, get_current_user, load_user, can_manage, save_config, save_checked=None):
     def require_role(actor):
-        if not {'Admin', 'Responsable'} & set(actor['role_tags']):
+        if not is_admin(actor) and 'Responsable' not in actor['role_tags']:
             raise HTTPException(403, 'La saisie des présences est réservée aux administrateurs et responsables.')
 
     def read_snapshot(cursor, actor):
@@ -69,8 +72,11 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
     def read_config(cursor, actor):
         return read_snapshot(cursor, actor)[0]
 
-    def commit(actor, config, revision):
+    def commit(actor, config, revision, deleted_ids=None):
         if save_checked:
+            if deleted_ids:
+                return save_checked(actor['username'], serialize_dates(config), actor, revision,
+                                    confirmed_deletions=deleted_ids)
             return save_checked(actor['username'], serialize_dates(config), actor, revision)
         save_config(actor['username'], serialize_dates(config), actor)
         return {'config': serialize_dates(config), 'revision': config_revision(config)}
@@ -84,10 +90,10 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
     @app.post('/attendance/save')
     def save_workspace(payload: SaveWorkspace, actor=Depends(get_current_user)):
         require_role(actor)
-        return commit(actor, payload.config, payload.revision)
+        return commit(actor, payload.config, payload.revision, payload.deleted_ids)
 
     def require_employee(cursor, actor, employee):
-        if 'Admin' in actor['role_tags']:
+        if is_admin(actor):
             return
         target = load_user(cursor, str(employee.get('account_username') or ''))
         if not target or not can_manage(cursor, actor, target):
@@ -108,6 +114,8 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                 config, revision = read_snapshot(cursor, actor)
                 cursor.execute('SELECT username FROM users ORDER BY username')
                 users = [load_user(cursor, row['username']) for row in cursor.fetchall()]
+                names = load_person_names(cursor)
+                accounts = {user['username']: user for user in users if user}
                 cursor.execute('SELECT id,name FROM organization_groups WHERE is_active=1 ORDER BY name')
                 group_names = {row['id']: row['name'] for row in cursor.fetchall()}
                 catalog = []
@@ -116,8 +124,10 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                         cursor.execute('SELECT * FROM personnel_contracts WHERE username=%s ORDER BY start_date,id', (user['username'],))
                         manager = next((u for u in users if u and u['username'] == user.get('manager_username')), None)
                         catalog.append({'username': user['username'], 'email': user['email'],
+                            'display_name': person_display_name(user, names),
                             'group_names': [group_names[group_id] for group_id in user.get('group_ids', []) if group_id in group_names],
                             'manager_username': user.get('manager_username'), 'manager_email': manager['email'] if manager else '',
+                            'manager_display_name': person_display_name(manager, names) if manager else 'Aucun responsable',
                             'contracts': cursor.fetchall()})
                 # Reject unauthorized legacy records without exposing them in the new UI.
                 visible = []
@@ -130,7 +140,13 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                 if 'Admin' not in actor['role_tags'] and len(visible) != len(config.get('employes_data', [])):
                     # Never save a filtered configuration, which would silently delete hidden history.
                     raise HTTPException(409, 'Cette configuration contient des fiches hors de votre équipe. Un Admin doit la vérifier avant modification.')
-                return {'config': config, 'revision': revision, 'accounts': catalog, 'can_edit_identity': 'Admin' in actor['role_tags']}
+                return {'config': config, 'revision': revision, 'accounts': catalog,
+                        'person_labels': {str(employee['id']): person_display_name(
+                            accounts.get(str(employee.get('account_username') or '')) or
+                            {'email': employee.get('email_employe')}, names)
+                            for employee in visible if employee.get('id') is not None},
+                        'can_edit_identity': is_admin(actor), 'can_archive_sheets': is_admin(actor),
+                        'can_delete_sheets': is_super_admin(actor)}
         finally:
             db.close()
 
@@ -147,21 +163,34 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                 check_client_revision(revision, payload.revision)
                 cursor.execute('SELECT * FROM personnel_contracts WHERE username=%s ORDER BY start_date,id', (username,))
                 contracts = matching_contracts(cursor.fetchall(), payload.month, payload.year)
-                if not contracts:
-                    raise HTTPException(409, 'Aucun contrat enregistré pour ce mois. Renseignez le contrat dans Administration avant de créer sa fiche.')
-                manager = load_user(cursor, account['manager_username']) if account.get('manager_username') else None
                 records = config.setdefault('employes_data', [])
+                saved_period = [e for e in records if e.get('account_username') == account['username']
+                                and e.get('sheet_month') == payload.month and e.get('sheet_year') == payload.year]
                 active = None
+                if not contracts:
+                    # A later contract edit or archive must not make an existing
+                    # month-bound snapshot inaccessible. Only creation needs a
+                    # currently matching contract; keep stored history intact.
+                    existing = next((e for e in saved_period if not e.get('is_archived')), None)
+                    if existing:
+                        active = str(existing['id'])
+                    elif saved_period:
+                        raise HTTPException(409, 'Cette fiche est archivée. Un administrateur peut la restaurer depuis les archives.')
+                    else:
+                        raise HTTPException(409, 'Aucun contrat actif ne couvre ce mois. Vérifiez les dates du contrat dans Administration avant de créer une nouvelle fiche. Les fiches déjà enregistrées pour les autres mois sont conservées.')
+                manager = load_user(cursor, account['manager_username']) if account.get('manager_username') else None
                 for contract in contracts:
                     existing = next((e for e in records if e.get('account_username') == username and e.get('contract_id') == contract['id']
                         and e.get('sheet_month') == payload.month and e.get('sheet_year') == payload.year), None)
                     if existing:
+                        if existing.get('is_archived'):
+                            raise HTTPException(409, 'Cette fiche est archivée. Un administrateur peut la restaurer depuis les archives.')
                         active = str(existing['id'])
                         continue
-                    name = str(account.get('email') or username).split('@', 1)[0]
+                    name = person_display_name(account)
                     record = {'nom': name, 'nom_stagiaire': name, 'prenom_stagiaire': '',
                         'email_employe': account['email'], 'account_username': username,
-                        'responsable': str((manager or {}).get('email') or account.get('manager_username') or '').split('@', 1)[0],
+                        'responsable': person_display_name(manager) if manager else '',
                         'email_responsable': (manager or {}).get('email', ''),
                         'nb_jours': 0, 'nb_heures_jour': 0.0, 'taux_horaire': 0.0,
                         'facture_mensuelle': 0.0, 'transport': '', 'taux': 0.0,

@@ -20,6 +20,8 @@ class DirectoryApiTests(unittest.TestCase):
     def setUp(self):
         self.actor = {'username': 'employee', 'role_tags': ['Employe']}
         self.cursor = MagicMock()
+        # These scope tests model an older installation without the optional register.
+        self.cursor.fetchone.return_value = None
         self.connection = MagicMock()
         self.connection.cursor.return_value.__enter__.return_value = self.cursor
         self.connect = MagicMock(return_value=self.connection)
@@ -76,7 +78,9 @@ class DirectoryApiTests(unittest.TestCase):
 class DirectoryModelTests(unittest.TestCase):
     def test_prefix_fallback_and_full_name(self):
         self.assertEqual(person_label({'email': 'alice@example.test'}), 'alice')
-        self.assertEqual(person_label({'first_name': 'Alice', 'last_name': 'Dupont'}), 'Alice Dupont')
+        self.assertEqual(person_label({'full_name': 'Alice Dupont'}), 'Alice Dupont')
+        self.assertEqual(person_label({'username': 'private-login', 'first_name': 'Alice',
+                                      'last_name': 'Dupont'}), 'Nom non renseigné')
 
     def test_leader_listed_once_as_member(self):
         model = build_organization(USERS, GROUPS)

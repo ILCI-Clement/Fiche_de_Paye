@@ -1,8 +1,10 @@
+import { personDisplayName } from '../personDisplayName'
 import { useState } from 'react'
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { request } from '../api'
 import { DepartmentBadges } from '../components/DepartmentBadge'
+import { AccountPersonnelSection } from '../profile/AccountPersonnelSection'
 
 interface MonthlyProfile {
   month: number; attendance_sheets: number; documents: number; archived_documents: number;
@@ -10,8 +12,9 @@ interface MonthlyProfile {
   signature_requests: { document_id: string; mode: string; created_at: string; status: string }[];
 }
 interface Profile {
-  username: string; name: string; groups: string[]; manager: string | null; year: number; months: MonthlyProfile[];
+  username: string; name: string; display_name?: string; full_name?: string | null; manager_name?: string; groups: string[]; manager: string | null; year: number; months: MonthlyProfile[];
   legacy_unbound_sheets: number; attendance_incomplete: boolean; signatures_available: boolean;
+  can_view_personnel_data?: boolean;
 }
 const monthName = (month: number) => new Intl.DateTimeFormat('fr-FR', { month: 'long' }).format(new Date(2026, month - 1, 1))
 const statusLabels: Record<string, string> = { pending: 'En attente', approved: 'Approuvé', rejected: 'Refusé', withdrawn: 'Retiré' }
@@ -24,16 +27,17 @@ export function PersonProfile({ username, token, viewer, onClose }: { username: 
   const data = profile.data
   const detail = data?.months.find(item => item.month === month)
   return <Dialog open fullWidth maxWidth="lg" onClose={onClose} aria-labelledby="person-profile-title">
-    <DialogTitle id="person-profile-title">Profil · {data?.name || username}</DialogTitle>
+    <DialogTitle id="person-profile-title">Profil · {personDisplayName(data ? { full_name: data.full_name, display_name: data.display_name || data.name } : null)}</DialogTitle>
     <DialogContent dividers>
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
         <TextField select label="Année" value={year} onChange={event => setYear(Number(event.target.value))} sx={{ width: 120 }}>
           {Array.from({ length: 101 }, (_, i) => 2000 + i).reverse().map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}
         </TextField>
-        {data && <><DepartmentBadges names={data.groups} /><Typography variant="body2" color="text.secondary">Responsable direct : {data.manager || 'Non renseigné'}</Typography></>}
+        {data && <><DepartmentBadges names={data.groups} /><Typography variant="body2" color="text.secondary">Responsable direct : {data.manager ? personDisplayName({ display_name: data.manager_name }) : 'Non renseigné'}</Typography></>}
         <Button disabled={profile.isFetching} sx={{ ml: 'auto' }} onClick={() => void profile.refetch()}>Actualiser</Button>
       </Box>
       {profile.isPending ? <CircularProgress size={28} /> : profile.error ? <Alert severity="error">{profile.error.message}</Alert> : data && <>
+        {data.can_view_personnel_data && <AccountPersonnelSection token={token} username={username} viewer={viewer} />}
         <Alert severity="info" sx={{ mb: 2 }}>Présences : fiches enregistrées avec un mois explicite, sans validation de complétude. Signatures : envois traçables depuis cette version ; l’absence de reçu ne prouve pas l’absence d’envoi. La signature des deux parties n’est pas synchronisée avec ClawShow.</Alert>
         {!!data.legacy_unbound_sheets && <Alert severity="warning" sx={{ mb: 2 }}>{data.legacy_unbound_sheets} ancienne(s) fiche(s) sans rattachement mensuel : non réparties entre les mois.</Alert>}
         {data.attendance_incomplete && <Alert severity="warning" sx={{ mb: 2 }}>Certaines anciennes configurations ne peuvent pas être lues. Le relevé des présences peut être incomplet.</Alert>}

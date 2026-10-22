@@ -6,10 +6,11 @@ export interface Organization {
   general_id: number | null; departments: Department[]; people_count: number;
   unassigned: { Nom: string; Situation: string }[]; issues: string[];
 }
-export interface TeamMember { name: string; group_ids: number[]; managed_group_ids: number[] }
-export interface DirectoryPerson { username: string; display_name: string; group_ids: number[]; managed_group_ids: number[] }
+export interface TeamMember { name: string; display_name?: string; full_name?: string | null; group_ids: number[]; managed_group_ids: number[] }
+export interface DirectoryPerson { username: string; display_name: string; full_name?: string | null; email?: string; group_ids: number[]; managed_group_ids: number[] }
 export interface Personnel {
   username: string; email: string; employee_type?: string; manager_id?: string | null;
+  full_name?: string | null; display_name?: string; manager_display_name?: string;
   group_ids: number[]; role_tags?: string[]; role?: string; is_admin?: boolean;
 }
 export const teamApi = {

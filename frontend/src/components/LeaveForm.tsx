@@ -1,3 +1,4 @@
+import { personDisplayName } from '../personDisplayName'
 import { FrenchDateField } from './FrenchDateField'
 import { useDraftGuard } from '../draftGuard'
 import { useState } from 'react'
@@ -32,7 +33,7 @@ export function LeaveForm({ token, session, onClose, onSaved }: {
     <Box component="form" onSubmit={event => { event.preventDefault(); if (valid && !save.isPending) save.mutate() }}>
       <DialogTitle sx={{ pb: 1 }}>Nouvelle demande de congé</DialogTitle>
       <DialogContent>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>Congés payés · Pour {session.name}</Typography>
+        <Typography color="text.secondary" sx={{ mb: 3 }}>Congés payés · Pour {personDisplayName({ display_name: session.name })}</Typography>
         {save.error && <Alert severity="error" sx={{ mb: 2 }}>{save.error.message}</Alert>}
         <Stack spacing={2.5} sx={{ pt: 1 }}>
           <Box className="form-row">
@@ -57,7 +58,7 @@ export function LeaveForm({ token, session, onClose, onSaved }: {
           <TextField label="Note (facultative)" placeholder="Ajoutez une précision pour votre responsable…" multiline minRows={3}
             value={input.note} disabled={save.isPending} onChange={event => setInput(previous => ({ ...previous, note: event.target.value }))}
             slotProps={{ htmlInput: { maxLength: 2000 } }} helperText={`${input.note.length}/2000 caractères`} />
-          <Alert severity="info" icon={false}>Votre demande sera traitée par <strong>{session.approver_name}</strong>.</Alert>
+          <Alert severity="info" icon={false}>Votre demande sera traitée par <strong>{personDisplayName({ display_name: session.approver_name })}</strong>.</Alert>
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 3 }}>

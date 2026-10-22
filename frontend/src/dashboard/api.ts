@@ -5,6 +5,7 @@ export interface Deadline {
 }
 export interface Interview {
   employee_username: string; interview_year: number; due_date: string | null;
+  employee_name?: string; manager_name?: string; completed_by_name?: string;
   notes: string | null; completed: boolean; completed_at: string | null; completed_by: string | null;
 }
 export interface Dashboard { year: number; contract_reminders_auto_send: boolean; contracts: Deadline[]; interviews: Interview[] }

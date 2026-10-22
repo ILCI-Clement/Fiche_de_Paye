@@ -54,8 +54,10 @@ class ManagerPermissionTests(unittest.TestCase):
         import json
         self.check_save({},json.loads(fiche))
 
-    def test_admin_can_delete_sheet(self):
-        self.check_save({'employes_data':[{'id':'sheet'}]}, {'employes_data':[]}, actor={'role_tags':['Admin']})
+    def test_admin_cannot_delete_sheet(self):
+        with self.assertRaises(main.HTTPException) as e:
+            self.check_save({'employes_data':[{'id':'sheet'}]}, {'employes_data':[]}, actor={'role_tags':['Admin']})
+        self.assertEqual(e.exception.status_code, 403)
 
     def test_manager_account_routes_forbidden(self):
         main.app.dependency_overrides[main.get_current_user]=lambda:MANAGER

@@ -1,17 +1,23 @@
 """Authenticated employee department directory, separate from personnel records."""
 from fastapi import Depends
 from organization_model import build_organization
+if __package__:
+    from .person_names import load_person_names, person_display_name
+else:
+    from person_names import load_person_names, person_display_name
 
 
-def directory_people(rows, memberships):
+def directory_people(rows, memberships, names=None):
     """Project public directory fields in linear time; discard private user fields."""
     links = {}
     for membership in memberships:
         links.setdefault(membership['username'], []).append(membership)
     people = []
     for row in rows:
-        email = str(row.get('email') or row['username'])
-        person = {'username': row['username'], 'display_name': email.split('@', 1)[0],
+        email = str(row.get('email') or '')
+        full_name = (names or {}).get(row['username']) or row.get('full_name')
+        person = {'username': row['username'], 'full_name': full_name,
+                  'display_name': person_display_name(row, names),
                   'is_ceo': email.casefold() == 'william.tang@univ-ilci.fr',
                   'group_ids': [], 'managed_group_ids': []}
         for membership in links.get(row['username'], []):
@@ -22,11 +28,12 @@ def directory_people(rows, memberships):
     return people
 
 
-def team_members(rows):
+def team_members(rows, names=None):
     """Deduplicate already authorized membership rows and hide complete email addresses."""
     unique_rows = {row['username']: row for row in rows}
-    people = directory_people(unique_rows.values(), rows)
-    return [{'name': person['display_name'], 'group_ids': person['group_ids'],
+    people = directory_people(unique_rows.values(), rows, names)
+    return [{'name': person['display_name'], 'full_name': person['full_name'],
+             'display_name': person['display_name'], 'group_ids': person['group_ids'],
              'managed_group_ids': person['managed_group_ids']} for person in people]
 
 
@@ -42,7 +49,8 @@ def register_team_directory(app, *, get_db_connection, get_current_user):
                 rows = cursor.fetchall()
                 cursor.execute('SELECT username,group_id,relation FROM user_group_memberships')
                 memberships = cursor.fetchall()
-                people = directory_people(rows, memberships)
+                names = load_person_names(cursor, [row['username'] for row in rows])
+                people = directory_people(rows, memberships, names)
                 return {'groups': groups, 'users': people,
                         'organization': build_organization(people, groups)}
         finally:
@@ -67,6 +75,7 @@ def register_team_directory(app, *, get_db_connection, get_current_user):
                     FROM user_group_memberships m JOIN users u ON u.username=m.username
                     WHERE u.is_active=1 AND m.group_id IN ({placeholders}) ORDER BY u.username''', tuple(ids))
                 rows = cursor.fetchall()
-                return {'groups': groups, 'members': team_members(rows)}
+                names = load_person_names(cursor, [row['username'] for row in rows])
+                return {'groups': groups, 'members': team_members(rows, names)}
         finally:
             connection.close()

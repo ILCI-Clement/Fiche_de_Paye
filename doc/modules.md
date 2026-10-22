@@ -1,5 +1,45 @@
 # Presence 模块索引与维护说明
 
+2026-10-22 发布回归：新增 `test_account_personnel.py` 的 10 项隔离 HTTP 测试，覆盖本人只读、负责人隔离、关联/替换/解除、唯一占用、档案版本、失效会话、审计失败回滚和敏感字段排除。`test_flat_backend_imports.py` 检查保留 API 的 flat 导入；`team_directory.py`、`attendance_permissions.py`、`account_purge.py` 同时支持包导入和 flat 导入。启用本地连接级 MySQL TEMPORARY 测试后全量 369 项通过；前端 43 项规则测试、TypeScript、lint 和生产构建通过。测试未修改真实员工资料、未发送邮件或创建签署。发布版本 `personnel-profile-20261022T125536Z` 已启用员工名册、Profile 关联、归档权限、姓名展示与页签布局等累计改动；下方“本地、未部署”描述保留为各阶段历史记录。生产 NIR 仍关闭，不导入本地资料，不复制本地 SuperAdmin 赋权。详情与回退边界见 `rebuild-release-readiness.md`。
+
+2026-10-22 个人设置页签布局（本地，未部署）：`profile/ProfilePage.tsx` 将账号设置与员工名册资料改为两个 sheet 页签，切换时保持表单挂载以保留未保存输入；保存工具栏只在账号设置页签显示。`AccountPersonnelSection` 的 `embedded` 模式直接展示资料，其他入口仍保留折叠卡片。接口和权限不变。
+
+2026-10-22 账号 Profile 与员工名册关联（本地，未部署）：`profile/AccountPersonnelSection.tsx`、`accountPersonnelApi.ts` 在 Administration 的账号详情、个人设置和本人/Admin 的月度 Profile 复用名册数据卡。Admin/SuperAdmin 可搜索未归档且未被其他账号占用的登记记录，关联、更换或解除关联；普通账号（含负责人）只能查看自己的关联姓名、国籍、性别、生日、地址、职位、资格、人员类型及任职期间。仅直接负责人查看下属月度概览不获得这些名册资料；`person_profiles` 的 `can_view_personnel_data` 只是界面标记，实际仍由独立后端接口鉴权。
+
+新接口由现有 `personnel_register.register_personnel_routes` 注册并复用 no-store/安全错误处理：`GET /account-personnel/{username}` 仅本人或 Admin；`GET .../choices` 和 `PUT .../link` 仅 Admin。使用现有唯一 `linked_username` 关系，不创建第二套关联，不按姓名/邮箱猜测。写操作复用 users 排序锁、员工版本和当前关联检查，更换时原档案解除关联与新档案关联及两条审计同事务提交；已占用/过期版本/新增关联归档档案被拒绝。社保号、密文、存在标记、凭据和名册修改日志均不进入 Profile 的只读数据；原社保号专用接口权限不变。解除关联不删除员工资料、任职历史、考勤或合同。`useRegistryAction` 同步失效账号资料卡与选择列表，关联后刷新姓名相关缓存。
+
+本轮仅做 Python AST、TypeScript、lint 和构建检查，未新增或运行功能测试、未实际关联/解除任何真实资料，也未部署。账号原有邮箱/密码设置仍可修改，普通员工“只读”指名册资料及关联关系。
+
+2026-10-22 账号列布局与考勤历史入口（本地，未部署）：`admin/AccountOption.tsx` 与 `accountOptionLayout.ts` 为账号、负责人、员工分配共用三列菜单，姓名/邮箱、职位/人员身份、管理权限分别对齐；选中状态只显示姓名及必要权限。`rolePolicy.ts` 将标签统一为 Admin / Super Admin，业务身份与管理权限分开投影，内部权限标识不变。`main.admin_job_titles` 只为 Admin/SuperAdmin 的 `/list-users` 补充明确关联名册的 `job_title`，仅读取关联与职位列，普通员工/经理不新增此字段，也不扩大公共目录/会话字段。
+
+`attendance/types.accountSheetPeriods` 仅从已授权配置的明确账号关联及已存月份生成历史入口，区分普通/归档；切换不回写考勤或合同。考勤页面提示该人员在当前月份无表，并提供跳转已有月份按钮；选中当前月已有人员时同步激活其页签。`attendance/open` 在无当前有效合同但已有明确绑定同月未归档快照时允许打开，原合同快照/考勤数据保持原样；新建仍要求有效合同，已归档考勤仍须先恢复。名册任职日期和考勤合同继续独立维护，本轮未改用户的实际合同日期。
+
+本轮验证：新增 9 项历史考勤打开回归、8 项 Admin 职位字段隔离回归，完整后端 358 项中 352 通过、6 项 opt-in MySQL 跳过；前端 43 项通过、全量 lint / TypeScript / 构建通过。真实本地 GET 核对职位仅按显式关联投影、2026 年 9 月考勤仍在，没有创建考勤、修改合同、发送邮件或部署；浏览器布局仍待人工查看。
+
+2026-10-22 人员名称显示（本地，未部署）：界面统一采用明确关联员工名册的 `full_name`，未填写/未关联时使用有效邮箱 `@` 前缀；两者缺失时显示中性提示，不以 `username` 兜底。`backend/person_names.py` 仅批量读取名册姓名/关联列及必要账号邮箱，不读取社保号、生日、地址或凭据；旧服务器缺名册表时安全降级。`frontend/src/personDisplayName.ts` 统一界面优先级。账号 ID、授权、路由、分组关系与历史存储不变，不按相似姓名或邮箱猜测关联。
+
+姓名投影覆盖登录会话、账号/负责人选择、组织架构、Documents 员工/上传人/归档人、考勤页签、签署预览、Dashboard、Profile、请假和历史操作者。`attendance/workspace` 的 `person_labels` 为只读显示元数据，刷新姓名不改变未保存考勤或历史导出姓名；签署人的名称使用当前已授权账号的关联姓名。名册更正姓名或账号关联成功后失效相关显示缓存。账号删除确认优先输入当前邮箱，接口兼容原用户名确认；账号设置中的明确技术凭据字段仍可编辑。
+
+2026-10-22 姓名功能回归（本地，未部署）：全量 Python discover 共 341 项，335 通过、6 项 opt-in 跳过；这 6 项本地 MySQL TEMPORARY 表测试另行全部通过。新增 `test_person_names.py`（27 项）与 `test_person_name_workflows.py`（18 项），并补账号删除邮箱确认测试，覆盖同名身份隔离、缺名册兼容、历史快照/草稿不改写、权限及敏感字段隔离。前端 `npm test` 共 35 项通过，TypeScript、全量 lint 和构建通过。真实本地 API 9 个只读接口返回 200，4 个无登录请求及篡改/旧版会话被拒绝；没有修改真实员工、上传文件、发送邮件或签署，浏览器交互仍需人工验收。
+
+本轮修复异常邮箱 fallback 校验前后端不一致；`personDisplayName.ts` 的 `personOptionLabel` 为下拉框提供姓名及邮箱辅助识别同名人员；`admin/accountIdentity.ts` 将删除确认身份与人名标签分开。`attendance/types.ts` 的 `attendancePersonName` / `withAttendanceLabels` 只更新展示元数据，不改配置和导出快照。`leave_requests.historical_actor_name` 在当前账号无法解析时采用既有可信姓名快照，拒绝原始账号 ID 和异常邮箱，不推断或改写审计身份；没有姓名快照的账号/名册操作仍显示中性旧账号提示。
+
+2026-10-22 本地权限验收：`ChristopheH` 已通过显式 local-only 脚本赋予 SuperAdmin，保留员工显示；正式隐藏尚未实现，也未部署。赋权前仅角色元数据备份在被忽略的 `.local-test/rebuild/role-backups/`，角色变化递增会话版本，需重新登录；回退角色也应递增版本，不可恢复旧会话版本。当前后端回归 294 项中 288 通过、6 项 opt-in 跳过，这 6 项真实本地 MySQL TEMPORARY 测试已另行全部通过，无真实记录删除、邮件或签署。前端 7 项既有测试、完整 lint、TypeScript 及构建均通过；浏览器交互仍需手动验收。
+
+权限与资源维护入口：`backend/role_policy.py` 提供角色继承、权限变更/最后 Super 保护、实时身份重查、角色审计和不可复用用户名；`account_purge.py` 只移除已停用且业务依赖已处理的账号，不级联删除别人的资料。`resource_maintenance.py` 由两个 React 后端入口显式注册，提供部门/请假/年访谈的分页归档与受控永久删除；`destructive_audit.py` 的独立最小删除/归档审计只接受类型、ID 和数量，不接收自由文本、NIR 或密文。维护工具不提供删除这些操作审计的接口。`frontend/src/rolePolicy.ts` 统一判断最高角色并去除冗余显示；`admin/AdvancedMaintenance.tsx` 提供紧凑管理窗口，`components/PermanentDeleteDialog.tsx` 共用精确编号确认。
+
+考勤保存由 `attendance_permissions.py` 核对已有 ID：普通 Admin 不得通过整份配置省略来删除；Super 也须先归档并在 `/attendance/save` 明确提交 `deleted_ids`，与被移除 ID 完全相同。`is_archived` 只改变展示/使用状态，保留原月份绑定和合同快照。已归档合同不用于新建考勤，历史快照仍可导出；已归档考勤不参与新签署。`scripts/promote_local_superadmin.py` 仅可显式操作 127.0.0.1:3307 的 `presence_local_rebuild`，核对已存在账号及邮箱，不创建员工、不设置密码、不在启动时自动赋权。
+
+2026-10-22 资源权限升级（本地，未部署）：SuperAdmin 继承 Admin，Admin 保留查看/创建/编辑/归档但不能永久删除；本地 ChristopheH 的测试身份暂时可见，正式隐藏以后另做。名册永久删除仅 SuperAdmin，须已归档、版本及登记号/姓名二次确认，清除该名册员工、任职和个人资料历史，同时保留 `permanent_deletion_events` 独立最小元数据审计，不记录 NIR/密文。Documents 永久删除仅 SuperAdmin 且先归档、确认文件 ID，员工不再自删；普通员工本人/上传者可归档恢复，非 Admin 经理仍只读。合同增加 `is_archived`，GET 保留全历史，Admin 归档/恢复，SuperAdmin 删除须归档和确认，任意保留考勤快照引用时拒绝。写操作复用 `role_policy.checked_resource_actor`，排序锁用户并重查状态/会话及角色；删除审计与数据库变更同事务，文件清理失败返回 `cleanup_pending`。仅隔离测试，未实际删除真实记录。
+
+2026-10-22 工作区布局（本地，未部署）：全部八个主页面的标题移到应用顶部栏，`workspacePages.ts` 集中维护法语标题和悬停说明；标题停留约 650ms、键盘聚焦或触屏长按均可查看说明。`WorkspaceToolbar` 只挂载当前页操作，月份、选人、注册、刷新等从重复页面头迁出；正文减小边距并使用可用宽度，错误、未保存状态及邮件/签署确认继续显示。考勤保存仍固定右下角；账户设置的顶部提交按钮通过 HTML form 属性关联原表单，保留原生校验。未部署、未发送邮件或修改业务数据。
+
+仪表板后续紧凑调整：`WorkspaceToolbar` 支持 `placement="inline"`，通过独立宿主把刷新放在标题同行，不占第二行工具区；其他页面默认工具栏布局不变。桌面端人员分布与统计卡片并排，环形图 190px、图例数字固定列对齐，较窄屏自动上下排列；缩小内边距、悬停明细占位和折叠栏高度。统计与刷新权限、请求、确认逻辑不变。
+
+2026-10-22 员工名册第一版（本地实现，未上线）：`frontend/src/personnel/` 与 `backend/personnel_register.py` 提供独立的 `Registre du personnel`。人员身份与登录账号分开，姓名唯一必填，账号选填一对一关联，任职经历可追加、更正并保留完整修改历史。社保号已从早期预留升级为本地受控加密录入/查看，当前仅使用合成号码测试；生产默认关闭，尚未部署。主列表每人一行，详情查看多次入职；后台分页、搜索、归档和人员类型/状态筛选。不从现有账号生成员工，普通 Admin 用归档替代永久删除；SuperAdmin 受控永久删除见本页权限升级说明，仍不提供 Excel 导出。资源权限升级前的验证基线：NIR 专项 52 项通过（29 单测、18 SQLite HTTP、5 真实 MySQL TEMPORARY）；全量 Python 237 项中 231 通过、6 项 opt-in 跳过，新增 MySQL 5 项已单独通过。前端 TypeScript/lint/build、7 项既有 draftRules 测试通过；浏览器视觉/输入交互复核受 URL 策略限制，仍需用户本地确认。角色、字段、存储、接口及验收边界见 [员工名册第一版](personnel-register.md)。
+
+NIR 配置与边界：`backend/personnel_sensitive.py` 使用 AES-256-GCM 和 `PRESENCE_PERSONNEL_NIR_KEYS_FILE` 指向的独立 keyring，生产必须显式设置 `PRESENCE_PERSONNEL_NIR_ENABLED=1` 且密钥有效才开启。本地入口自动 provision 被忽略的 `.local-test/rebuild/keys/personnel-nir.json`，不生成生产密钥；POSIX 文件创建为 0600，Windows fresh 环境须单独配置 NTFS ACL，不能靠 mode 参数实现。密钥单独备份，rotation 保留旧 key。公开 DTO 仅 `has_social_security_number`，输入未传保留、null/空白清除、非空替换；专用 reveal 先提交查看审计、HTTP no-store，前端显式显示后 30 秒或离开即清除且不进查询/浏览器存储。审计仅记录是否存在及 changed/viewed 事实，不留原号/密文；格式规则不核验真实身份或 checksum，其他个人资料、自由文本及附件不属于此字段加密范围。
+
 2026-10-21 登录标识更新（独立补丁已上线 `email-login-20261021T151000Z`）：`backend/main.py` 的 `/login` 保留 username 请求字段，接受已绑定邮箱或用户名，忽略大小写及标识两端空格；先唯一解析为实际 username，再签发会话和记住登录令牌。用户名与邮箱跨账号冲突或历史重复邮箱导致多匹配时统一拒绝，不猜测身份；密码不去空格。本地保留停用/删除登录与会话版本校验。`components/Login.tsx` 提示邮箱或用户名，不新增账户、不改原密码或邮箱，不代表已完成邮箱所有权验证。线上按两套实际源码只替换 login 标识解析，保留各自既有认证逻辑；前端从已上线的 4d6e0ad 基线只更新登录框，不包含本地档案、停用或删除登录等新功能。185 项后端回归、7 项前端测试、构建与当前源码 lint 通过；两套实际 API 补丁另有 10 项隔离登录测试通过，MySQL 临时表补充真实 bcrypt 邮箱登录通过。线上 7 个现有身份的只读映射和会话检查通过，无真实密码修改、邮件或签署；备份及回退见 doc/rebuild-release-readiness.md。
 
 2026-10-15：React 重制版已发布至 `https://app.presence.217.65.145.103.nip.io/`，版本 `react-20261015T101334Z`。新版服务 `presence-react-api` 使用 127.0.0.1:8015；原 Streamlit 与旧 API 保留运行以供回退。服务器使用原线上数据库与文件，未导入本地快照。发布与回退记录见 `rebuild-release-readiness.md`。
@@ -28,6 +68,8 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 
 | 功能 | 入口 | 共用模块与职责 |
 | --- | --- | --- |
+| 员工名册（本地） | `frontend/src/personnel/PersonnelPage.tsx` | 独立 Admin 菜单，注册员工与登录账号不同；精简响应式表格、行尾「…」完整档案、`PersonnelToolbar.tsx` 顶部注册/搜索/筛选/分页；人员编辑、任职经历、账号关联、合同预填及修改历史；`SensitiveNumber.tsx` 专用短时查看、`useSensitiveNumberCapability.ts` 仅缓存能力标记；复用草稿保护、统一请求与法语日期。后端规则/存储/加密/路由分别在 personnel_rules/store/sensitive/register，入口显式注册，不改旧合同/考勤 |
+| 应用栏页面操作槽 | `frontend/src/workspaceToolbar.ts`、`frontend/src/components/WorkspaceToolbar.tsx`、`frontend/src/workspacePages.ts` | AppWorkspace 提供吸顶宿主、逐页可见状态与高度测量；统一 h1 标题/悬停说明由 workspacePages 管理，八个页面通过 Portal 提交顶部工具栏，业务状态留在页面，隐藏页不渲染操作；名册按剩余可视高度滚动，其他正文自然纵向滚动 |
 | 考勤校验与生成 | `fiche_exports.py` | `fiche_name`、`validate_fiche`、`generate_fiche_file`，供单份、批量导出和批量签署共用 |
 | 考勤日期序列化 | `fiche_serialization.py` | 保存时日期转 ISO 字符串；读取时恢复日期对象 |
 | 默认工作安排 | `planning.py` | 工作日名称、默认时段及新记录的默认安排；不覆盖已保存安排 |
@@ -41,7 +83,7 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | 新版带薪假申请 | `frontend/src/App.tsx` | React + TypeScript + Vite + Material UI；个人/团队申请、分页、过滤、系统内提醒、申请/审批窗口及操作历史，接口集中在 `src/api.ts` |
 | 新版总入口及请假页面 | `frontend/src/AppWorkspace.tsx`、`frontend/src/LeaveWorkspace.tsx` | `App.tsx` 只管理会话，外壳提供统一导航，请假页面只保留业务内容，导航统一由 AppWorkspace 提供；界面主题与角色菜单共用 |
 | 新版页面加载和草稿提醒 | `frontend/src/AppWorkspace.tsx` | 各模块独立加载与失败重试，已打开模块保留状态；`draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx` 共用草稿注册、确认与刷新/关闭提醒；上下文提供不含字段值的待保存模块标签，外壳持续显示法语提示，考勤保存区区分待保存/干净/待应用日历状态；未应用的日历选区在切换员工、打开其他档案或切月前确认，覆盖考勤、管理表单、Documents 上传、请假、面谈、账户设置；提交期间阻止工作区切页/退出 |
-| 新版考勤页面 | `frontend/src/attendance/AttendancePage.tsx` | 保留完整 JSON 草稿、稳定 ID 分页、保存、导出与勾选；保存固定在当前考勤页面右下角，`components/BatchExportResult.tsx` 共用完整导出结果、期间选区快照、失败原因与 JSON 明细（失败不推断单项成功）；单份 Excel/Word 和 PDF 收进 `FicheExportMenu.tsx` 的 More 菜单；编辑、日历及月份拆至同目录组件，API 复用总请求工具 |
+| 新版考勤页面 | `frontend/src/attendance/AttendancePage.tsx` | 保留完整 JSON 草稿、稳定 ID 分页、保存、导出与勾选；`AttendanceToolbar.tsx` 顶栏月份/选人/打开，`PeriodToolbar.tsx` 共用紧凑响应式月份控件；日历 showPeriodSelector 保留默认兼容，本页关闭重复选择器；保存固定在当前考勤页面右下角，`components/BatchExportResult.tsx` 共用完整导出结果、期间选区快照、失败原因与 JSON 明细（失败不推断单项成功）；单份 Excel/Word 和 PDF 收进 `FicheExportMenu.tsx` 的 More 菜单；编辑、日历及月份拆至同目录组件，API 复用总请求工具 |
 | 新版 Documents | `frontend/src/documents/DocumentsPage.tsx` | 单一吸顶月份栏同时控制上传与文件列表，保留草稿切月确认并清空旧月份勾选；待处理/归档、类型筛选、勾选及批量下载；`documentSearch.ts` 在已鉴权列表内按文件名、编号、员工、上传人及类型说明进行多词搜索，忽略大小写和重音；搜索与月份/文件夹/类型组合，改变搜索词清空勾选，不扩大后端权限；列表提供 Compact/Standard/Confort 三档卡片大小，以放大/缩小图标调整响应式列数、间距和标题字号；偏好仅保存在浏览器 localStorage，默认 Standard，不改变勾选或文件；操作按钮保留 44px 点击面积。`DocumentUpload.tsx` 上传弹窗（本地改版：日期栏按钮打开，显示绑定月份，成功关闭，取消/Esc/遮罩关闭检查本弹窗草稿，提交时禁止关闭，错误在弹窗内显示），`DocumentCard.tsx` 卡片及操作确认（视觉版：预览/下载保留常驻图标，改月/归档/删除收入更多菜单；删除保留确认，统一 44px 点击面积、法语提示及 aria-label），`DocumentPreview.tsx` 通过原鉴权下载接口获取 Blob，在响应式弹窗中展示图片（内存 data URL）或延迟加载 `PdfPreview.tsx` 用 PDF.js/Canvas 渲染 PDF，支持翻页及缩放；Vite 将版本化字体、CMap 和解码器复制到被忽略的 public/pdfjs 并打包，全部同站加载，保持现有 CSP 不变；提供新标签页/下载回退、取消加载与关闭后释放 URL，不持久化或发送文件至第三方；`api.ts` 类型与请求；共用 `src/download.ts` 下载工具 |
 | 账号停用与会话撤销（本地） | `backend/account_lifecycle.py`、`frontend/src/admin/AccountAccess.tsx` | additive users.is_active/session_version 与 account_status_events；Admin 锁定后重新验权，不可停用本人；PATCH /users/{username}/activation，GET /users/{username}/activation-history；撤销会话、记住登录及重置链接，重新启用需重新登录；旧 DELETE /delete-user 返回 409，不删历史数据。组织目录/人数统计排除停用账号，Admin 保留查询和重新启用；新签署拒绝停用的签署双方 |
 | 新版个人月度档案（本地） | `frontend/src/team/PersonProfile.tsx`、`backend/person_profiles.py` | `GET /person-profiles/{username}?year=YYYY`；每次从数据库重新核对本人/当前直接负责人/Admin，授权后聚合全年绑定考勤、文件归档数、跨月请假及可追踪签署发送回执，不返回其他人员配置、文件内容或签署链接；Mon équipe 提供本人按钮、人员姓名和授权范围的档案选择。新版 server/local 入口注册，旧主入口不变 |
@@ -61,12 +103,14 @@ Documents 的功能、使用流程和上线状态见 [Documents 开发报告](do
 | 模块 | 职责 | 主要接口 |
 | --- | --- | --- |
 | `backend/main.py` | 应用入口、环境配置、数据库连接、认证、组织权限、用户、提醒、面谈、考勤 JSON 保存和启动迁移 | `/login`、`/restore-session`、`/groups`、`/list-users`、`/dashboard`、`/get-config/{user_id}`、`/save-config/{user_id}` 等 |
+| `backend/personnel_register.py`、`personnel_store.py`、`personnel_rules.py` | 本地名册、实时 Admin/SuperAdmin 鉴权、增量密文列、版本冲突、普通及 NIR 元数据审计；Super 删除已归档名册并保留独立最小删除审计；所有名册响应禁止缓存，校验错误不回显原输入 | `/personnel-register`、`/accounts`、`/capabilities`、`/{id}`（含受控 DELETE）、`/periods`、`/archive`、`/history`、`/{id}/social-security-number/reveal` |
+| `backend/personnel_sensitive.py` | 独立 keyring、NIR 格式规范化、AES-256-GCM 与员工 ID 绑定、配置/篡改错误失败关闭；本地显式初始化 helper | 由名册路由和本地入口调用；不派生会话密钥、不自动配置生产密钥 |
 | `backend/document_numbers.py` | 按巴黎上传日期分配 YYYYMMDD-0001 编号；启动时增量建列、唯一索引和每日计数表，历史文件按 created_at/id 补号；事务行锁保证并发分配，删除不回收编号 | 由 Documents 启动迁移与上传共用 |
-| `backend/documents.py` | 文件编号展示/下载前缀、文件上传、访问范围、元数据、月份修正、归档及删除；ZIP 逐份复用下载鉴权，最多 100 份、100 MiB，不返回部分 ZIP | `/transport-receipts`、`/transport-receipts/assignees`、`/transport-receipts/{receipt_id}/file`、`/period`、`/archive`、`POST /transport-receipts/export` |
+| `backend/documents.py` | 文件编号展示/下载前缀、文件上传、访问范围、元数据、月份修正、归档/恢复；永久删除仅 Super 且先归档、确认 ID，提交后文件清理失败显式返回 cleanup_pending；ZIP 逐份复用下载鉴权，最多 100 份、100 MiB，不返回部分 ZIP | `/transport-receipts`、`/transport-receipts/assignees`、`/transport-receipts/{receipt_id}`（受控 DELETE）、`/file`、`/period`、`/archive`、`POST /transport-receipts/export` |
 | `backend/esign.py` | LibreOffice 转换、临时 PDF 存储、ClawShow 请求及接口错误转换；注册函数返回原发送服务供 React 适配器复用，原路由不变 | `/fiches/pdf`、`/send-fiche`、`/esign/documents/{document_token}` |
 | `backend/signature_flow.py` | 根据员工账户寻找负责人，检查签署邮箱与权限，组装 SIGNER 顺序及员工或实习生的两个签名锚点 | 由 `backend/esign.py` 调用 |
 | `backend/signature_placement.py` | 从最终 PDF 查找唯一签名文字，按 ClawShow 当前的 A4 参考坐标换算；拒绝缺失、重复及不支持的旋转或裁剪页面 | 由 `backend/esign.py` 调用 |
-| `backend/contract_history.py` | 合同历史表创建与旧数据迁移，维护合同并阻止日期重叠 | `/users/{username}/contracts`、`/users/{username}/contracts/{contract_id}` |
+| `backend/contract_history.py` | 合同历史表增量迁移，GET 保留归档历史，正常合同日期防重叠，Admin 归档/恢复；Super 确认删除已归档且无任何考勤引用的合同 | `/users/{username}/contracts`、`/users/{username}/contracts/{contract_id}`（含受控 DELETE）、`/{contract_id}/archive` |
 | `backend/attendance_permissions.py` | 限制经理保存内容为权限范围内的考勤字段 | 由 `/save-config/{user_id}` 调用 |
 | `backend/team_directory.py` | 登录用户查看基础架构；目录响应新增 `organization` 投影供 React 使用，保留旧字段；按服务端部门归属查询员工本组名单，不暴露合同、完整邮箱或财务资料 | `/organization-directory`、`/my-team` |
 | `backend/leave_requests.py` | 带薪假接口，注入认证/连接；跟随当前直接负责人，Admin 代审，员工审批前撤回 | `/leave/session`、`/leave-requests`、`/{id}`、`/{id}/decision`、`/{id}/withdraw` |
@@ -108,7 +152,7 @@ Documents、eSign 和合同模块通过注册函数挂到同一个 FastAPI 应�
 
 ## 权限与文件生命周期
 
-Admin 拥有管理权限；Responsable 可以在后端允许的团队范围内查看并填考勤，不能修改人员、合同或删除考勤；Employe 使用自己的账户和允许的个人资料。
+SuperAdmin 继承 Admin，并独占资源永久删除权限；Admin 保留管理、编辑及归档权限。Responsable 可以在后端允许的团队范围内查看并填考勤，不能修改人员、合同或删除考勤；Employe 使用自己的账户和允许的个人资料。Documents 普通员工仅本人/上传者可归档恢复，非 Admin 的 Responsable 保持只读；权限均由实时后端检查执行。
 
 Documents 的文件默认保存在 `/var/lib/presence-app/transport-receipts`，由 `PRESENCE_TRANSPORT_RECEIPTS_DIR` 配置。归档只改变元数据，不删除文件。下载需要认证，Admin 可见全部，普通账户与经理按后端访问范围查看。
 

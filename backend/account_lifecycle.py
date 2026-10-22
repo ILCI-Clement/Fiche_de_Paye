@@ -3,6 +3,15 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, StrictBool
 import secrets
 
+if __package__:
+    from .person_names import load_display_names
+    from .role_policy import (active_super_admin_count, can_manage_account, checked_resource_actor,
+                              is_admin, is_super_admin)
+else:
+    from person_names import load_display_names
+    from role_policy import (active_super_admin_count, can_manage_account, checked_resource_actor,
+                             is_admin, is_super_admin)
+
 
 class AccountActivation(BaseModel):
     is_active: StrictBool
@@ -47,16 +56,14 @@ def _add_account_columns(cursor):
 
 def register_account_lifecycle(app, *, get_db_connection, get_current_user, load_user, public_user, hash_password):
     def locked_target(cursor, username, actor):
-        cursor.execute('SELECT username FROM users ORDER BY username FOR UPDATE')
-        cursor.fetchall()
-        current = load_user(cursor, actor['username'])
-        if (not current or not current.get('is_active', True) or current.get('login_deleted_at')
-            or 'Admin' not in current['role_tags']
-            or current.get('session_version', 0) != actor.get('session_version', 0)):
+        current = checked_resource_actor(cursor, actor, load_user, lock=True)
+        if not is_admin(current):
             raise HTTPException(403, 'Seul un administrateur actif peut modifier l’accès au compte.')
         target = load_user(cursor, username)
         if not target:
             raise HTTPException(404, 'Compte introuvable.')
+        if not can_manage_account(current, target):
+            raise HTTPException(403, 'Seul un Super-administrateur peut modifier ce compte.')
         return current, target
 
     @app.patch('/users/{username}/activation')
@@ -71,6 +78,9 @@ def register_account_lifecycle(app, *, get_db_connection, get_current_user, load
                 if target['username'] == current['username'] and not payload.is_active:
                     raise HTTPException(400, 'Vous ne pouvez pas désactiver votre propre compte.')
                 was_active = bool(target.get('is_active', True))
+                if was_active and not payload.is_active and is_super_admin(target):
+                    if active_super_admin_count(cursor, exclude_username=target['username']) == 0:
+                        raise HTTPException(409, 'Le dernier Super-administrateur actif doit être conservé.')
                 if was_active != payload.is_active:
                     cursor.execute('''UPDATE users SET is_active=%s, session_version=session_version+1,
                         remember_token_hash=NULL,remember_token_expires=NULL,reset_token=NULL,reset_token_expires=CURRENT_TIMESTAMP
@@ -93,10 +103,16 @@ def register_account_lifecycle(app, *, get_db_connection, get_current_user, load
         try:
             with db.cursor() as cursor:
                 current, target = locked_target(cursor, username, actor)
+                if not is_super_admin(current):
+                    raise HTTPException(403, 'Seul un Super-administrateur peut supprimer un accès de connexion.')
                 if target['username'] == current['username']:
                     raise HTTPException(400, 'Vous ne pouvez pas supprimer votre propre accès.')
-                if payload.confirmation != target['username']:
-                    raise HTTPException(400, 'Saisissez le nom exact du compte pour confirmer.')
+                confirmations = {target['username']}
+                email = str(target.get('email') or '').strip()
+                if email:
+                    confirmations.add(email)
+                if payload.confirmation not in confirmations:
+                    raise HTTPException(400, 'Saisissez l’adresse e-mail exacte du compte pour confirmer.')
                 if target.get('is_active', True):
                     raise HTTPException(409, 'Désactivez le compte avant de supprimer son accès de connexion.')
                 if not target.get('login_deleted_at'):
@@ -121,13 +137,18 @@ def register_account_lifecycle(app, *, get_db_connection, get_current_user, load
 
     @app.get('/users/{username}/activation-history')
     def history(username: str, actor=Depends(get_current_user)):
-        if 'Admin' not in actor['role_tags']:
-            raise HTTPException(403, 'Historique réservé aux administrateurs.')
         db = get_db_connection()
         try:
             with db.cursor() as cursor:
+                current = checked_resource_actor(cursor, actor, load_user)
+                if not is_admin(current):
+                    raise HTTPException(403, 'Historique réservé aux administrateurs.')
                 cursor.execute('''SELECT actor_username,was_active,is_active,action,created_at FROM account_status_events
                     WHERE target_username=%s ORDER BY id DESC LIMIT 100''', (username,))
-                return {'events': cursor.fetchall()}
+                events = cursor.fetchall()
+                names = load_display_names(cursor, [event['actor_username'] for event in events])
+                for event in events:
+                    event['actor_display_name'] = names.get(event['actor_username'], 'Ancien compte')
+                return {'events': events}
         finally:
             db.close()

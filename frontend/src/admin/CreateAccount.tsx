@@ -7,7 +7,7 @@ import type { AdminUser, OrganizationInput, RunAction } from './api'
 import type { Group } from '../team/api'
 
 const initial = (): OrganizationInput => ({ role_tags: ['Employe'], employee_type: 'salarie', manager_id: null, group_ids: [], managed_group_ids: [] })
-export function CreateAccount({ token, users, groups, enabled, busy, run, error, onClose }: { token: string; users: AdminUser[]; groups: Group[]; enabled: boolean; busy: boolean; run: RunAction; error: string; onClose: () => void }) {
+export function CreateAccount({ token, users, groups, allowSuperAdmin, enabled, busy, run, error, onClose }: { token: string; users: AdminUser[]; groups: Group[]; allowSuperAdmin: boolean; enabled: boolean; busy: boolean; run: RunAction; error: string; onClose: () => void }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -27,11 +27,11 @@ export function CreateAccount({ token, users, groups, enabled, busy, run, error,
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     {!enabled && <Alert severity="info" sx={{ mb: 2 }}>Le formulaire est disponible, mais la création de comptes est désactivée ou indisponible dans cet environnement.</Alert>}
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, pt: 1 }}>
-      <TextField label="Nom du nouveau compte" autoComplete="off" required value={name} disabled={disabled} onChange={e => setName(e.target.value)} />
+      <TextField label="Identifiant technique du compte" helperText="Utilisé pour la connexion ; les noms et prénoms sont gérés dans le registre du personnel." autoComplete="off" required value={name} disabled={disabled} onChange={e => setName(e.target.value)} />
       <TextField label="E-mail du nouveau compte" type="email" required value={email} disabled={disabled} onChange={e => setEmail(e.target.value)} />
       <TextField label="Mot de passe initial" type="password" autoComplete="new-password" required value={password} disabled={disabled} onChange={e => setPassword(e.target.value)} slotProps={{ htmlInput: { minLength: 8 } }} />
       <TextField label="Confirmer le mot de passe initial" type="password" autoComplete="new-password" required value={confirmation} disabled={disabled} error={!!confirmation && password !== confirmation} onChange={e => setConfirmation(e.target.value)} />
-      <OrganizationFields value={organization} onChange={setOrganization} users={users} groups={groups} disabled={disabled} />
+      <OrganizationFields value={organization} onChange={setOrganization} users={users} groups={groups} disabled={disabled} allowSuperAdmin={allowSuperAdmin} />
     </Box>
     </DialogContent>
     <DialogActions sx={{ px: 3, pb: 3 }}>

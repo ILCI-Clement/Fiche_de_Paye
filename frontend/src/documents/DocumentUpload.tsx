@@ -2,13 +2,16 @@ import { useDraftGuard } from '../draftGuard'
 import { useRef, useState } from 'react'
 import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField, Typography } from '@mui/material'
 import { documentsApi, periodLabel } from './api'
+import type { DocumentAccount } from './api'
+import { personOptionLabel } from '../personDisplayName'
 
-export function DocumentUpload({ token, username, admin, users, month, year, busy, run, requestError, onClose }: {
-  token: string; username: string; admin: boolean; users: string[]; month: number; year: number; busy: boolean;
+export function DocumentUpload({ token, username, currentDisplayName, admin, accounts, month, year, busy, run, requestError, onClose }: {
+  token: string; username: string; currentDisplayName: string; admin: boolean; accounts: DocumentAccount[]; month: number; year: number; busy: boolean;
   run: (action: () => Promise<void>, message: string) => Promise<boolean>
   requestError: string; onClose: () => void;
 }) {
   const [owner, setOwner] = useState(username)
+  const people = accounts.some(person => person.username === username) ? accounts : [{ username, display_name: currentDisplayName }, ...accounts]
   const [type, setType] = useState('transport')
   const [other, setOther] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -39,7 +42,7 @@ export function DocumentUpload({ token, username, admin, users, month, year, bus
       <Chip color="primary" variant="outlined" label={`Mois de rattachement : ${periodLabel(month, year)}`} sx={{ mb: 3 }} />
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
         {admin && <TextField select label="Employé concerné" value={owner} disabled={busy} onChange={e => setOwner(e.target.value)} sx={{ minWidth: 220 }}>
-          {[...new Set([username, ...users])].map(user => <MenuItem key={user} value={user}>{user.split('@')[0]}</MenuItem>)}
+          {people.map(person => <MenuItem key={person.username} value={person.username}>{personOptionLabel(person)}</MenuItem>)}
         </TextField>}
         <TextField select label="Type de document" value={type} disabled={busy} onChange={e => setType(e.target.value)} sx={{ minWidth: 180 }}>
           <MenuItem value="transport">Transport</MenuItem><MenuItem value="autre">Autre</MenuItem>

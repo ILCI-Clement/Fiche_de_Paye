@@ -1,3 +1,4 @@
+import { personDisplayName } from '../personDisplayName'
 import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Paper, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
@@ -16,7 +17,7 @@ function signerActions(result: { document_id?: string; links?: string[]; actions
     } catch { return false }
   })
 }
-export function SignaturePreview({ token, ids, month, year, onClose }: { token: string; ids: string[]; month: number; year: number; onClose: () => void }) {
+export function SignaturePreview({ token, ids, month, year, onClose, personLabels = {} }: { token: string; ids: string[]; month: number; year: number; onClose: () => void; personLabels?: Record<string, string> }) {
   const preview = useQuery({ queryKey: ['signature-preview', ids, month, year], queryFn: ({ signal }) => request<{ items: PreviewItem[]; reason: string; can_send: boolean; mode: string }>('/attendance/signature-preview', token,
     { method: 'POST', signal, body: JSON.stringify({ ids, month, year }) }), retry: false, staleTime: 0, gcTime: 0, refetchOnWindowFocus: false })
   const [confirmed, setConfirmed] = useState(false)
@@ -48,7 +49,7 @@ export function SignaturePreview({ token, ids, month, year, onClose }: { token: 
     try {
       for (const item of preview.data.items) {
         if (!alive.current) break
-        setCurrentName(item.name || `Fiche ${item.id}`)
+        setCurrentName(personLabels[String(item.id)] || personDisplayName({ display_name: item.name, email: item.employee_email }))
         if (item.error || !item.fingerprint) {
           setOutcomes(o => ({ ...o, [item.id]: { ok: false, message: item.error || 'Fiche invalide.' } }))
         } else {
@@ -75,8 +76,8 @@ export function SignaturePreview({ token, ids, month, year, onClose }: { token: 
         Traitement terminé : {created} demande(s) créée(s) · {notSent} non envoyée(s) · {uncertain} à vérifier. Les signatures restent à effectuer.
         {uncertain > 0 && <Typography variant="body2">Une erreur ou un délai d’attente ne prouve pas l’absence d’envoi. Aucune relance automatique : vérifiez ces demandes dans ClawShow pour éviter les doublons.</Typography>}
       </Alert>}
-      {preview.data.items.map(item => <Paper key={item.id} variant="outlined" sx={{ p: 2, mb: 1, overflowWrap: 'anywhere' }}><Typography sx={{ fontWeight: 650 }}>{item.name || `Fiche ${item.id}`}</Typography>
-        <Typography variant="body2">1. Salarié : {item.employee_email || 'E-mail manquant'}</Typography><Typography variant="body2">2. Responsable : {item.manager_name || '—'} · {item.manager_email || '—'}</Typography>
+      {preview.data.items.map(item => <Paper key={item.id} variant="outlined" sx={{ p: 2, mb: 1, overflowWrap: 'anywhere' }}><Typography sx={{ fontWeight: 650 }}>{personLabels[String(item.id)] || personDisplayName({ display_name: item.name, email: item.employee_email })}</Typography>
+        <Typography variant="body2">1. Salarié : {item.employee_email || 'E-mail manquant'}</Typography><Typography variant="body2">2. Responsable : {personDisplayName({ display_name: item.manager_name, email: item.manager_email })} · {item.manager_email || '—'}</Typography>
         {item.error && <Alert severity="error" sx={{ mt: 1 }}>{item.error}</Alert>}
         {outcomes[item.id] && <Alert severity={outcomes[item.id].ok ? 'success' : outcomes[item.id].uncertain ? 'warning' : 'error'} sx={{ mt: 1 }}>{outcomes[item.id].ok ? 'Demande créée — signatures en attente. ' : outcomes[item.id].uncertain ? 'À vérifier — ' : 'Non envoyée — '}{outcomes[item.id].message}{outcomes[item.id].document_id && ` Référence : ${outcomes[item.id].document_id}`}</Alert>}
         {outcomes[item.id] && signerActions(outcomes[item.id]).map((action, index) => <Button key={action.url} component="a" href={action.url} target="_blank" rel="noopener noreferrer" sx={{ mt: 1 }}>{action.party === 'employee' ? 'Signature du salarié' : action.party === 'manager' ? 'Signature du responsable' : `Ouvrir la page de signature ${index + 1}`}</Button>)}

@@ -7,10 +7,11 @@ import time
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 from contract_periods import period_sheets
-from fiche_exports import fiche_name, validate_fiche, generate_fiche_file
+from fiche_exports import validate_fiche, generate_fiche_file
 from fiche_serialization import deserialize_dates
-from .signature_flow import resolve_manager, signer_display_name
+from .signature_flow import resolve_manager
 from .esign import ESignFicheRequest
+from .person_names import person_display_name
 
 
 class SignatureSelection(BaseModel):
@@ -37,7 +38,7 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
         manager = resolve_manager(email, actor, get_db_connection, load_user, require_target_access)
         if recipient_policy:
             recipient_policy(email, manager['email'])
-        name = signer_display_name(fiche_name(employee), email)
+        name = manager.get('employee_name') or person_display_name({'email': email})
         digest = hashlib.sha256(json.dumps({'employee': employee, 'manager': manager, 'mode': readiness().get('mode', 'sandbox-only'),
             'month': month, 'year': year}, sort_keys=True, default=str).encode()).hexdigest()
         return {'name': name, 'employee_email': email, 'manager_name': manager['name'],
@@ -47,7 +48,8 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
         if not {'Admin', 'Responsable'} & set(actor['role_tags']):
             raise HTTPException(403, 'Accès réservé aux administrateurs et responsables.')
         config = get_config(actor['username'], actor)
-        return {str(e['id']): e for e in period_sheets(config.get('employes_data', []), month, year)}
+        return {str(e['id']): e for e in period_sheets(config.get('employes_data', []), month, year)
+                if not e.get('is_archived')}
 
     @app.post('/attendance/signature-preview')
     def preview(payload: SignatureSelection, actor=Depends(get_current_user)):
@@ -57,7 +59,7 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
             employee = records.get(sheet_id)
             if not employee:
                 raise HTTPException(400, 'Une fiche sélectionnée est absente du mois affiché.')
-            name = fiche_name(employee)
+            name = person_display_name({'email': employee.get('email_employe')})
             result = {'id': sheet_id, 'name': name, 'employee_email': str(employee.get('email_employe') or ''), 'manager_name': '', 'manager_email': '', 'error': ''}
             try:
                 result.update(inspect(employee, payload.month, payload.year, actor))

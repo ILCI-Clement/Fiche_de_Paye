@@ -20,18 +20,32 @@ import urllib.request
 from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape
 from pathlib import Path
 from typing import Any
 
 import bcrypt
 import pymysql
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+if __package__:
+    from .person_names import (annotate_person_names, load_person_accounts,
+                               load_person_names, person_display_name)
+    from .role_policy import (VALID_ROLES, ROLE_PRIORITY, active_super_admin_count, can_assign_roles,
+                              can_manage_account, canonical_role_tags, checked_resource_actor,
+                              ensure_role_audit_schema, is_admin, is_super_admin, record_role_change,
+                              reserve_deleted_account_name, username_is_reserved)
+else:
+    from person_names import (annotate_person_names, load_person_accounts,
+                              load_person_names, person_display_name)
+    from role_policy import (VALID_ROLES, ROLE_PRIORITY, active_super_admin_count, can_assign_roles,
+                             can_manage_account, canonical_role_tags, checked_resource_actor,
+                             ensure_role_audit_schema, is_admin, is_super_admin, record_role_change,
+                             reserve_deleted_account_name, username_is_reserved)
 
 
 app = FastAPI(title="Presence API")
-VALID_ROLES = {"Admin", "Responsable", "Employe"}
-ROLE_PRIORITY = ("Admin", "Responsable", "Employe")
 VALID_EMPLOYEE_TYPES = {"salarie", "stagiaire"}
 SESSION_DURATION_SECONDS = 8 * 60 * 60
 REMEMBER_SESSION_DURATION_DAYS = 30
@@ -89,6 +103,12 @@ class GroupRequest(BaseModel):
 
 class DirectManagerRequest(BaseModel):
     manager_id: str
+
+
+class AccountPurgeRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True, hide_input_in_errors=True)
+    confirmation: str = Field(min_length=1, max_length=255)
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class RememberSessionRequest(BaseModel):
@@ -194,6 +214,7 @@ def ensure_organization_schema() -> None:
             else:
                 from account_lifecycle import ensure_account_lifecycle_schema
             ensure_account_lifecycle_schema(cursor)
+            ensure_role_audit_schema(cursor)
             cursor.execute("SHOW COLUMNS FROM users")
             columns = {item["Field"] for item in cursor.fetchall()}
             if "employee_type" not in columns:
@@ -340,7 +361,7 @@ def migrate_database() -> None:
     start_contract_reminder_worker()
 
 
-def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] | None:
+def load_user(cursor: pymysql.cursors.Cursor, username: str, *, person_names=None, account_names=None) -> dict[str, Any] | None:
     cursor.execute(
         """
         SELECT username, email, password_hash, is_admin, role, role_tags, employee_type, manager_username,
@@ -358,7 +379,7 @@ def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] |
     except (TypeError, json.JSONDecodeError):
         tags = set()
     tags = tags & VALID_ROLES or {normalize_role(user)}
-    user["role_tags"] = [role for role in ROLE_PRIORITY if role in tags]
+    user["role_tags"] = canonical_role_tags(tags)
     user["role"] = user["role_tags"][0]
     user["employee_type"] = user.get("employee_type") or "salarie"
     cursor.execute(
@@ -376,12 +397,37 @@ def load_user(cursor: pymysql.cursors.Cursor, username: str) -> dict[str, Any] |
         cursor.execute("SELECT * FROM personnel_contracts WHERE username=%s ORDER BY start_date", (username,))
         history = cursor.fetchall()
         if history:
-            current = next((c for c in history if c["start_date"] <= date.today() and (c["end_date"] is None or c["end_date"] >= date.today())), None)
+            current = next((c for c in history if not c.get('is_archived') and c["start_date"] <= date.today() and (c["end_date"] is None or c["end_date"] >= date.today())), None)
             user["contract_start_date"] = current["start_date"] if current else None
             user["contract_end_date"] = current["end_date"] if current else None
             user["is_cdi"] = current["is_cdi"] if current else False
             if current:
                 user["employee_type"] = "salarie" if current["employee_type"] == "alternance" else current["employee_type"]
+    names = person_names
+    if names is None:
+        names = getattr(cursor, '_presence_person_names', None)
+        if names is None:
+            names = load_person_names(cursor)
+            try:
+                cursor._presence_person_names = names
+            except (AttributeError, TypeError):
+                pass  # Some cursor adapters cannot carry request-scoped attributes.
+    annotate_person_names([user], names)
+    manager_username = user.get('manager_username')
+    if manager_username:
+        manager_names = account_names
+        if manager_names is None:
+            manager_names = getattr(cursor, '_presence_account_display_names', None)
+            if manager_names is None:
+                manager_names = {key: account['display_name'] for key, account in
+                                 load_person_accounts(cursor, person_names=names).items()}
+                try:
+                    cursor._presence_account_display_names = manager_names
+                except (AttributeError, TypeError):
+                    pass
+        user['manager_display_name'] = manager_names.get(manager_username, 'Ancien compte')
+    else:
+        user['manager_display_name'] = None
     return user
 
 
@@ -390,13 +436,17 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "id": user["username"],
         "username": user["username"],
         "email": user["email"],
+        "full_name": user.get('full_name'),
+        "name": person_display_name(user),
+        "display_name": person_display_name(user),
         "role": user["role"],
         "role_tags": user["role_tags"],
-        "is_admin": bool(user.get("is_admin")),
+        "is_admin": is_admin(user),
         "is_active": bool(user.get("is_active", True)),
         "login_deleted_at": user.get("login_deleted_at"),
         "employee_type": user.get("employee_type") or "salarie",
         "manager_id": user.get("manager_username"),
+        "manager_display_name": user.get('manager_display_name'),
         "group_ids": user.get("group_ids", []),
         "managed_group_ids": user.get("managed_group_ids", []),
         "contract_start_date": user.get("contract_start_date"),
@@ -529,6 +579,8 @@ def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) 
     records: list[dict[str, Any]] = []
     represented_accounts: set[str] = set()
     seen_references: set[str] = set()
+    users = all_users(cursor)
+    accounts = {user['username']: user for user in users}
     cursor.execute("SELECT user_id, form_content FROM Presence")
     for row in cursor.fetchall():
         content = row.get("form_content")
@@ -537,7 +589,7 @@ def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) 
         except (TypeError, json.JSONDecodeError):
             continue
         for employee in config.get("employes_data", []) if isinstance(config, dict) else []:
-            if not isinstance(employee, dict):
+            if not isinstance(employee, dict) or employee.get('is_archived'):
                 continue
             account_username = resolve_fiche_account_username(cursor, employee)
             cursor.execute("SHOW TABLES LIKE 'personnel_contracts'")
@@ -545,25 +597,24 @@ def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) 
                 cursor.execute("SELECT id FROM personnel_contracts WHERE username=%s LIMIT 1", (account_username,))
                 if cursor.fetchone():
                     continue
-            display_name = fiche_display_name(employee) or account_username or "Employé sans nom"
+            account = accounts.get(account_username)
+            display_name = person_display_name(account or {'email': employee.get('email_employe')})
             _, end_date, is_cdi = fiche_contract_values(employee)
             if not isinstance(end_date, date) or is_cdi:
                 continue
             days_remaining = (end_date - today).days
             if not 0 <= days_remaining <= 10:
                 continue
-            record_id = f"{row['user_id']}:{employee.get('id') or display_name.casefold()}"
+            identity_name = fiche_display_name(employee) or account_username or display_name
+            record_id = f"{row['user_id']}:{employee.get('id') or identity_name.casefold()}"
             reminder_key = account_username or f"fiche:{hashlib.sha256(record_id.encode()).hexdigest()[:32]}"
             if reminder_key in seen_references:
                 continue
             seen_references.add(reminder_key)
             if account_username:
                 represented_accounts.add(account_username)
-                account = load_user(cursor, account_username)
-            else:
-                account = None
             manager_username = account.get("manager_username") if account else None
-            manager = load_user(cursor, manager_username) if manager_username else None
+            manager = accounts.get(manager_username)
             manager_email = str(employee.get("email_responsable") or "").strip()
             if not manager_email and manager:
                 manager_email = str(manager["email"])
@@ -575,13 +626,13 @@ def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) 
                     "contract_end_date": end_date,
                     "days_remaining": days_remaining,
                     "manager_username": manager_username,
-                    "manager_name": str(employee.get("responsable") or manager_username or "—"),
+                    "manager_name": person_display_name(manager or {'email': manager_email}),
                     "manager_email": manager_email,
                 }
             )
 
     # Keep contracts maintained directly on an account when that account has no fiche yet.
-    for user in all_users(cursor):
+    for user in users:
         if user["username"] in represented_accounts:
             continue
         end_date = user.get("contract_end_date")
@@ -591,16 +642,16 @@ def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) 
         if not 0 <= days_remaining <= 10:
             continue
         manager_username = user.get("manager_username")
-        manager = load_user(cursor, manager_username) if manager_username else None
+        manager = accounts.get(manager_username)
         records.append(
             {
                 "reminder_key": user["username"],
                 "employee_username": user["username"],
-                "employee_name": user["username"],
+                "employee_name": person_display_name(user),
                 "contract_end_date": end_date,
                 "days_remaining": days_remaining,
                 "manager_username": manager_username,
-                "manager_name": manager_username or "—",
+                "manager_name": person_display_name(manager),
                 "manager_email": str(manager["email"]) if manager else "",
             }
         )
@@ -610,14 +661,13 @@ def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) 
 def eligible_for_annual_interview(user: dict[str, Any]) -> bool:
     # The Admin label is an application permission, not an employment status:
     # administrators also need their yearly interview to be tracked.
-    return bool({"Admin", "Employe", "Responsable"} & set(user["role_tags"]))
+    return bool(user.get('is_active', True) and not user.get('login_deleted_at')
+                and {"Admin", "Employe", "Responsable"} & set(user["role_tags"]))
 
 
 def ensure_annual_interviews(cursor: pymysql.cursors.Cursor, year: int) -> None:
     """Create one annual-interview task per active personnel account and year."""
-    cursor.execute("SELECT username FROM users ORDER BY username")
-    for row in cursor.fetchall():
-        user = load_user(cursor, str(row["username"]))
+    for user in all_users(cursor):
         if user and eligible_for_annual_interview(user):
             cursor.execute(
                 """
@@ -629,8 +679,12 @@ def ensure_annual_interviews(cursor: pymysql.cursors.Cursor, year: int) -> None:
 
 
 def all_users(cursor: pymysql.cursors.Cursor) -> list[dict[str, Any]]:
-    cursor.execute("SELECT username FROM users ORDER BY username")
-    return [user for row in cursor.fetchall() if (user := load_user(cursor, str(row["username"])))]
+    cursor.execute("SELECT username,email FROM users ORDER BY username")
+    accounts = cursor.fetchall()
+    names = load_person_names(cursor, [account['username'] for account in accounts])
+    labels = {account['username']: person_display_name(account, names) for account in accounts}
+    return [user for account in accounts if (user := load_user(cursor, str(account['username']),
+                                                             person_names=names, account_names=labels))]
 
 
 def users_visible_to_actor(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], users: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -702,10 +756,12 @@ def would_create_management_cycle(
 
 def requested_role_tags(payload: dict[str, Any], fallback: list[str] | None = None) -> list[str]:
     raw_tags = payload.get("role_tags", fallback or [payload.get("new_role", "Employe")])
+    if not isinstance(raw_tags, (list, tuple, set)):
+        raise HTTPException(status_code=400, detail="Les étiquettes d'identité sont invalides.")
     tags = {str(tag) for tag in (raw_tags or [])}
     if not tags or not tags.issubset(VALID_ROLES):
         raise HTTPException(status_code=400, detail="Les étiquettes d'identité sont invalides.")
-    return [role for role in ROLE_PRIORITY if role in tags]
+    return canonical_role_tags(tags)
 
 
 def validate_group_ids(cursor: pymysql.cursors.Cursor, group_ids: list[Any], *, active_only: bool = True) -> list[int]:
@@ -784,11 +840,12 @@ def send_contract_end_reminder_email(recipient_email: str, contract: dict[str, A
     message["From"] = SMTP_USER
     message["To"] = recipient_email
     message["Subject"] = f"Rappel : fin de contrat de {contract['employee_name']}"
+    employee_label = escape(str(contract['employee_name']))
     message.attach(
         MIMEText(
             f"""<h3>Fin de contrat à anticiper</h3>
             <p>Bonjour,</p>
-            <p>Le contrat de <strong>{contract['employee_name']}</strong> se termine le
+            <p>Le contrat de <strong>{employee_label}</strong> se termine le
             <strong>{formatted_end_date}</strong> ({contract['days_remaining']} jour(s) restant(s)).</p>
             <p>Merci de vérifier la situation dans le Tableau de bord de Fiches de présence.</p>""",
             "html",
@@ -1041,6 +1098,11 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
+            actor = checked_resource_actor(cursor, actor, load_user, lock=True)
+            if not can_assign_roles(actor, tags):
+                raise HTTPException(status_code=403, detail="Vous ne pouvez pas attribuer ces droits.")
+            if username_is_reserved(cursor, username):
+                raise HTTPException(status_code=409, detail="Ce nom de compte est réservé et ne peut pas être réutilisé.")
             group_ids = validate_group_ids(cursor, list(payload.get("group_ids") or []))
             managed_group_ids = validate_group_ids(cursor, list(payload.get("managed_group_ids") or []))
             manager_username = payload.get("manager_id")
@@ -1069,12 +1131,51 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
             cursor.execute("UPDATE users SET role_tags = %s WHERE username = %s", (json.dumps(tags), username))
             replace_memberships(cursor, username, "member", group_ids)
             replace_memberships(cursor, username, "manager", managed_group_ids if "Responsable" in tags else [])
+            record_role_change(cursor, actor['username'], username, [], tags, action='created')
         connection.commit()
-        return {"status": "success", "message": f"Utilisateur {username} créé."}
+        return {"status": "success", "message": "Compte créé."}
     except pymysql.err.IntegrityError:
+        connection.rollback()
         raise HTTPException(status_code=400, detail="Ce nom ou cet e-mail est déjà utilisé.") from None
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
+
+
+def admin_job_titles(cursor: pymysql.cursors.Cursor, actor: dict[str, Any],
+                     users: list[dict[str, Any]]) -> dict[str, str]:
+    """Read only explicitly linked job titles for the administration selector.
+
+    This is intentionally separate from public_user and the public name directory:
+    a manager's account scope does not grant access to the employee register.
+    """
+    if not is_admin(actor):
+        return {}
+    usernames = sorted({user['username'] for user in users if user})
+    if not usernames:
+        return {}
+    cursor.execute("SHOW TABLES LIKE 'personnel_register'")
+    if not cursor.fetchone():
+        return {}
+    titles: dict[str, str] = {}
+    try:
+        for offset in range(0, len(usernames), 500):
+            batch = usernames[offset:offset + 500]
+            placeholders = ','.join(['%s'] * len(batch))
+            cursor.execute(f'''SELECT linked_username,job_title FROM personnel_register
+                WHERE linked_username IN ({placeholders})''', tuple(batch))
+            for row in cursor.fetchall():
+                title = row.get('job_title')
+                username = row.get('linked_username')
+                if username in batch and isinstance(title, str) and title.strip():
+                    titles[username] = title.strip()
+    except pymysql.err.ProgrammingError as exc:
+        if exc.args and exc.args[0] == 1146:
+            return {}
+        raise
+    return titles
 
 
 @app.get("/list-users")
@@ -1082,15 +1183,19 @@ def list_users(actor: dict[str, Any] = Depends(get_current_user)) -> dict[str, A
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT username FROM users ORDER BY username")
-            candidates = [load_user(cursor, row["username"]) for row in cursor.fetchall()]
-            if "Admin" in actor["role_tags"]:
+            candidates = all_users(cursor)
+            if is_admin(actor):
                 visible = candidates
             elif "Responsable" in actor["role_tags"]:
                 visible = [user for user in candidates if user and user_can_manage(cursor, actor, user)]
             else:
                 visible = [user for user in candidates if user and user["username"] == actor["username"]]
-            return {"status": "success", "users": [public_user(user) for user in visible if user]}
+            users = [public_user(user) for user in visible if user]
+            if is_admin(actor):
+                titles = admin_job_titles(cursor, actor, visible)
+                for user in users:
+                    user['job_title'] = titles.get(user['username'])
+            return {"status": "success", "users": users}
     finally:
         connection.close()
 
@@ -1106,7 +1211,8 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
             ensure_annual_interviews(cursor, current_year)
             auto_send = contract_reminders_auto_enabled(cursor)
             users = all_users(cursor)
-            visible_users = users_visible_to_actor(cursor, actor, users)
+            visible_users = [user for user in users_visible_to_actor(cursor, actor, users)
+                             if user.get('is_active', True) and not user.get('login_deleted_at')]
             visible_usernames = {user["username"] for user in visible_users}
             candidates = contract_deadlines_from_fiches(cursor, today)
             if "Admin" in actor["role_tags"]:
@@ -1125,7 +1231,7 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
                     f"""
                     SELECT employee_username, interview_year, due_date, notes, completed, completed_at, completed_by
                     FROM annual_interviews
-                    WHERE interview_year = %s AND employee_username IN ({placeholders})
+                    WHERE interview_year = %s AND employee_username IN ({placeholders}) AND is_archived=0
                     ORDER BY completed ASC, due_date ASC, employee_username ASC
                     """,
                     (current_year, *sorted(visible_usernames)),
@@ -1133,6 +1239,16 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
                 interviews = cursor.fetchall()
             else:
                 interviews = []
+            by_username = {user['username']: user for user in users}
+            for interview in interviews:
+                employee = by_username.get(interview['employee_username'])
+                interview['employee_name'] = person_display_name(employee)
+                interview['manager_name'] = employee.get('manager_display_name') if employee else None
+                completed_by = interview.get('completed_by')
+                interview['completed_by_name'] = (
+                    person_display_name(by_username[completed_by]) if completed_by in by_username
+                    else 'Ancien compte' if completed_by else None
+                )
         connection.commit()
         return {
             "year": current_year,
@@ -1267,14 +1383,19 @@ def update_user_organization(
         with connection.cursor() as cursor:
             # Serialize role edits and re-read the actor after acquiring the lock.
             # Two administrators must not concurrently demote each other.
-            cursor.execute("SELECT username FROM users ORDER BY username FOR UPDATE")
-            cursor.fetchall()
-            current_actor = load_user(cursor, actor["username"])
-            if not current_actor or not current_actor.get("is_active", True) or "Admin" not in current_actor["role_tags"] or current_actor.get("session_version", 0) != actor.get("session_version", 0):
+            current_actor = checked_resource_actor(cursor, actor, load_user, lock=True)
+            if not is_admin(current_actor):
                 raise HTTPException(status_code=403, detail="Votre rôle Admin a changé. Reconnectez-vous avant de continuer.")
             actor = current_actor
             target = require_target_access(cursor, actor, target_username, edit=True)
             tags = requested_role_tags(payload, target["role_tags"])
+            if not can_assign_roles(actor, tags, target):
+                raise HTTPException(status_code=403, detail="Seul un Super-administrateur peut gérer ces droits.")
+            if is_super_admin(target) and 'SuperAdmin' not in tags:
+                if active_super_admin_count(cursor, exclude_username=target['username']) == 0:
+                    raise HTTPException(status_code=409, detail="Le dernier Super-administrateur actif doit être conservé.")
+                if target['username'] == actor['username']:
+                    raise HTTPException(status_code=400, detail="Vous ne pouvez pas retirer vos propres droits de Super-administrateur.")
             if target_username == actor["username"] and "Admin" not in tags:
                 raise HTTPException(status_code=400, detail="Vous ne pouvez pas retirer votre propre rôle Admin. Demandez à un autre administrateur.")
             employee_type = str(payload.get("employee_type", target["employee_type"]))
@@ -1324,6 +1445,11 @@ def update_user_organization(
             )
             replace_memberships(cursor, target_username, "member", group_ids)
             replace_memberships(cursor, target_username, "manager", managed_group_ids if "Responsable" in tags else [])
+            if set(tags) != set(target['role_tags']):
+                cursor.execute('''UPDATE users SET session_version=session_version+1,
+                    remember_token_hash=NULL,remember_token_expires=NULL,reset_token=NULL,
+                    reset_token_expires=CURRENT_TIMESTAMP WHERE username=%s''', (target['username'],))
+                record_role_change(cursor, actor['username'], target['username'], target['role_tags'], tags)
             updated = load_user(cursor, target_username)
         connection.commit()
         if set(tags) != set(target["role_tags"]):
@@ -1333,6 +1459,9 @@ def update_user_organization(
                 "before": target["role_tags"], "after": tags,
             }, ensure_ascii=True))
         return {"status": "success", "user": public_user(updated)}
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
@@ -1356,10 +1485,15 @@ def assign_direct_manager(
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
+            actor = checked_resource_actor(cursor, actor, load_user, lock=True)
+            if not is_admin(actor):
+                raise HTTPException(status_code=403, detail="Autorisation insuffisante.")
             target = load_user(cursor, target_username)
             manager = load_user(cursor, payload.manager_id)
             if not target:
                 raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+            if not can_manage_account(actor, target):
+                raise HTTPException(status_code=403, detail="Seul un Super-administrateur peut modifier ce compte.")
             if not is_valid_direct_manager(manager):
                 raise HTTPException(status_code=400, detail="Le responsable sélectionné est invalide.")
             if target_username == payload.manager_id or would_create_management_cycle(cursor, target_username, payload.manager_id):
@@ -1371,6 +1505,9 @@ def assign_direct_manager(
             updated = load_user(cursor, target_username)
         connection.commit()
         return {"status": "success", "user": public_user(updated)}
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
@@ -1495,8 +1632,45 @@ def purge_user_from_saved_fiches(cursor: pymysql.cursors.Cursor, username: str, 
 
 
 @app.delete("/delete-user/{username_to_delete}")
-def delete_user(username_to_delete: str, actor: dict[str, Any] = Depends(require_roles("Admin"))) -> dict[str, Any]:
-    raise HTTPException(status_code=409, detail="La suppression définitive est désactivée. Désactivez le compte dans Administration pour conserver ses données.")
+def delete_user(username_to_delete: str, payload: AccountPurgeRequest,
+                actor: dict[str, Any] = Depends(require_roles("SuperAdmin"))) -> dict[str, Any]:
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            current = checked_resource_actor(cursor, actor, load_user, lock=True)
+            if not is_super_admin(current):
+                raise HTTPException(403, 'La suppression définitive est réservée aux Super-administrateurs.')
+            target = load_user(cursor, username_to_delete)
+            if not target:
+                raise HTTPException(404, 'Compte introuvable.')
+            confirmations = {target['username']}
+            target_email = str(target.get('email') or '').strip()
+            if target_email:
+                confirmations.add(target_email)
+            if payload.confirmation not in confirmations:
+                raise HTTPException(400, 'Saisissez l’adresse e-mail exacte du compte pour confirmer.')
+            if target['username'] == current['username']:
+                raise HTTPException(400, 'Vous ne pouvez pas supprimer votre propre compte.')
+            if target.get('is_active', True):
+                raise HTTPException(409, 'Désactivez le compte avant sa suppression définitive.')
+            if is_super_admin(target) and active_super_admin_count(cursor, exclude_username=target['username']) == 0:
+                raise HTTPException(409, 'Le dernier Super-administrateur actif doit être conservé.')
+            statistics = perform_account_purge(cursor, current, target, reason=payload.reason)
+        connection.commit()
+        return {'status': 'success', 'statistics': statistics}
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def perform_account_purge(cursor, actor, target, *, reason):
+    if __package__:
+        from .account_purge import purge_account
+    else:
+        from account_purge import purge_account
+    return purge_account(cursor, actor, target, reason=reason)
 
 
 @app.put("/update_profile/{username}")
@@ -1510,7 +1684,13 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
+            # Use the same users -> employee lock order as registry/account writes.
+            cursor.execute("SELECT username FROM users ORDER BY username FOR UPDATE")
+            cursor.fetchall()
             user = load_user(cursor, username)
+            if (not user or not user.get("is_active", True) or user.get("login_deleted_at")
+                or user.get("session_version", 0) != actor.get("session_version", 0)):
+                raise HTTPException(status_code=401, detail="Votre session n’est plus valide. Reconnectez-vous.")
             if not user or not verify_password(payload.current_password, user["password_hash"]):
                 raise HTTPException(status_code=403, detail="Mot de passe actuel incorrect.")
             updates: list[str] = []
@@ -1518,6 +1698,10 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
             target_username = username
             target_email = str(user["email"])
             if payload.new_username and payload.new_username != username:
+                existing_name = load_user(cursor, payload.new_username)
+                same_identity = bool(existing_name and existing_name['username'] == user['username'])
+                if not same_identity and username_is_reserved(cursor, payload.new_username):
+                    raise HTTPException(409, 'Ce nom de compte est réservé et ne peut pas être réutilisé.')
                 updates.append("username = %s")
                 params.append(payload.new_username)
                 target_username = payload.new_username
@@ -1529,6 +1713,8 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                 updates.append("password_hash = %s")
                 params.append(hash_password(payload.new_password))
             if updates:
+                if target_username != username:
+                    reserve_deleted_account_name(cursor, user)
                 cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE username = %s", (*params, username))
                 if payload.new_password:
                     cursor.execute(
@@ -1567,6 +1753,7 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                 if target_username != username:
                     cursor.execute("UPDATE personnel_contracts SET username=%s WHERE username=%s", (target_username, username))
                     rename_leave_owner(cursor, username, target_username)
+                    rename_personnel_account_link(cursor, username, target_username, target_username)
                 if target_username != username or target_email != str(user["email"]):
                     migrate_username_in_saved_fiches(
                         cursor,
@@ -1665,7 +1852,7 @@ def save_config(user_id: str, data: dict[str, Any], actor: dict[str, Any] = Depe
     return {"status": "success"}
 
 
-def save_config_checked(user_id, data, actor, expected_revision=None):
+def save_config_checked(user_id, data, actor, expected_revision=None, *, confirmed_deletions=None):
     if __package__:
         from .attendance_revision import config_revision, require_revision
     else:
@@ -1673,16 +1860,16 @@ def save_config_checked(user_id, data, actor, expected_revision=None):
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
+            actor = checked_resource_actor(cursor, actor, load_user, lock=True)
             require_target_access(cursor, actor, user_id, edit=True)
-            # Lock the owner too, including when no Presence row exists yet.
-            cursor.execute("SELECT username FROM users WHERE username=%s FOR UPDATE", (user_id,))
             cursor.execute("SELECT form_content FROM Presence WHERE user_id=%s FOR UPDATE", (user_id,))
             old_row = cursor.fetchone()
             old_config = old_row["form_content"] if old_row else {}
             if isinstance(old_config, str):
                 old_config = json.loads(old_config)
             require_revision(old_config, expected_revision)
-            validate_manager_save(cursor, actor, old_config, data, load_user, user_can_manage)
+            validate_manager_save(cursor, actor, old_config, data, load_user, user_can_manage,
+                                  workspace_owner=user_id, confirmed_deletions=confirmed_deletions)
             serialize_fiche_config(data)
             link_fiche_records_to_users(cursor, data)
             sync_contract_dates_from_config(cursor, data)
@@ -1710,6 +1897,7 @@ if __package__:
     from .ui_capabilities import register_ui_capabilities
     from .leave_requests import register_leave_routes
     from .leave_store import rename_leave_owner, detach_leave_owner
+    from .personnel_register import rename_personnel_account_link
     from .team_directory import register_team_directory
     from .contract_history import register_contract_history
     from .attendance_permissions import validate_manager_save
@@ -1720,6 +1908,7 @@ else:
     from ui_capabilities import register_ui_capabilities
     from leave_requests import register_leave_routes
     from leave_store import rename_leave_owner, detach_leave_owner
+    from personnel_register import rename_personnel_account_link
     from contract_history import register_contract_history
     from team_directory import register_team_directory
     from attendance_permissions import validate_manager_save
@@ -1728,7 +1917,7 @@ else:
 
 register_account_lifecycle(app, get_db_connection=get_db_connection, get_current_user=get_current_user, load_user=load_user, public_user=public_user, hash_password=hash_password)
 register_ui_capabilities(app, mail_configured=lambda: bool(SMTP_SERVER and SMTP_USER and SMTP_PASSWORD))
-register_contract_history(app, get_db_connection, require_roles, get_current_user, require_target_access)
+register_contract_history(app, get_db_connection, require_roles, get_current_user, require_target_access, load_user=load_user)
 register_team_directory(app, get_db_connection=get_db_connection, get_current_user=get_current_user)
 register_leave_routes(app, get_db_connection=get_db_connection, get_current_user=get_current_user)
 register_document_routes(

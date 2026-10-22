@@ -10,8 +10,8 @@ import { calendarStatus, calendarStatuses } from './calendarStatus'
 
 const statuses = [...calendarStatuses, 'Réinitialiser']
 
-export function AttendanceCalendar({ token, id, month, year, busy, version, active, onPeriod, onApply, onSelectionPending }: {
-  token: string; id: string; month: number; year: number; busy: boolean; version: number; active: boolean;
+export function AttendanceCalendar({ token, id, month, year, busy, version, active, showPeriodSelector = true, onPeriod, onApply, onSelectionPending }: {
+  token: string; id: string; month: number; year: number; busy: boolean; version: number; active: boolean; showPeriodSelector?: boolean;
   onPeriod: (month: number, year: number) => void; onApply: (cells: Cell[], status: string, reason: string) => Promise<boolean | undefined>
   onSelectionPending: (pending: boolean) => void
 }) {
@@ -24,8 +24,7 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, acti
   const query = useQuery({ queryKey: ['attendance-calendar', id, month, year, version],
     queryFn: ({ signal }) => attendanceApi.calendar(token, id, month, year, signal), enabled: active })
   return <Box>
-      <PeriodSelector month={month} year={year} disabled={busy} onChange={onPeriod} />
-      <Typography variant="body2" color="text.secondary" sx={{ my: 2 }}>Cliquez ou glissez sur les demi-journées pour sélectionner. Glissez depuis une case sélectionnée pour désélectionner, puis choisissez un statut et appliquez.</Typography>
+      {showPeriodSelector && <PeriodSelector month={month} year={year} disabled={busy} onChange={onPeriod} />}
       <Box className="calendar-toolbar">
         <TextField select label="Statut" value={status} onChange={e => setStatus(e.target.value)} disabled={busy} sx={{ minWidth: 160 }}>
           {statuses.map(s => <MenuItem key={s} value={s}>

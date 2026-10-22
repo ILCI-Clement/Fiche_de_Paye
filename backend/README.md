@@ -1,5 +1,31 @@
 # API Presence
 
+## Current release: 2026-10-22
+
+`personnel-profile-20261022T125536Z` deploys the personnel register, account/register
+associations, monthly profiles, account lifecycle controls, shared SuperAdmin/Admin
+archive policy, name projections and compact React workspace. Both API entries
+(8015 and retained 8001) enforce the updated authentication and resource guards.
+The retained API uses flat modules; shared modules must support flat imports as
+well as `backend.*` imports. New legacy files must be readable by `streamlitapp`,
+not merely root; verify imports with the actual service identity before restart.
+
+The application symlink points to
+`/var/www/presence-react/releases/personnel-profile-20261022T125536Z`.
+Source/configuration, database, private documents and the signing-attempt SQLite
+backup are under root-only
+`/var/backups/presence-react/personnel-profile-20261022T125536Z`.
+Production NIR remains disabled; no local snapshot, local encryption key or local
+SuperAdmin promotion is imported. Existing production roles/passwords are retained.
+
+Safe UI rollback:
+`sudo /var/backups/presence-react/personnel-profile-20261022T125536Z/rollback-ui.sh`.
+It restores the previous static interface and keeps the updated API guards and
+all business data. Do not restore the old API blindly after accounts have been
+disabled or login-deleted: it would bypass their new access-state checks. Database
+restoration is a separate, deliberate recovery operation, never the default.
+See [release verification](../doc/releases/personnel-profile-20261022.md).
+
 React remake released 2026-10-15 as `react-20261015T101334Z`. Public UI: `https://app.presence.217.65.145.103.nip.io/`. Service `presence-react-api` runs the full-repository entry `backend.rebuild_server:app` on loopback 8015. Legacy services remain active for rollback. See `../doc/rebuild-release-readiness.md` for backup paths and the guarded rollback command.
 
 This directory contains the version-controlled FastAPI service used by the Presence interface.
@@ -203,6 +229,52 @@ See `../doc/rebuild-release-readiness.md` for acceptance and remaining boundarie
 
 The new service disables its reminder worker using `PRESENCE_CONTRACT_REMINDER_WORKER=0` while the retained legacy API owns the worker. If retiring the legacy API later, enable this worker on the new service. Manual reminders remain authorized normally. Source rollback switches the UI and stops the new service; it does not restore the database dump or remove uploaded files.
 
+
+## 人员姓名显示（2026-10-22，本地，未部署）
+
+### 账号 Profile 的名册关联（本地，未部署）
+
+Admin/SuperAdmin 在账号详情或 Profile 的「Données du registre du personnel」中选择「Associer une fiche / Modifier l’association」，可手动关联已有登记、更换关联或选择无关联。复用唯一的 `personnel_register.linked_username`，不自动创建员工，不猜测身份。普通账号可在个人设置和本人月度 Profile 只读查看自己的资料；直接负责人仅查看下属月度概览不会获得地址、生日等名册信息。社保号/密文及其存在标记不进入这些 Profile 响应。
+
+- `GET /account-personnel/{username}`：重查有效会话，允许本人或 Admin；仅选取普通资料及任职期间，响应 no-store。
+- `GET /account-personnel/{username}/choices`：仅 Admin，搜索未归档且未被其他账号占用的记录，返回最小选择信息。
+- `PUT /account-personnel/{username}/link`：仅 Admin；请求包含 `employee_id`、`expected_employee_id`、`expected_version`、`target_version`（无关联时相应值为 null）。当前关联和两个员工版本须与读取时相同；保留唯一约束并检查目标是否被其他账号占用。users 排序锁后再按员工 ID 排序锁，解除原关联、建立新关联与操作审计同事务提交，失败整体回滚。
+
+关联不会覆盖名册内容、合同或考勤快照，解除也不会删除资料。修改关联后刷新姓名/账号/团队等缓存；普通账号不能通过直接调用接口修改关联或查询全员名册。原账号邮箱/密码设置不受影响。本轮仅静态检查和构建，未运行功能回归或操作真实关联，未上线。
+
+账号选择菜单现分为姓名/邮箱、职位/人员身份、管理权限三列，Admin / Super Admin 使用简写。只有 Admin/SuperAdmin 的 `/list-users` 额外返回可选 `job_title`，按名册 `linked_username` 精确关联；其他角色、公共人员目录、会话 DTO 不增加职位或敏感字段。`main.admin_job_titles` 与纯姓名投影分开，旧库缺名册表时空职位兼容。
+
+考勤打开已补历史快照边界：即使当前合同已改日期或归档，明确关联同一账号、同一月份且未归档的已有考勤仍可打开；不重绑/改写其合同快照。不存在历史表时仍要求有效合同；归档考勤不会被自动恢复。前端显示该人员已有月份及切换入口，账号选择会激活该人员当月已有页签。名册日期与考勤合同独立，实际日期仍由管理员确认更正，本轮未代改。
+
+此轮完整后端 358 项中 352 通过、6 项 opt-in 跳过，新增 `test_attendance_open_history.py` 9 项与 `test_admin_job_projection.py` 8 项。前端 43 项通过，完整 lint、类型检查、生产构建通过。重启本地 API 后以只读 GET 验证新增职位投影与历史考勤仍在；未执行真实合同编辑、考勤生成、邮件、签署或部署。
+
+人员显示取自 `personnel_register.full_name` 与 `linked_username` 的明确关联；没有关联姓名时使用有效邮箱的前缀，缺邮箱时使用中性提示。需要补姓名时在 `Registre du personnel` 更正姓名并关联对应账号，不会按同名或邮箱自动合并身份。`person_names.py` 提供批量公开姓名投影，只有姓名/关联列与必要邮箱进入该逻辑；不读取 NIR 等其他名册隐私字段。后端旧安装没有名册表时仍可用邮箱前缀显示。
+
+此变更不更名账号或修改权限，不回写既有考勤、合同或审计快照。界面和签署人的姓名来自当前关联资料；历史考勤中的姓名输入仍代表该文件的导出内容。内部用户名继续用于关联/鉴权，因此界面显示名不是新的身份凭证。账号删除确认支持当前邮箱并兼容旧用户名；不会自动填写确认。当前只在本地更新，未部署。
+
+2026-10-22 功能回归与修复：
+
+- Python 全量 discover：341 项中 335 通过、6 项显式 opt-in 跳过；另设置进程环境 `PRESENCE_MYSQL_TEMP_TEST=1` 执行 `test_account_lifecycle_mysql`、`test_personnel_sensitive_mysql`，6 项全部通过。MySQL 测试固定本地 3307，并且只写连接级 TEMPORARY 表；不修改真实账号或员工资料。
+- 新增 `test_person_names.py` 27 项和 `test_person_name_workflows.py` 18 项，覆盖姓名/邮箱回退、明确关联、同名不同账号访问隔离、名册/Profile/请假权限、社保号及凭据不外泄、历史数据不改写；账号删除仍要求精确邮箱或技术 ID，姓名不能充当确认。
+- 修复后端/组织模型对异常邮箱的回退规则，与前端保持单个 `@` 且无内部空白；下拉框增加邮箱辅助识别同名人员。
+- 请假历史在账号更名后，当前账号无法解析时保留已有姓名快照的显示，拒绝原始账号 ID、空值和异常邮箱；存储的 actor ID/事件行不改变。其他没有可靠姓名快照的历史操作仍使用 `Ancien compte`，不按姓名猜测关联。
+- 前端 35 项规则测试、TypeScript、全量 lint、生产构建通过。9 个真实本地只读 API 及 6 个认证拒绝检查通过；未执行实际上传、邮件、签署或部署。浏览器视觉/点击交互未由自动化覆盖。
+
+可复现命令：`.venv/Scripts/python.exe -W ignore::DeprecationWarning -m unittest discover -p 'test*.py'`；前端在 `frontend/` 运行 `npm test`、`npm run lint -- src test`、`npm run build`。
+
+## 本地角色与归档升级（2026-10-22，未部署）
+
+SuperAdmin 继承 Admin 的业务能力，并独享受控永久删除；普通 Admin 继续查看、新建、修改、归档和恢复。普通 Admin 不能给自己或他人分配 SuperAdmin，也不能修改 SuperAdmin 的权限或登录状态。后端每次敏感写入在 users 排序锁之后重查角色、账号状态及会话版本；自身及最后有效 SuperAdmin 有保护。角色变更会使旧会话和记住登录凭据失效。
+
+本次仅在本地副本为现有 `ChristopheH` 赋权，使用 `scripts/promote_local_superadmin.py` 显式核对固定 loopback 数据库、账号及邮箱。不会自动创建超级账号或在服务器启动时赋权。该测试身份暂时可见，正式隐藏以后另行开发。角色备份仅包含原角色元数据，位于被忽略的 `.local-test/rebuild/role-backups/`；如回退角色，仍须递增 `session_version`，不可回写旧版本使旧令牌重新有效。
+
+永久删除要求先归档/停用并精确确认。账号仍有人员、考勤、合同、文件、请假或访谈关联时拒绝物理删除，应分别处理关联资料；不会级联删除其替别人上传的文件。保留独立最小操作审计和被删除/更名账号的用户名占位，避免旧令牌在重用用户名后复活。合同被历史考勤引用时拒删。文档数据库删除已提交但物理文件清理失败时返回 `cleanup_pending`，需要后续清理，不得当作文件完全擦除。
+
+`resource_maintenance.py` 在两个 React API 入口注册并增量迁移归档列及独立审计表；`/maintenance/resources/{kind}` 管理部门、请假与访谈。普通 Admin 可归档/恢复，SuperAdmin 可永久删除；待审批请假须先处理，部门须先解除成员关联，自动生成的访谈须在账号停用后才可物理删除。名册、Documents、合同和考勤沿用各自接口，详细边界见 [模块索引](../doc/modules.md)。生产尚未部署本次迁移。
+
+## 员工名册 NIR 保护（2026-10-22，仅本地，未部署）
+
+仅在本地使用合成号码测试，未部署、未向真实员工档案写入 NIR。`PRESENCE_PERSONNEL_NIR_ENABLED` 默认关闭，只有精确为 `1` 且 `PRESENCE_PERSONNEL_NIR_KEYS_FILE` 指向的独立 AES-256-GCM keyring 有效时开启；不派生会话密钥、不在服务器入口自动生成生产 key。本地入口首次 provision 被忽略的 `.local-test/rebuild/keys/personnel-nir.json`，已有文件不覆盖。POSIX 首次创建为 0600；Windows fresh 环境须另配 NTFS ACL（本机本次已配置），mode 参数不能实施 ACL。密钥须独立备份，轮换保留仍由密文或备份引用的旧 key。接口、短时查看/审计、加密范围及专项/全量验证结果见 [员工名册说明](../doc/personnel-register.md)。
 
 ## 账号停用改版（2026-10-21，仅本地，未部署）
 

@@ -1,3 +1,4 @@
+import { isAdmin, isSuperAdmin } from '../rolePolicy'
 import { useDraftGuard, useWorkspaceGuard } from '../draftGuard'
 import { useRef, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Snackbar, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material'
@@ -5,12 +6,11 @@ import SearchRounded from '@mui/icons-material/SearchRounded'
 import CloseRounded from '@mui/icons-material/CloseRounded'
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded'
 import ZoomInRounded from '@mui/icons-material/ZoomInRounded'
-import UploadFileRounded from '@mui/icons-material/UploadFileRounded'
 import { useQuery } from '@tanstack/react-query'
 import { alpha } from '@mui/material/styles'
 import type { Session } from '../types'
 import { downloadFile } from '../download'
-import { PeriodSelector } from '../attendance/PeriodSelector'
+import { DocumentsToolbar } from './DocumentsToolbar'
 import { documentsApi, receiptPeriod } from './api'
 import { DocumentUpload } from './DocumentUpload'
 import { DocumentCard } from './DocumentCard'
@@ -33,7 +33,8 @@ function initialDensity(): DocumentDensity {
 }
 
 export function DocumentsPage({ token, session }: { token: string; session: Session }) {
-  const admin = session.role_tags.includes('Admin')
+  const admin = isAdmin(session)
+  const superAdmin = isSuperAdmin(session)
   const manager = session.role_tags.includes('Responsable')
   const [month, setMonth] = useState(() => new Date().getMonth() + 1)
   const [year, setYear] = useState(() => new Date().getFullYear())
@@ -55,13 +56,14 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   const lock = useRef(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [messageSeverity, setMessageSeverity] = useState<'success' | 'warning'>('success')
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const list = useQuery({ queryKey: ['documents', session.username], queryFn: ({ signal }) => documentsApi.list(token, signal), retry: false })
   const owners = useQuery({ queryKey: ['document-assignees', session.username], queryFn: ({ signal }) => documentsApi.assignees(token, signal), retry: false })
   function setPeriod(m: number, y: number) { guard?.request(() => { setMonth(m); setYear(y); setSelected([]) }) }
   async function run(action: () => Promise<void>, success: string) {
     if (lock.current) return false
-    lock.current = true; setBusy(true); setError('')
+    lock.current = true; setBusy(true); setError(''); setMessageSeverity('success')
     try {
       await action(); setMessage(success); setSelected([])
       await list.refetch()
@@ -95,25 +97,19 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
     }, `${ids.length} document(s) préparé(s). Téléchargement déclenché.`)
   }
   return <Box className="workspace documents-workspace" sx={theme => ({
+    '&.workspace': { maxWidth: 'none', px: { xs: 1.5, sm: 2 }, pt: 1.5 },
     '& .MuiTypography-h4': { fontWeight: 600 }, '& .MuiTypography-h6': { fontWeight: 600 },
     '& .MuiButton-root, & .MuiToggleButton-root, & .MuiAccordionSummary-root .MuiTypography-root': { fontWeight: 500 },
     '& .MuiTypography-body2': { color: 'text.secondary' },
     '& .MuiToggleButtonGroup-root': { gap: .75, flexWrap: 'wrap' },
     '& .MuiToggleButtonGroup-root .MuiToggleButton-root': { border: '1px solid', borderColor: alpha(theme.palette.text.primary, .12), borderRadius: '24px !important', px: 2, minHeight: 38, textTransform: 'none', color: 'text.secondary', '&.Mui-selected': { color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, .12), borderColor: alpha(theme.palette.primary.main, .4) }, '&:hover': { bgcolor: alpha(theme.palette.primary.main, .08) } },
   })}>
-    <Box className="page-heading"><Box><Typography variant="overline" color="text.secondary" sx={{ fontWeight: 500, letterSpacing: 2 }}>DOCUMENTS</Typography>
-      <Typography variant="h4" component="h1">Documents et justificatifs</Typography>
-      <Typography color="text.secondary" sx={{ mt: 1 }}>Déposez et retrouvez vos documents par mois.</Typography>
-    </Box></Box>
-    <Paper component="section" aria-label="Mois des documents" sx={{ p: 2, mb: 2, position: 'sticky', top: 0, zIndex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, border: 1, borderColor: 'divider', borderRadius: 3 }}>
-      <PeriodSelector month={month} year={year} disabled={busy} onChange={setPeriod} />
-      <Button variant="contained" startIcon={<UploadFileRounded />} disabled={busy || !owners.data || !!owners.error}
-        onClick={() => { setError(''); setUploadOpen(true) }}>Déposer un document</Button>
-    </Paper>
+    <DocumentsToolbar month={month} year={year} busy={busy} canUpload={!!owners.data && !owners.error} refreshing={list.isFetching} onPeriod={setPeriod}
+      onUpload={() => { setError(''); setUploadOpen(true) }} onRefresh={() => void list.refetch()} />
     {owners.error ? <Alert severity="error" sx={{ mb: 2 }}>{owners.error.message}<Button onClick={() => void owners.refetch()}>Réessayer</Button></Alert>
       : owners.isPending ? <CircularProgress size={22} /> : null}
-    {uploadOpen && owners.data && <DocumentUpload token={token} username={session.username} admin={admin} users={owners.data.users} month={month} year={year} busy={busy} run={run} requestError={error} onClose={() => setUploadOpen(false)} />}
-    <Paper sx={{ p: { xs: 2, sm: 2.5 }, my: 2, borderRadius: 3 }}>
+    {uploadOpen && owners.data && <DocumentUpload token={token} username={session.username} currentDisplayName={session.name} admin={admin} accounts={owners.data.accounts || owners.data.users.map(username => ({ username }))} month={month} year={year} busy={busy} run={run} requestError={error} onClose={() => setUploadOpen(false)} />}
+    <Paper sx={{ p: { xs: 1.5, sm: 2 }, mb: 2, borderRadius: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Box sx={{ flex: 1 }}><Typography variant="h6">{archived ? 'Archives' : 'Tous les justificatifs'}</Typography><Typography variant="body2" color="text.secondary">{visible.length} document(s) correspondant aux filtres</Typography></Box>
         <Box role="group" aria-label="Taille des cartes" sx={{ display: 'flex', alignItems: 'center', gap: .5 }}>
@@ -121,7 +117,6 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
           <Typography variant="body2" aria-live="polite" sx={{ minWidth: 64, textAlign: 'center' }}>{densityLabels[density]}</Typography>
           <Tooltip title="Agrandir les cartes"><span><IconButton aria-label="Agrandir les cartes" disabled={density === 'comfortable'} onClick={() => changeDensity(1)}><ZoomInRounded /></IconButton></span></Tooltip>
         </Box>
-        <Button disabled={busy || list.isFetching} onClick={() => void list.refetch()}>Actualiser</Button>
       </Box>
       <TextField placeholder="Rechercher un document · nom, numéro, employé…"
         value={search} disabled={busy} onChange={event => { setSearch(event.target.value); setSelected([]) }}
@@ -154,15 +149,20 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
         : density === 'comfortable' ? { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' }
           : { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: density === 'compact' ? 1 : density === 'comfortable' ? 3 : 2 }}>
         {!visible.length && <Typography color="text.secondary">{search.trim() ? 'Aucun document ne correspond à la recherche et aux filtres.' : 'Aucun document dans ce dossier pour ce mois.'}</Typography>}
-        {visible.map(r => <DocumentCard key={r.id} receipt={r} density={density} admin={admin} canDelete={admin || (!manager && r.uploaded_by === session.username)} selected={selected.includes(r.id)} busy={busy}
+        {visible.map(r => <DocumentCard key={r.id} receipt={r} density={density} admin={admin} canArchive={admin || (!manager && (r.uploaded_by === session.username || r.employee_username === session.username))} canDelete={superAdmin && r.archived} selected={selected.includes(r.id)} busy={busy}
           onPreview={() => setPreview(r)}
           onSelect={() => setSelected(previous => previous.includes(r.id) ? previous.filter(id => id !== r.id) : [...previous, r.id])}
           onDownload={() => void run(async () => downloadFile(await documentsApi.file(token, r.id)), 'Document prêt à télécharger.')}
-          onArchive={() => void run(async () => { await documentsApi.archive(token, r.id) }, 'Document déplacé dans les archives.')}
-          onDelete={() => run(async () => { await documentsApi.remove(token, r.id) }, 'Document supprimé.')}
+          onArchive={() => run(async () => { await documentsApi.archive(token, r.id, !r.archived) }, r.archived ? 'Document restauré.' : 'Document archivé.')}
+          onDelete={async confirmation => {
+            const result = await documentsApi.remove(token, r.id, confirmation)
+            setMessageSeverity(result.cleanup_pending ? 'warning' : 'success')
+            setMessage(result.cleanup_pending ? 'Document retiré du registre ; le nettoyage du fichier reste à terminer.' : 'Document supprimé.')
+            setSelected(previous => previous.filter(id => id !== r.id)); await list.refetch()
+          }}
           onPeriod={(m, y) => run(async () => { await documentsApi.period(token, r.id, m, y) }, 'Mois de rattachement mis à jour.')} />)}
       </Box>}
     {preview && <DocumentPreview key={preview.id} token={token} receipt={preview} onClose={() => setPreview(null)} />}
-    <Snackbar open={!!message} autoHideDuration={5000} onClose={() => setMessage('')}><Alert severity="success" variant="filled" onClose={() => setMessage('')}>{message}</Alert></Snackbar>
+    <Snackbar open={!!message} autoHideDuration={5000} onClose={() => setMessage('')}><Alert severity={messageSeverity} variant="filled" onClose={() => setMessage('')}>{message}</Alert></Snackbar>
   </Box>
 }

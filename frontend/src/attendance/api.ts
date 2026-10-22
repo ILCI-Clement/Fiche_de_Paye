@@ -3,7 +3,7 @@ import type { Cell, Config, Day, SavedConfig, Workspace } from './types'
 
 export const attendanceApi = {
   workspace: (token: string, signal?: AbortSignal) => request<Workspace>('/attendance/workspace', token, { signal }),
-  save: (token: string, config: Config, revision: string) => request<SavedConfig>('/attendance/save', token, { method: 'POST', body: JSON.stringify({ config, revision }) }),
+  save: (token: string, config: Config, revision: string, deletedIds: string[] = []) => request<SavedConfig>('/attendance/save', token, { method: 'POST', body: JSON.stringify({ config, revision, deleted_ids: deletedIds }) }),
   open: (token: string, username: string, month: number, year: number, revision: string) => request<SavedConfig & { active_id: string }>(`/attendance/open/${encodeURIComponent(username)}`, token,
     { method: 'POST', body: JSON.stringify({ month, year, revision }) }),
   calendar: (token: string, id: string, month: number, year: number, signal?: AbortSignal) => request<{ days: Day[] }>(`/attendance/calendar/${encodeURIComponent(id)}?month=${month}&year=${year}`, token, { signal }),

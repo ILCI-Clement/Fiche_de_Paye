@@ -3,6 +3,10 @@ from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+if __package__:
+    from .person_names import person_display_name
+else:
+    from person_names import person_display_name
 
 Status = Literal['pending', 'approved', 'rejected', 'withdrawn']
 Slot = Literal['full', 'morning', 'afternoon']
@@ -33,7 +37,10 @@ class LeaveDecision(BaseModel):
 
 
 def roles(actor):
-    return set(actor.get('role_tags') or [actor.get('role')])
+    result = set(actor.get('role_tags') or [actor.get('role')])
+    if 'SuperAdmin' in result:
+        result.add('Admin')
+    return result
 
 
 def can_review(actor, employee_username, current_manager):
@@ -46,4 +53,4 @@ def can_review(actor, employee_username, current_manager):
 
 
 def display_name(user):
-    return str(user.get('display_name') or user.get('email') or user['username']).split('@', 1)[0]
+    return person_display_name(user)

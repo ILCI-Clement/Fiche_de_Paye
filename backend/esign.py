@@ -316,7 +316,7 @@ def register_esign_routes(app, *, get_db_connection, require_roles, load_user,
                 provider_started = time.monotonic()
                 result = submit_to_clawshow(
                     document_url=f"{e_sign_public_base_url()}/esign/documents/{document_token}",
-                    employee_name=payload.employee_name.strip(),
+                    employee_name=manager['employee_name'],
                     employee_email=str(payload.recipient_email),
                     manager_name=manager["name"],
                     manager_email=manager["email"],

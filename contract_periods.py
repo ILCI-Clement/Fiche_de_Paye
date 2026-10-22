@@ -11,7 +11,8 @@ def day(value):
 def matching_contracts(contracts, month, year):
     first = date(year, month, 1)
     last = date(year, month, monthrange(year, month)[1])
-    return [c for c in contracts if day(c['start_date']) <= last and (not c.get('end_date') or day(c['end_date']) >= first)]
+    return [c for c in contracts if not c.get('is_archived') and day(c['start_date']) <= last
+            and (not c.get('end_date') or day(c['end_date']) >= first)]
 
 
 def bind_contract(fiche, contract, month, year):

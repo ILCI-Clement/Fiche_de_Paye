@@ -23,6 +23,7 @@ class AttendanceRevisionTests(unittest.TestCase):
         self.sync = MagicMock()
         self.patches = [patch.object(main, 'get_db_connection', return_value=self.db),
                         patch.object(main, 'require_target_access'), patch.object(main, 'validate_manager_save'),
+                        patch.object(main, 'load_user', side_effect=lambda _cursor, username: {'username': username, 'role_tags': ['Admin'], 'is_active': True, 'session_version': 0}),
                         patch.object(main, 'link_fiche_records_to_users', self.link),
                         patch.object(main, 'sync_contract_dates_from_config', self.sync)]
         for item in self.patches: item.start()
@@ -72,7 +73,9 @@ class AttendanceRevisionTests(unittest.TestCase):
         main.save_config_checked('unit', copy.deepcopy(self.state), self.actor, config_revision(self.state))
         statements = [call.args[0] for call in self.cursor.execute.call_args_list]
         self.assertIn('FROM users', statements[0]); self.assertIn('FOR UPDATE', statements[0])
-        self.assertIn('FROM Presence', statements[1]); self.assertIn('FOR UPDATE', statements[1])
+        locked_presence = next(i for i, sql in enumerate(statements) if 'FROM Presence' in sql)
+        self.assertGreater(locked_presence, 0)
+        self.assertIn('FOR UPDATE', statements[locked_presence])
 
 
 if __name__ == '__main__':

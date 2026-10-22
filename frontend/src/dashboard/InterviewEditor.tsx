@@ -1,3 +1,4 @@
+import { personDisplayName } from '../personDisplayName'
 import { FrenchDateField } from '../components/FrenchDateField'
 import { useDraftGuard } from '../draftGuard'
 import { useState } from 'react'
@@ -8,7 +9,7 @@ export function InterviewEditor({ item, busy, onClose, save }: { item: Interview
   const [notes, setNotes] = useState(item.notes || '')
   const [completed, setCompleted] = useState(Boolean(item.completed))
   const close = useDraftGuard(due !== (item.due_date || '') || notes !== (item.notes || '') || completed !== Boolean(item.completed), busy, 'Entretien annuel')
-  return <Dialog open onClose={() => { if (!busy) close(onClose) }} fullWidth maxWidth="sm"><DialogTitle>Entretien · {item.employee_username}</DialogTitle>
+  return <Dialog open onClose={() => { if (!busy) close(onClose) }} fullWidth maxWidth="sm"><DialogTitle>Entretien · {personDisplayName({ display_name: item.employee_name })}</DialogTitle>
     <Box component="form" onSubmit={async e => { e.preventDefault(); if (await save({ due_date: due || null, notes, completed })) onClose() }}>
       <DialogContent sx={{ display: 'grid', gap: 2 }}><FrenchDateField label="Échéance" value={due} disabled={busy} onChange={setDue} helperText="Une date laissée vide conserve l’échéance existante." /><TextField label="Remarques" multiline minRows={3} value={notes} disabled={busy} onChange={e => setNotes(e.target.value)} slotProps={{ htmlInput: { maxLength: 5000 } }} /><FormControlLabel control={<Checkbox checked={completed} disabled={busy} onChange={e => setCompleted(e.target.checked)} />} label="Entretien terminé" /></DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => close(onClose)}>Annuler</Button><Button type="submit" variant="contained" disabled={busy}>Enregistrer</Button></DialogActions>

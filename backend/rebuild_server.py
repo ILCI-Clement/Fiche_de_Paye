@@ -12,8 +12,14 @@ from .attendance_signatures import register_signature_preflight
 from .signature_attempts import SignatureAttempts
 from .server_signing_readiness import server_signing_readiness
 from .person_profiles import register_profile_routes
+from .personnel_register import register_personnel_routes
+from .resource_maintenance import register_resource_maintenance
 
 app = main.app
+register_personnel_routes(app, get_db_connection=main.get_db_connection,
+                          get_current_user=main.get_current_user, load_user=main.load_user)
+register_resource_maintenance(app, get_db_connection=main.get_db_connection,
+                             get_current_user=main.get_current_user, load_user=main.load_user)
 # During a reversible cutover, the retained legacy API owns the single worker.
 if os.getenv('PRESENCE_CONTRACT_REMINDER_WORKER', '1') == '0':
     main.start_contract_reminder_worker = lambda: None

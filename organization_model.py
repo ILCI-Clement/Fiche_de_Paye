@@ -1,14 +1,19 @@
 """Pure department projection, independent of Streamlit and HTTP."""
+import re
 import unicodedata
 
 CEO_EMAIL = 'william.tang@univ-ilci.fr'
 
 
 def person_label(person):
-    if person.get('display_name'):
-        return str(person['display_name'])
-    full = ' '.join(str(person.get(k) or '').strip() for k in ('first_name', 'last_name')).strip()
-    return full or str(person.get('email') or person.get('username') or 'Compte').split('@', 1)[0]
+    full_name = str(person.get('full_name') or '').strip()
+    if full_name:
+        return full_name
+    display_name = str(person.get('display_name') or '').strip()
+    if display_name:
+        return display_name
+    email = str(person.get('email') or '').strip()
+    return email.partition('@')[0] if re.fullmatch(r'[^@\s]+@[^@\s]+', email) else 'Nom non renseigné'
 
 
 def normalized_group_name(name):
@@ -53,7 +58,7 @@ def build_organization(users, groups, *, hidden_ids=()):
         issues.append('Direction Générale est absente des Groupes actifs; le nœud central est un repère de présentation.')
     if not ceo:
         issues.append('Le compte CEO configuré est absent du périmètre retourné par le serveur.')
-    return {'ceo': person_label(ceo) if ceo else 'William TANG',
+    return {'ceo': person_label(ceo) if ceo else 'Nom non renseigné',
             'general_id': int(general['id']) if general else None,
             'departments': departments, 'unassigned': unassigned, 'issues': issues,
             'people_count': len(people)}

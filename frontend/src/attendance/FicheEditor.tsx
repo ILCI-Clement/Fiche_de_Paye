@@ -1,4 +1,4 @@
-import { Box, Checkbox, FormControlLabel, MenuItem, TextField, Typography } from '@mui/material'
+import { Box, Checkbox, FormControlLabel, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
 import { FrenchDateField } from '../components/FrenchDateField'
 import type { Fiche, Schedule } from './types'
 
@@ -8,14 +8,15 @@ export function FicheEditor({ fiche, admin, disabled, section, onChange }: { sec
   const intern = fiche.type === 'Stagiaire'
   const locked = disabled || !admin
   const contractLocked = locked || Boolean(fiche.contract_id)
-  function field(key: string, label: string, options?: { date?: boolean; numeric?: boolean; readOnly?: boolean }) {
+  function field(key: string, label: string, options?: { date?: boolean; numeric?: boolean; readOnly?: boolean; documentName?: boolean }) {
     if (options?.date) return <FrenchDateField key={key} label={label} fullWidth
       value={String(fiche[key] ?? '') === 'Pas de fin' ? '' : String(fiche[key] ?? '')}
       disabled={Boolean(options.readOnly)} onChange={value => onChange({ [key]: value || null })} />
-    return <TextField key={key} label={label} type={options?.numeric ? 'number' : 'text'} fullWidth
+    const input = <TextField key={key} label={label} type={options?.numeric ? 'number' : 'text'} fullWidth
       value={String(fiche[key] ?? '')}
       disabled={Boolean(options?.readOnly)} slotProps={{ htmlInput: options?.numeric ? { min: 0, step: 'any' } : undefined }}
       onChange={e => onChange({ [key]: options?.numeric ? Number(e.target.value) : e.target.value || null })} />
+    return options?.documentName ? <Tooltip key={key} title="Texte conservé pour ce document et utilisé à l’export." describeChild arrow><Box component="span" tabIndex={0} sx={{ display: 'block' }}>{input}</Box></Tooltip> : input
   }
   function updateSchedule(day: string, values: Partial<Schedule>) {
     const schedule = fiche.planning_detail?.[day] || { actif: !['Samedi', 'Dimanche'].includes(day), m1: '09:00', m2: '12:00', a1: '13:00', a2: '17:00' }
@@ -23,10 +24,10 @@ export function FicheEditor({ fiche, admin, disabled, section, onChange }: { sec
   }
   return <Box className="fiche-details">
     {section === 'identity' && <Box><Box className="fiche-fields">
-        {field(intern ? 'nom_stagiaire' : 'nom', intern ? 'Nom du stagiaire' : 'NOM Prénom (Employé)', { readOnly: locked })}
-        {intern && field('prenom_stagiaire', 'Prénom du stagiaire', { readOnly: locked })}
+        {field(intern ? 'nom_stagiaire' : 'nom', 'Nom figurant sur la fiche', { readOnly: locked, documentName: true })}
+        {intern && field('prenom_stagiaire', 'Prénom figurant sur la fiche', { readOnly: locked, documentName: true })}
         {field('email_employe', 'E-mail de l’employé', { readOnly: locked })}
-        {field('responsable', 'NOM Prénom (Responsable)', { readOnly: locked })}
+        {field('responsable', 'Responsable figurant sur la fiche', { readOnly: locked, documentName: true })}
         {field('email_responsable', 'E-mail du responsable', { readOnly: locked })}
         <TextField select label="Type de contrat" value={fiche.type || 'Salarié'} disabled={contractLocked} onChange={e => onChange({ type: e.target.value })}>
           <MenuItem value="Salarié">Salarié</MenuItem><MenuItem value="Stagiaire">Stagiaire</MenuItem>

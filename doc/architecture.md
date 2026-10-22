@@ -101,3 +101,31 @@ flowchart TD
 | 提醒及仪表板 | `pages/Dashboard.py` | 合同到期提醒、年度面谈与设置展示 |
 | 调整文件卡片、勾选或显示 | `document_ui.py` |
 | 改上传类型或绑定月份 | `pages/TransportReceipts.py`、`backend/documents.py` |
+# 员工名册与账号的关系（2026-10-22，本地）
+
+新增独立人员身份，登录账号不再承担名册主键的职责。`Registre du personnel` 登记姓名和任职资料，`Administration / Créer un compte` 继续管理登录权限。一个员工可以没有账号；关联账号必须唯一。用户名变更由原个人设置事务同步关联，并追加名册事件，不更改员工 ID 或历史事件内容。
+
+```mermaid
+flowchart LR
+    Menu[Registre du personnel] --> Page[personnel/PersonnelPage]
+    Page --> Routes[personnel_register: Admin 权限及事务]
+    Routes --> Rules[personnel_rules: 字段与日期规则]
+    Routes --> Store[personnel_store: 员工/任职/审计]
+    Routes --> Sensitive[personnel_sensitive: NIR AES-256-GCM]
+    Sensitive --> Keys[独立受保护密钥文件]
+    Account[登录账号] -. 可选关联 .-> Employee[固定员工身份]
+    Employee --> Periods[多段任职经历]
+    Employee --> Events[修改前后快照]
+```
+
+本地与新版服务器入口显式注册名册；名册不向旧考勤或合同表反向写入。已有合同只用于管理员确认后的表单预填。资料归档与登录停用独立。详细范围见 [员工名册第一版](personnel-register.md)。
+
+2026-10-22：社保号仅在本地合成数据测试中开放。专用写入字段进入加密模块，普通员工响应只有“是否已填写”标记；管理员显式查看接口先提交访问审计，再返回临时明文。修改历史仅记录号码的存在状态和操作，不保存号码或密文。前端不把查看结果放入查询缓存，30 秒或离开视图后清除。生产环境默认关闭，密钥管理及测试边界见上述名册文档。
+
+## 应用栏与页面内容（2026-10-22，本地）
+
+`AppWorkspace.tsx` 负责唯一主页面 h1、650ms 悬停功能说明、主题入口及吸顶操作宿主；文案集中在 `workspacePages.ts`。正文不重复展示页面大标题和一般介绍。实体名称、统计、表单标签、错误与业务确认保留。各页面通过 `WorkspaceToolbar` 将实际控件 Portal 到宿主，状态与请求仍属于原页面。每个保留挂载的页面有独立 active 上下文，隐藏页不显示工具，也不重置业务草稿。
+
+操作宿主分为默认工具区与 `inlineTarget` 标题同行区；`WorkspaceToolbar placement="inline"` 用于仪表板单个刷新图标，保持不换行。两个宿主共用 active 控制，均计入顶部高度测量；没有操作时默认工具区不占高度。
+
+考勤、Documents 通过专用 Toolbar 和共享 `PeriodToolbar` 移动年月及常用操作；团队、Administration、请假和仪表板直接提交各自操作。个人设置通过 `form` 属性关联原表单的顶部保存按钮，保留 required/email/minLength 验证和 guard。标题悬停说明也可通过键盘焦点或触屏长按阅读。名册表格按测得的顶部高度占用剩余空间，其他页面正文正常纵向滚动；不全局禁用溢出。此布局仍为本地改版，发布需独立确认。

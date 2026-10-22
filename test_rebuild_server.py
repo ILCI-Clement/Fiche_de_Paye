@@ -18,6 +18,8 @@ class RebuildServerTests(unittest.TestCase):
                 patch('backend.attendance_api.register_attendance_routes') as attendance, \
                 patch('backend.attendance_signatures.register_signature_preflight') as signatures, \
                 patch('backend.person_profiles.register_profile_routes') as profiles, \
+                patch('backend.personnel_register.register_personnel_routes') as personnel, \
+                patch('backend.resource_maintenance.register_resource_maintenance') as maintenance, \
                 patch('backend.signature_attempts.SignatureAttempts') as attempts:
             spec.loader.exec_module(module)
             self.assertIs(module.app, services.app)
@@ -27,6 +29,12 @@ class RebuildServerTests(unittest.TestCase):
             self.assertIs(signatures.call_args.kwargs['sender'], services.send_fiche_for_signature)
             self.assertIs(signatures.call_args.kwargs['attempts'], attempts.return_value)
             self.assertIs(profiles.call_args.kwargs['get_current_user'], services.get_current_user)
+            self.assertIs(personnel.call_args.args[0], services.app)
+            self.assertIs(personnel.call_args.kwargs['get_db_connection'], services.get_db_connection)
+            self.assertIs(personnel.call_args.kwargs['get_current_user'], services.get_current_user)
+            self.assertIs(personnel.call_args.kwargs['load_user'], services.load_user)
+            self.assertIs(maintenance.call_args.kwargs['get_current_user'], services.get_current_user)
+            self.assertIs(maintenance.call_args.kwargs['load_user'], services.load_user)
         for name in names:
             getattr(services, name).assert_not_called()
 

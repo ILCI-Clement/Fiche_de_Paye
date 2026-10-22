@@ -1,6 +1,10 @@
 """Resolve both attendance signers from authorized personnel accounts."""
 from fastapi import HTTPException
 import re
+if __package__:
+    from .person_names import person_display_name
+else:
+    from person_names import person_display_name
 
 
 def signer_display_name(name, email):
@@ -32,8 +36,9 @@ def resolve_manager(recipient_email, actor, connect, load_user, access):
                 raise HTTPException(400, 'Le responsable direct doit avoir un compte valide et une adresse e-mail.')
             if manager['email'].strip().casefold() == str(recipient_email).strip().casefold():
                 raise HTTPException(400, 'Le salarié et le responsable doivent avoir des adresses e-mail distinctes.')
-            name = ' '.join(str(manager.get(key) or '').strip() for key in ('first_name','last_name')).strip()
-            return {'name': signer_display_name(name or manager['username'], manager['email']), 'email':manager['email'].strip()}
+            return {'name': signer_display_name(person_display_name(manager), manager['email']),
+                    'email': manager['email'].strip(),
+                    'employee_name': signer_display_name(person_display_name(employee), recipient_email)}
     finally:
         db.close()
 

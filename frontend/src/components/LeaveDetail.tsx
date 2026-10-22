@@ -1,3 +1,4 @@
+import { personDisplayName } from '../personDisplayName'
 import { useDraftGuard } from '../draftGuard'
 import { useState } from 'react'
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Stack, TextField, Typography } from '@mui/material'
@@ -29,19 +30,19 @@ export function LeaveDetail({ token, id, onClose, onChanged }: {
       {detail.error && <Alert severity="error">{detail.error.message}</Alert>}
       {mutation.error && <Alert severity="error" sx={{ mb: 2 }}>{mutation.error.message}</Alert>}
       {item && <>
-        <Typography variant="h6">{item.employee_name}</Typography>
+        <Typography variant="h6">{personDisplayName({ display_name: item.employee_name })}</Typography>
         <Typography sx={{ mt: 2, fontWeight: 650 }}>{periodLabel(item)}</Typography>
         <Typography color="text.secondary" variant="body2">{slotLabel(item)}</Typography>
         <Box sx={{ p: 2, bgcolor: 'var(--surface-soft)', borderRadius: 2, my: 2 }}>
           <Typography variant="caption" color="text.secondary">Note de l’employé</Typography>
           <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{item.note || 'Aucune note ajoutée.'}</Typography>
         </Box>
-        <Typography variant="body2" color="text.secondary">Responsable actuel : <strong>{item.approver_name}</strong></Typography>
+        <Typography variant="body2" color="text.secondary">Responsable actuel : <strong>{personDisplayName({ display_name: item.approver_name })}</strong></Typography>
         <Divider sx={{ my: 3 }} />
         <Typography sx={{ fontWeight: 700, mb: 2 }}>Historique des opérations</Typography>
         <Stack spacing={2}>
           {detail.data?.history.map(event => <Box key={event.id} sx={{ pl: 2, borderLeft: '2px solid', borderColor: 'divider' }}>
-            <Typography variant="body2" sx={{ fontWeight: 650 }}>{event.action === 'submitted' ? 'Demande envoyée' : statusLabels[event.new_status]} · {event.actor_name}</Typography>
+            <Typography variant="body2" sx={{ fontWeight: 650 }}>{event.action === 'submitted' ? 'Demande envoyée' : statusLabels[event.new_status]} · {personDisplayName({ display_name: event.actor_name })}</Typography>
             <Typography variant="caption" color="text.secondary">{timeLabel(event.created_at)}</Typography>
             {event.comment && <Typography variant="body2" sx={{ mt: 0.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{event.comment}</Typography>}
           </Box>)}

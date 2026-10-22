@@ -2,6 +2,11 @@
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Query
+from pydantic import EmailStr, TypeAdapter, ValidationError
+if __package__:
+    from .person_names import person_display_name
+else:
+    from person_names import person_display_name
 
 if __package__:
     from .leave_rules import LeaveInput, LeaveDecision, can_review, display_name, roles
@@ -11,15 +16,44 @@ else:
     from leave_store import LeaveStore, ensure_leave_schema, iso, timestamp
 
 
-def projection(row, actor):
+_HISTORICAL_EMAIL = TypeAdapter(EmailStr)
+
+
+def historical_actor_name(event, names):
+    """Use a current public label or an already-recorded name, never a raw ID.
+
+    An account rename intentionally preserves audit identity spelling. Its old
+    name snapshot can still be displayed without guessing a new association.
+    """
+    username = event.get('actor_username')
+    if username in names:
+        return names[username]
+    recorded = str(event.get('actor_name') or '').strip()
+    if not recorded or recorded == str(username or '').strip():
+        return 'Ancien compte'
+    if '@' in recorded:
+        try:
+            email = str(_HISTORICAL_EMAIL.validate_python(recorded))
+        except ValidationError:
+            return 'Ancien compte'
+        # EmailStr also accepts display-name wrappers; only a whole mailbox is
+        # safe as this fallback, with its domain normalization permitted.
+        if email.casefold() != recorded.casefold():
+            return 'Ancien compte'
+        return person_display_name({'email': email})
+    return recorded
+
+
+def projection(row, actor, names=None):
     current_manager = row.get('current_manager')
     return {
         **{key: iso(row[key]) for key in ('id', 'employee_username', 'start_date', 'end_date',
            'start_slot', 'end_slot', 'note', 'status', 'created_at', 'updated_at')},
-        'employee_name': str(row.get('current_email') or row['employee_name']).split('@', 1)[0],
-        'approver_name': str(row.get('manager_email') or current_manager or 'Administration').split('@', 1)[0],
-        'can_review': row['status'] == 'pending' and can_review(actor, row['employee_username'], current_manager),
-        'can_withdraw': row['status'] == 'pending' and row['employee_username'] == actor['username'],
+        'employee_name': person_display_name({'username': row.get('employee_username'), 'email': row.get('current_email')}, names),
+        'approver_name': person_display_name({'username': current_manager, 'email': row.get('manager_email')}, names) if current_manager else 'Administration',
+        'is_archived': bool(row.get('is_archived', False)),
+        'can_review': not row.get('is_archived') and row['status'] == 'pending' and can_review(actor, row['employee_username'], current_manager),
+        'can_withdraw': not row.get('is_archived') and row['status'] == 'pending' and row['employee_username'] == actor['username'],
     }
 
 
@@ -53,7 +87,7 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
                       page: int = Query(default=1, ge=1),
                       page_size: int = Query(default=12, ge=1, le=50),
                       actor=Depends(get_current_user)):
-        condition = "r.status <> 'withdrawn'"
+        condition = "r.status <> 'withdrawn' AND r.is_archived=0"
         params = []
         if scope == 'mine':
             condition += ' AND r.employee_username=%s'
@@ -82,7 +116,8 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
                 m.username AS current_manager {joins} WHERE {condition}
                 ORDER BY r.id DESC LIMIT %s OFFSET %s''', (*params, page_size, (page - 1) * page_size))
             rows = store.many()
-        return {'items': [projection(row, actor) for row in rows], 'total': total,
+            names = store.person_names()
+        return {'items': [projection(row, actor, names) for row in rows], 'total': total,
                 'page': page, 'page_size': page_size, 'counts': counts}
 
     @app.post('/leave-requests', status_code=201)
@@ -99,7 +134,7 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
                  payload.start_slot, payload.end_slot, payload.note, now, now))
             request_id = store.cursor.lastrowid
             store.event(request_id, actor, 'submitted', None, 'pending', payload.note)
-            return projection(store.request(request_id), actor)
+            return projection(store.request(request_id), actor, store.person_names())
 
     @app.get('/leave-requests/{request_id}')
     def detail(request_id: int, actor=Depends(get_current_user)):
@@ -109,12 +144,18 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
             store.execute('''SELECT id,actor_name,actor_username,action,previous_status,new_status,comment,created_at
                 FROM leave_events WHERE request_id=%s ORDER BY id''', (request_id,))
             history = store.many()
-        return {'request': projection(row, actor), 'history': history}
+            actor_names = store.display_accounts(event['actor_username'] for event in history)
+            for event in history:
+                event['actor_name'] = historical_actor_name(event, actor_names)
+            names = store.person_names()
+        return {'request': projection(row, actor, names), 'history': history}
 
     def transition(request_id, actor, new_status, comment=''):
         with LeaveStore(get_db_connection, write=True) as store:
             row = store.request(request_id, lock=True)
             require_visible(row, actor)
+            if row.get('is_archived'):
+                raise HTTPException(409, 'Cette demande est archivée. Restaurez-la avant de la modifier.')
             if new_status == 'withdrawn':
                 if row['employee_username'] != actor['username']:
                     raise HTTPException(403, 'Vous pouvez uniquement retirer vos propres demandes.')
@@ -128,7 +169,7 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
                 raise HTTPException(409, 'Cette demande vient de changer. Actualisez la liste.')
             action = 'withdrawn' if new_status == 'withdrawn' else 'decided'
             store.event(request_id, actor, action, 'pending', new_status, comment.strip())
-            return projection(store.request(request_id), actor)
+            return projection(store.request(request_id), actor, store.person_names())
 
     @app.post('/leave-requests/{request_id}/withdraw')
     def withdraw(request_id: int, actor=Depends(get_current_user)):

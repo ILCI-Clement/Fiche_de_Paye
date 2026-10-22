@@ -3,6 +3,8 @@ import json
 from calendar import monthrange
 from datetime import date, datetime
 from fastapi import Depends, HTTPException, Query
+from .person_names import load_person_names, person_display_name
+from .role_policy import is_admin
 
 
 def register_profile_routes(app, *, get_db_connection, get_current_user, load_user, attempts):
@@ -20,6 +22,10 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                     or current['username'] == target.get('manager_username')
                 ):
                     raise HTTPException(403, 'Ce profil est réservé à la personne, son responsable direct et un administrateur.')
+                names = load_person_names(cursor, [target['username'], target.get('manager_username')])
+                display_name = person_display_name(target, names)
+                manager = load_user(cursor, target['manager_username']) if target.get('manager_username') else None
+                manager_name = person_display_name(manager, names) if manager else None
                 cursor.execute('''SELECT g.name FROM organization_groups g
                     JOIN user_group_memberships m ON m.group_id=g.id
                     WHERE m.username=%s AND m.relation='member' AND g.is_active=1 ORDER BY g.name''', (target['username'],))
@@ -43,7 +49,8 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                     (target['username'], date(year, 12, 31), date(year, 1, 1)))
                 for row in cursor.fetchall():
                     start, end = date.fromisoformat(str(row['start_date'])[:10]), date.fromisoformat(str(row['end_date'])[:10])
-                    item = {**row, 'start_date': start.isoformat(), 'end_date': end.isoformat()}
+                    item = {**row, 'start_date': start.isoformat(), 'end_date': end.isoformat(),
+                            'employee_name': display_name, 'manager_name': manager_name}
                     for month in months:
                         m = month['month']
                         if start <= date(year, m, monthrange(year, m)[1]) and end >= date(year, m, 1):
@@ -79,8 +86,9 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                 signatures, signatures_available = attempts.profile_receipts(target['username'], year)
                 for item in signatures:
                     months[item['month'] - 1]['signature_requests'].append(item)
-                manager = load_user(cursor, target['manager_username']) if target.get('manager_username') else None
-                return {'username': target['username'], 'name': str(target.get('email') or target['username']).split('@')[0],
+                return {'username': target['username'], 'name': display_name, 'display_name': display_name,
+                        'full_name': names.get(target['username']), 'manager_name': manager_name,
+                        'can_view_personnel_data': is_admin(current) or current['username'] == target['username'],
                         'groups': groups, 'manager': manager['username'] if manager else None, 'year': year,
                         'months': months, 'legacy_unbound_sheets': len(legacy), 'attendance_incomplete': bool(invalid),
                         'signatures_available': signatures_available}

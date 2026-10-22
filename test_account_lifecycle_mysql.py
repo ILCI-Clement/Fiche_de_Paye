@@ -27,7 +27,13 @@ class RestrictedCursor:
     def __enter__(self): return self
     def __exit__(self, *_): self.cursor.close()
 
+    @property
+    def description(self): return self.cursor.description
+
     def execute(self, sql, params=()):
+        if sql == "SHOW TABLES LIKE 'personnel_register'":
+            # This fixture has no register; do not read any real personnel table.
+            return self.cursor.execute('SELECT NULL WHERE 1=0')
         if self.connection.fail_event and 'INSERT INTO account_status_events' in sql:
             raise RuntimeError('Injected isolated audit failure')
         if not sql.lstrip().upper().startswith('SELECT'):
@@ -71,7 +77,7 @@ class AccountLifecycleMySQLTests(unittest.TestCase):
                     kind VARCHAR(40),owner VARCHAR(255),uploaded_by VARCHAR(255),archived_by VARCHAR(255),payload TEXT) ENGINE=InnoDB''')
                 secret = secrets.token_urlsafe(24)
                 hashed = main.hash_password(secret)
-                for username, role in [('fixture-admin', 'Admin'), ('fixture-employee', 'Employe')]:
+                for username, role in [('fixture-admin', 'SuperAdmin'), ('fixture-employee', 'Employe')]:
                     cursor.execute('INSERT INTO users(username,email,role_tags,password_hash) VALUES(%s,%s,%s,%s)',
                                    (username, username + '@example.test', json.dumps([role]), hashed))
                 for kind, owner in [('attendance', 'fixture-employee'), ('contract', 'fixture-employee'),

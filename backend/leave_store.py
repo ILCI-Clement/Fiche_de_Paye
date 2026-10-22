@@ -4,9 +4,9 @@ import re
 from datetime import datetime, timezone
 
 if __package__:
-    from .leave_rules import display_name
+    from .person_names import load_person_names, load_person_accounts, person_display_name
 else:
-    from leave_rules import display_name
+    from person_names import load_person_names, load_person_accounts, person_display_name
 
 
 def timestamp():
@@ -27,6 +27,7 @@ class LeaveStore:
         self.sqlite = isinstance(self.db, sqlite3.Connection)
         try:
             self.cursor = self.db.cursor()
+            self._person_names = None
             if self.write:
                 if self.sqlite:
                     self.db.execute('BEGIN IMMEDIATE')
@@ -57,7 +58,21 @@ class LeaveStore:
 
     def user(self, username):
         self.execute('SELECT username,email,manager_username FROM users WHERE username=%s', (username,))
-        return self.one()
+        user = self.one()
+        if user:
+            names = self.person_names()
+            user['full_name'] = names.get(user['username'], '')
+            user['display_name'] = person_display_name(user, names)
+        return user
+
+    def person_names(self):
+        if self._person_names is None:
+            self._person_names = load_person_names(self.cursor)
+        return self._person_names
+
+    def display_accounts(self, usernames):
+        accounts = load_person_accounts(self.cursor, usernames, person_names=self.person_names())
+        return {key: value['display_name'] for key, value in accounts.items()}
 
     def request(self, request_id, *, lock=False):
         suffix = ' FOR UPDATE' if lock and not self.sqlite else ''
@@ -68,10 +83,11 @@ class LeaveStore:
         return self.one()
 
     def event(self, request_id, actor, action, previous, status, comment=''):
+        actor_name = person_display_name(self.user(actor['username']) or {}, self.person_names())
         self.execute('''INSERT INTO leave_events
             (request_id,actor_username,actor_name,action,previous_status,new_status,comment,created_at)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
-            (request_id, actor['username'], display_name(actor), action, previous, status, comment, timestamp()))
+            (request_id, actor['username'], actor_name, action, previous, status, comment, timestamp()))
 
 
 def ensure_leave_schema(connect):
@@ -83,6 +99,7 @@ def ensure_leave_schema(connect):
             employee_name VARCHAR(255) NOT NULL, start_date DATE NOT NULL, end_date DATE NOT NULL,
             start_slot VARCHAR(12) NOT NULL, end_slot VARCHAR(12) NOT NULL,
             note TEXT NOT NULL, status VARCHAR(12) NOT NULL,
+            is_archived INTEGER NOT NULL DEFAULT 0,
             created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL {indexes})''')
         indexes = '' if store.sqlite else ', KEY leave_event_request (request_id,id)'
         # No ON DELETE CASCADE: operational history survives account deletion.
@@ -91,6 +108,14 @@ def ensure_leave_schema(connect):
             actor_name VARCHAR(255) NOT NULL, action VARCHAR(20) NOT NULL,
             previous_status VARCHAR(12) NULL, new_status VARCHAR(12) NOT NULL,
             comment TEXT NOT NULL, created_at VARCHAR(40) NOT NULL {indexes})''')
+        if store.sqlite:
+            store.execute('PRAGMA table_info(leave_requests)')
+            columns = {row['name'] for row in store.many()}
+        else:
+            store.execute('SHOW COLUMNS FROM leave_requests')
+            columns = {row['Field'] for row in store.many()}
+        if 'is_archived' not in columns:
+            store.execute('ALTER TABLE leave_requests ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0')
         if store.sqlite:
             store.execute('CREATE INDEX IF NOT EXISTS leave_owner ON leave_requests(employee_username,status,id)')
             store.execute('CREATE INDEX IF NOT EXISTS leave_event_request ON leave_events(request_id,id)')

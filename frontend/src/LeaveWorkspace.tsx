@@ -1,5 +1,7 @@
+import { personDisplayName } from './personDisplayName'
+import { isAdmin } from './rolePolicy'
 import { useState } from 'react'
-import { Alert, Avatar, Box, Button, CircularProgress, Divider, IconButton, Pagination, Paper, Snackbar, Tab, Tabs, Typography } from '@mui/material'
+import { Alert, Avatar, Box, Button, CircularProgress, Divider, IconButton, Pagination, Paper, Snackbar, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import AddRounded from '@mui/icons-material/AddRounded'
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded'
 import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded'
@@ -14,6 +16,7 @@ import { LeaveForm } from './components/LeaveForm'
 import { LeaveDetail } from './components/LeaveDetail'
 import { StatusChip } from './components/StatusChip'
 import { alpha } from '@mui/material/styles'
+import { WorkspaceToolbar } from './components/WorkspaceToolbar'
 
 
 export function LeaveWorkspace({ token, session }: { token: string; session: Session }) {
@@ -37,12 +40,11 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
   }
   return <Box>
       <Box component="main" className="workspace">
-        <Box className="page-heading"><Box><Typography variant="overline" sx={{ letterSpacing: 2, color: 'primary.main', fontWeight: 700 }}>CONGÉS PAYÉS</Typography>
-          <Typography variant="h4" component="h1">{scope === 'mine' ? 'Mes demandes' : session.role_tags.includes('Admin') ? 'Toutes les demandes' : 'Les demandes de mon équipe'}</Typography>
-          <Typography color="text.secondary" sx={{ mt: 1 }}>{scope === 'mine' ? 'Un espace pour demander vos congés et suivre chaque réponse.' : 'Retrouvez les demandes et prenez vos décisions en quelques clics.'}</Typography></Box>
-          <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>Nouvelle demande</Button>
-        </Box>
-        {session.can_review && <Tabs value={scope} onChange={(_, value: Scope) => navigate(value)} sx={{ mb: 2 }}><Tab value="mine" label="Mes demandes" /><Tab value="team" label="Demandes de mon équipe" /></Tabs>}
+        <WorkspaceToolbar>
+          {session.can_review && <Tabs value={scope} onChange={(_, value: Scope) => navigate(value)} aria-label="Périmètre des demandes de congé" variant="scrollable" scrollButtons="auto" sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, px: 1.5, fontSize: 13 } }}><Tab value="mine" label="Mes demandes" /><Tab value="team" label={isAdmin(session) ? 'Toutes les demandes' : 'Mon équipe'} /></Tabs>}
+          <Tooltip title="Actualiser les demandes"><span><IconButton aria-label="Actualiser les demandes" disabled={list.isFetching} onClick={() => { void list.refetch(); if (session.can_review) void reviews.refetch() }}><RefreshRounded fontSize="small" /></IconButton></span></Tooltip>
+          <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>Nouvelle demande</Button>
+        </WorkspaceToolbar>
         <Box className="stats-grid">
           {[{ label: 'En attente', value: list.data?.counts.pending, icon: <AccessTimeRounded />, color: 'warning' as const },
             { label: 'Approuvées', value: list.data?.counts.approved, icon: <CheckCircleOutlineRounded />, color: 'success' as const },
@@ -50,12 +52,11 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
               <Paper key={stat.label} className="stat-card"><Box sx={theme => ({ bgcolor: alpha(theme.palette[stat.color].main, .14), color: theme.palette[stat.color].main, borderRadius: 3, p: 1.3, display: 'flex' })}>{stat.icon}</Box>
                 <Box><Typography variant="body2" color="text.secondary">{stat.label}</Typography><Typography sx={{ fontWeight: 750, fontSize: 28 }}>{stat.value ?? '—'}</Typography></Box></Paper>)}
         </Box>
-        {scope === 'team' && pending > 0 && <Alert severity="info" icon={<AccessTimeRounded />} sx={{ mb: 3 }}>
+        {scope === 'team' && pending > 0 && <Alert severity="info" icon={<AccessTimeRounded />} sx={{ mb: 2 }}>
           {pending} demande{pending > 1 ? 's' : ''} attend{pending > 1 ? 'ent' : ''} votre décision.
         </Alert>}
         <Paper className="requests-panel">
-          <Box className="list-heading"><Typography variant="h6">{scope === 'mine' ? 'Historique de mes demandes' : 'Demandes de congé'}</Typography>
-            <IconButton aria-label="Actualiser les demandes" disabled={list.isFetching} onClick={() => { void list.refetch(); if (session.can_review) void reviews.refetch() }}><RefreshRounded fontSize="small" /></IconButton></Box>
+          <Box className="list-heading"><Typography variant="h6">{scope === 'mine' ? 'Historique de mes demandes' : 'Demandes de congé'}</Typography></Box>
           <Tabs value={filter} onChange={(_, value: Filter) => { setFilter(value); setPage(1) }} variant="scrollable" scrollButtons="auto" sx={{ px: 2 }}>
             <Tab value="all" label="Toutes" /><Tab value="pending" label="En attente" /><Tab value="approved" label="Approuvées" /><Tab value="rejected" label="Refusées" />
           </Tabs><Divider />
@@ -69,16 +70,15 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
           {Boolean(list.data?.items.length) && <>
             <Box className="request-columns"><span>COLLABORATEUR & PÉRIODE</span><span>RESPONSABLE</span><span>STATUT</span><span /></Box>
             {list.data?.items.map(item => <Box key={item.id} className="request-row">
-              <Box sx={{ display: 'flex', gap: 1.5, minWidth: 0, alignItems: 'center' }}><Avatar sx={{ bgcolor: 'var(--surface-soft)', color: 'text.secondary', fontSize: 13 }}>{initials(item.employee_name)}</Avatar>
-                <Box sx={{ minWidth: 0 }}><Typography sx={{ fontWeight: 650, fontSize: 14 }}>{item.employee_name}</Typography><Typography sx={{ fontSize: 13, mt: 0.4 }}>{periodLabel(item)}</Typography><Typography variant="caption" color="text.secondary">{slotLabel(item)}</Typography></Box></Box>
-              <Box className="request-manager"><Typography variant="body2">{item.approver_name}</Typography><Typography variant="caption" color="text.secondary">Envoyée le {timeLabel(item.created_at)}</Typography></Box>
+              <Box sx={{ display: 'flex', gap: 1.5, minWidth: 0, alignItems: 'center' }}><Avatar sx={{ bgcolor: 'var(--surface-soft)', color: 'text.secondary', fontSize: 13 }}>{initials(personDisplayName({ display_name: item.employee_name }))}</Avatar>
+                <Box sx={{ minWidth: 0 }}><Typography sx={{ fontWeight: 650, fontSize: 14 }}>{personDisplayName({ display_name: item.employee_name })}</Typography><Typography sx={{ fontSize: 13, mt: 0.4 }}>{periodLabel(item)}</Typography><Typography variant="caption" color="text.secondary">{slotLabel(item)}</Typography></Box></Box>
+              <Box className="request-manager"><Typography variant="body2">{personDisplayName({ display_name: item.approver_name })}</Typography><Typography variant="caption" color="text.secondary">Envoyée le {timeLabel(item.created_at)}</Typography></Box>
               <Box><StatusChip status={item.status} /></Box>
               <Button className="detail-button" size="small" color="inherit" endIcon={<ArrowForwardRounded fontSize="small" />} onClick={() => setSelected(item.id)}>{item.can_review ? 'Traiter' : 'Détails'}</Button>
             </Box>)}
           </>}
           {list.data && (list.data.total > 12 || page > 1) && <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}><Pagination page={page} count={Math.max(1, Math.ceil(list.data.total / 12))} onChange={(_, value) => setPage(value)} /></Box>}
         </Paper>
-        <Typography className="page-footnote">Chaque décision conserve son auteur et sa date. Les demandes retirées sont masquées de la liste.</Typography>
       </Box>
     {creating && <LeaveForm token={token} session={session} onClose={() => setCreating(false)} onSaved={() => saved('Votre demande a été envoyée.')} />}
     {selected !== null && <LeaveDetail token={token} id={selected} onClose={() => setSelected(null)} onChanged={saved} />}

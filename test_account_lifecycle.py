@@ -29,7 +29,12 @@ class Cursor:
     def __enter__(self): return self
     def __exit__(self, *_): self.cursor.close()
 
+    @property
+    def description(self): return self.cursor.description
+
     def execute(self, sql, params=()):
+        if sql == "SHOW TABLES LIKE 'personnel_register'":
+            return self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='personnel_register'")
         if 'FOR UPDATE' in sql:
             # SQLite surrogate for transaction serialization, not a MySQL lock test.
             if not self.connection.db.in_transaction:
@@ -76,7 +81,7 @@ class AccountLifecycleTests(unittest.TestCase):
                 target_username TEXT,actor_username TEXT,was_active INTEGER,is_active INTEGER,
                 action TEXT DEFAULT 'activation',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
                 CREATE TABLE retained_business (kind TEXT,owner TEXT,uploaded_by TEXT,archived_by TEXT,payload TEXT);''')
-            for username, tags in [('admin', ['Admin']), ('other-admin', ['Admin']), ('manager', ['Responsable']), ('employee', ['Employe'])]:
+            for username, tags in [('admin', ['SuperAdmin', 'Admin']), ('other-admin', ['Admin']), ('manager', ['Responsable']), ('employee', ['Employe'])]:
                 db.execute('INSERT INTO users(username,email,role_tags,password_hash) VALUES(?,?,?,?)',
                            (username, username + '@example.test', json.dumps(tags), digest(self.password)))
             for kind, owner in [('attendance', 'employee'), ('contracts', 'employee'), ('documents', 'employee'),
@@ -134,6 +139,21 @@ class AccountLifecycleTests(unittest.TestCase):
 
     def events(self):
         return self.client.get('/users/employee/activation-history', headers=self.headers()).json()['events']
+
+    def test_login_deletion_accepts_exact_email_confirmation(self):
+        self.assertEqual(self.activation(False).status_code, 200)
+        response = self.client.request('DELETE', '/users/employee/login', headers=self.headers(),
+                                       json={'confirmation': 'employee@example.test'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.events()[0]['action'], 'login_deleted')
+
+    def test_login_deletion_does_not_treat_person_label_as_confirmation(self):
+        self.assertEqual(self.activation(False).status_code, 200)
+        for label in ['Jean Martin', 'EMPLOYEE@EXAMPLE.TEST', 'employee@example.test ']:
+            response = self.client.request('DELETE', '/users/employee/login', headers=self.headers(),
+                                           json={'confirmation': label})
+            self.assertEqual(response.status_code, 400)
+            self.assertIsNone(self.stored()['login_deleted_at'])
 
     def retained(self):
         with closing(sqlite3.connect(self.path)) as db:
@@ -240,6 +260,11 @@ class AccountLifecycleTests(unittest.TestCase):
             self.assertEqual(self.delete(actor=actor).status_code, 403)
             self.assertEqual(self.client.get('/users/employee/activation-history', headers=self.headers(actor)).status_code, 403)
 
+    def test_ordinary_admin_may_archive_but_cannot_delete_login(self):
+        self.assertEqual(self.activation(False, actor='other-admin').status_code, 200)
+        self.assertEqual(self.delete(actor='other-admin').status_code, 403)
+        self.assertIsNone(self.stored()['login_deleted_at'])
+
     def test_unauthenticated_access_rejected(self):
         self.assertEqual(self.client.patch('/users/employee/activation', json={'is_active': False}).status_code, 401)
         self.assertEqual(self.client.request('DELETE', '/users/employee/login', json={'confirmation': 'employee'}).status_code, 401)
@@ -269,9 +294,10 @@ class AccountLifecycleTests(unittest.TestCase):
         self.assertEqual(self.activation(False, username='missing').status_code, 404)
         self.assertEqual(self.delete(username='missing').status_code, 404)
 
-    def test_legacy_destructive_endpoint_is_retired(self):
+    def test_destructive_endpoint_requires_super_role_and_explicit_payload(self):
         before = self.retained()
-        self.assertEqual(self.client.delete('/delete-user/employee', headers=self.headers()).status_code, 409)
+        self.assertEqual(self.client.delete('/delete-user/employee', headers=self.headers('other-admin')).status_code, 403)
+        self.assertEqual(self.client.delete('/delete-user/employee', headers=self.headers()).status_code, 422)
         self.assertEqual(self.retained(), before)
 
     def test_deleted_username_and_email_stay_reserved(self):

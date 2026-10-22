@@ -5,12 +5,18 @@ from pathlib import Path
 
 from fastapi import HTTPException
 from .local_signing_policy import LocalSigningPolicy
+from .personnel_sensitive import ensure_local_nir_key_file
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / '.local-test' / 'rebuild'
 runtime = json.loads((STATE / 'runtime.json').read_text(encoding='utf-8-sig'))
 if runtime['database'] != 'presence_local_rebuild':
     raise RuntimeError('Unexpected local test database.')
+
+# Local-only independent key ring. Never copy it into the database snapshot or logs.
+nir_key_file = STATE / 'keys' / 'personnel-nir.json'
+nir_key_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+ensure_local_nir_key_file(nir_key_file)
 
 os.environ.update({
     'PRESENCE_API_TOKEN': runtime['api_token'], 'PRESENCE_DB_HOST': '127.0.0.1',
@@ -21,6 +27,8 @@ os.environ.update({
     'PRESENCE_APP_URL': 'http://127.0.0.1:5173',
     'PRESENCE_TRANSPORT_RECEIPTS_DIR': str(STATE / 'snapshot' / 'documents'),
     'PRESENCE_ESIGN_DOCUMENTS_DIR': str(STATE / 'esign-documents'),
+    'PRESENCE_PERSONNEL_NIR_ENABLED': '1',
+    'PRESENCE_PERSONNEL_NIR_KEYS_FILE': str(nir_key_file),
 })
 # No inherited signing credential: only the private, explicitly selected local policy.
 os.environ.pop('CLAWSHOW_ESIGN_API_KEY', None)
@@ -39,6 +47,8 @@ from .attendance_api import register_attendance_routes
 from .attendance_signatures import register_signature_preflight
 from .signature_attempts import SignatureAttempts
 from .person_profiles import register_profile_routes
+from .personnel_register import register_personnel_routes
+from .resource_maintenance import register_resource_maintenance
 from urllib.parse import urlsplit
 
 main.DB_CONFIG.update(host='127.0.0.1', port=3307, database=runtime['database'])
@@ -46,6 +56,10 @@ main.start_contract_reminder_worker = lambda: None
 main.send_password_reset_email = lambda *_args: False
 main.send_contract_end_reminder_email = lambda *_args: False
 app = main.app
+register_personnel_routes(app, get_db_connection=main.get_db_connection,
+                          get_current_user=main.get_current_user, load_user=main.load_user)
+register_resource_maintenance(app, get_db_connection=main.get_db_connection,
+                             get_current_user=main.get_current_user, load_user=main.load_user)
 app.state.local_snapshot = True
 app.state.esign_recipient_policy = signing_policy.check
 

@@ -1,18 +1,25 @@
+import { personDisplayName } from '../personDisplayName'
+import { isAdmin, isSuperAdmin } from '../rolePolicy'
+import { AccountOption, AccountOptionHeader } from './AccountOption'
+import { accountMenuProps } from './accountOptionLayout'
+import { AdvancedMaintenance } from './AdvancedMaintenance'
 import { useCapabilities } from '../capabilities'
 import { CreateAccount } from './CreateAccount'
 import { useDraftGuard, useWorkspaceGuard } from '../draftGuard'
 import { useRef, useState } from 'react'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, CircularProgress, MenuItem, Paper, Snackbar, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, CircularProgress, IconButton, ListSubheader, MenuItem, Paper, Snackbar, TextField, Tooltip, Typography } from '@mui/material'
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
 import PersonAddOutlined from '@mui/icons-material/PersonAddOutlined'
+import RefreshRounded from '@mui/icons-material/RefreshRounded'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Session } from '../types'
 import { adminApi } from './api'
 import { GroupEditor } from './GroupEditor'
 import { UserEditor } from './UserEditor'
+import { WorkspaceToolbar } from '../components/WorkspaceToolbar'
 
 export function AdminPage({ token, session }: { token: string; session: Session }) {
-  if (!session.role_tags.includes('Admin')) return <Box className="workspace"><Alert severity="error">Cette page est réservée aux administrateurs.</Alert></Box>
+  if (!isAdmin(session)) return <Box className="workspace"><Alert severity="error">Cette page est réservée aux administrateurs.</Alert></Box>
   return <AdminWorkspace token={token} session={session} />
 }
 
@@ -38,24 +45,29 @@ function AdminWorkspace({ token, session }: { token: string; session: Session })
     finally { lock.current = false; setBusy(false) }
   }
   const current = users.data?.users.find(p => p.username === selected) || users.data?.users[0]
-  const choices = (users.data?.users || []).filter(p => p.username === current?.username || `${p.username} ${p.email}`.toLocaleLowerCase('fr').includes(search.toLocaleLowerCase('fr')))
+  const choices = (users.data?.users || []).filter(p => p.username === current?.username || `${personDisplayName(p)} ${p.email}`.toLocaleLowerCase('fr').includes(search.toLocaleLowerCase('fr')))
   return <Box className="workspace">
-    <Box className="page-heading"><Box><Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>ADMINISTRATION</Typography><Typography variant="h4" component="h1">Comptes et départements</Typography></Box>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+    <WorkspaceToolbar>
+      <Box className="workspace-action-bar" sx={{ width: '100%' }}>
+        <TextField size="small" placeholder="Rechercher un compte" value={search} onChange={event => setSearch(event.target.value)} disabled={busy || !users.data || !groups.data} slotProps={{ htmlInput: { 'aria-label': 'Rechercher un compte' } }} sx={{ width: { xs: '100%', sm: 220 }, maxWidth: '100%' }} />
+        <TextField select size="small" label={`Compte (${users.data?.users.length || 0})`} value={current?.username || ''} disabled={busy || !users.data || !groups.data} slotProps={{ select: { renderValue: () => current ? <AccountOption person={current} compact /> : '', MenuProps: accountMenuProps } }} sx={{ minWidth: 'min(100%, 220px)', maxWidth: 360, flex: { xs: '1 1 100%', sm: '1 1 260px' } }} onChange={event => { const value = event.target.value; guard?.request(() => setSelected(value)) }}>
+          <ListSubheader><AccountOptionHeader /></ListSubheader>
+          {choices.map(person => <MenuItem key={person.username} value={person.username}><AccountOption person={person} /></MenuItem>)}
+        </TextField>
         <Button variant="outlined" startIcon={<PersonAddOutlined />} disabled={busy || !users.data || !groups.data || !!users.error || !!groups.error} onClick={() => { setError(''); setCreating(true) }}>Créer un compte</Button>
-        <Button disabled={busy} onClick={() => { guard?.request(() => { void users.refetch(); void groups.refetch() }) }}>Actualiser</Button>
+        <Tooltip title="Actualiser"><span><IconButton aria-label="Actualiser" disabled={busy} onClick={() => { guard?.request(() => { void users.refetch(); void groups.refetch() }) }}><RefreshRounded /></IconButton></span></Tooltip>
       </Box>
-    </Box>
+    </WorkspaceToolbar>
     {!capabilities.canCreateAccounts && <Alert severity="info" sx={{ mb: 2 }}>La création de nouveaux comptes est désactivée ou indisponible dans cet environnement. Les comptes existants peuvent être gérés.</Alert>}
     {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
     {users.isPending || groups.isPending ? <CircularProgress /> : users.error || groups.error ? <Alert severity="error">{users.error?.message || groups.error?.message}</Alert> : <>
-      <Paper sx={{ p: { xs: 2, md: 3 }, mb: 2 }}>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}><TextField label="Rechercher un compte" value={search} onChange={e => setSearch(e.target.value)} disabled={busy} /><TextField select label={`Compte (${users.data.users.length})`} value={current?.username || ''} disabled={busy} sx={{ flex: 1, minWidth: 220 }} onChange={e => { const value = e.target.value; guard?.request(() => setSelected(value)) }}>{choices.map(p => <MenuItem key={p.username} value={p.username}>{p.username} · {p.role_tags.join(', ')}{p.login_deleted_at ? ' · Connexion supprimée' : p.is_active === false ? ' · Désactivé' : ''}</MenuItem>)}</TextField></Box>
-        {current ? <UserEditor key={current.username} token={token} user={current} users={users.data.users} groups={groups.data.groups} actor={session.username} busy={busy} run={run} requestError={error} /> : <Typography>Aucun compte enregistré.</Typography>}
+      <Paper sx={{ p: { xs: 2, md: 2.5 }, mb: 2 }}>
+        {current ? <UserEditor key={current.username} token={token} user={current} users={users.data.users} groups={groups.data.groups} actor={session.username} actorRoles={session.role_tags} busy={busy} run={run} requestError={error} /> : <Typography>Aucun compte enregistré.</Typography>}
       </Paper>
       <Accordion disableGutters><AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography>Gérer les départements ({groups.data.groups.length})</Typography></AccordionSummary><AccordionDetails><GroupEditor token={token} groups={groups.data.groups} busy={busy} run={run} /></AccordionDetails></Accordion>
     </>}
-    {creating && users.data && groups.data && <CreateAccount token={token} users={users.data.users} groups={groups.data.groups} enabled={capabilities.canCreateAccounts} busy={busy} run={run} error={error} onClose={() => setCreating(false)} />}
+    <AdvancedMaintenance token={token} session={session} />
+    {creating && users.data && groups.data && <CreateAccount token={token} users={users.data.users} groups={groups.data.groups} allowSuperAdmin={isSuperAdmin(session)} enabled={capabilities.canCreateAccounts} busy={busy} run={run} error={error} onClose={() => setCreating(false)} />}
     <Snackbar open={!!message} autoHideDuration={5000} onClose={() => setMessage('')}><Alert severity="success" variant="filled" onClose={() => setMessage('')}>{message}</Alert></Snackbar>
   </Box>
 }
