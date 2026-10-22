@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material'
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
 import VisibilityOffOutlined from '@mui/icons-material/VisibilityOffOutlined'
@@ -10,7 +11,8 @@ import { useRegistryViewer } from './context'
 import { useSensitiveNumberCapability } from './useSensitiveNumberCapability'
 
 /** Plaintext lives only in this short-lived view, never in query cache or storage. */
-export function SensitiveNumber({ token, employeeId, hasNumber, active = true }: { token: string; employeeId: number; hasNumber: boolean; active?: boolean }) {
+type NumberInputRenderer = (state: { value: string; busy: boolean; enabled: boolean; toggle: () => void }) => ReactNode
+export function SensitiveNumber({ token, employeeId, hasNumber, active = true, renderInput }: { token: string; employeeId: number; hasNumber: boolean; active?: boolean; renderInput?: NumberInputRenderer }) {
   const capability = useSensitiveNumberCapability(token)
   const viewer = useRegistryViewer()
   const slot = useWorkspaceToolbar()
@@ -20,11 +22,11 @@ export function SensitiveNumber({ token, employeeId, hasNumber, active = true }:
   const enabled = capability.data?.nir_enabled === true && !capability.error
   return <SensitiveNumberView key={JSON.stringify([viewer, employeeId, token, hasNumber, enabled])}
     token={token} employeeId={employeeId} hasNumber={hasNumber} viewer={viewer}
-    enabled={enabled} pending={capability.isPending} checking={capability.isFetching} />
+    enabled={enabled} pending={capability.isPending} checking={capability.isFetching} renderInput={renderInput} />
 }
 
-function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pending, checking }: {
-  token: string; employeeId: number; hasNumber: boolean; viewer: string; enabled: boolean; pending: boolean; checking: boolean;
+function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pending, checking, renderInput }: {
+  token: string; employeeId: number; hasNumber: boolean; viewer: string; enabled: boolean; pending: boolean; checking: boolean; renderInput?: NumberInputRenderer;
 }) {
   const client = useQueryClient()
   const [value, setValue] = useState('')
@@ -73,6 +75,12 @@ function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pe
       if (current === generation.current) { request.current = null; setBusy(false) }
     }
   }
+  if (renderInput) return <Box>
+    {/* The renderer only binds event handlers; refs are accessed on user actions. */}
+    {/* oxlint-disable-next-line react/refs */}
+    {renderInput({ value, busy, enabled: enabled && !checking, toggle: () => { if (value || busy) hide(); else void reveal() } })}
+    {error && <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert>}
+  </Box>
   return <Box>
     <Typography variant="body2" color="text.secondary">{hasNumber ? 'Renseigné · stockage chiffré' : 'Non renseigné'}</Typography>
     {value && <Typography component="output" aria-label="Numéro de sécurité sociale affiché temporairement" sx={{ display: 'block', mt: 1, fontFamily: 'monospace', overflowWrap: 'anywhere', userSelect: 'text' }}>{value}</Typography>}

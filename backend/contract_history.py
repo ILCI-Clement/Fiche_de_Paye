@@ -5,9 +5,11 @@ from typing import Literal
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 try:
+    from .personnel_contract_sync import sync_account_contracts, sync_current_contract
     from .destructive_audit import append_deletion_event
     from .role_policy import canonical_role_tags, checked_resource_actor, is_admin, is_super_admin
 except ImportError:
+    from personnel_contract_sync import sync_account_contracts, sync_current_contract
     from destructive_audit import append_deletion_event
     from role_policy import canonical_role_tags, checked_resource_actor, is_admin, is_super_admin
 
@@ -98,15 +100,6 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
             raise HTTPException(404, 'Contrat introuvable.')
         return canonical, contract
 
-    def sync_current(cursor, username):
-        cursor.execute('''SELECT * FROM personnel_contracts WHERE username=%s AND is_archived=0
-            AND start_date<=%s AND (end_date IS NULL OR end_date>=%s) ORDER BY start_date DESC LIMIT 1''',
-            (username, date.today(), date.today()))
-        current = cursor.fetchone()
-        cursor.execute('UPDATE users SET contract_start_date=%s,contract_end_date=%s,is_cdi=%s WHERE username=%s',
-                       (current['start_date'] if current else None, current['end_date'] if current else None,
-                        current['is_cdi'] if current else False, username))
-
     @app.on_event('startup')
     def migrate_contract_history():
         db = connect()
@@ -159,7 +152,7 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
         db = connect()
         try:
             with db.cursor() as cur:
-                locked_admin(cur, actor)
+                current_actor = locked_admin(cur, actor)
                 # Serialize edits per person to prevent two concurrent overlapping inserts.
                 cur.execute('SELECT username FROM users WHERE username=%s FOR UPDATE', (username,))
                 if not cur.fetchone():
@@ -171,6 +164,8 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
                     if not existing:
                         raise HTTPException(404, 'Contrat introuvable.')
                     archived = bool(existing['is_archived'])
+                    if archived:
+                        raise HTTPException(409, 'Restaurez le contrat avant de modifier ses dates.')
                 cur.execute('''SELECT id FROM personnel_contracts WHERE username=%s AND id<>%s
                     AND is_archived=0 AND start_date <= %s AND (end_date IS NULL OR end_date >= %s)''',
                     (username, contract_id or 0, end or date.max, payload.start_date))
@@ -183,7 +178,8 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
                 else:
                     cur.execute('UPDATE personnel_contracts SET employee_type=%s,start_date=%s,end_date=%s,is_cdi=%s WHERE id=%s AND username=%s', values+(contract_id,username))
                 # Keep existing dashboard fields consistent with the contract active today.
-                sync_current(cur, username)
+                sync_current_contract(cur, username)
+                sync_account_contracts(cur, username, current_actor['username'])
             db.commit()
             return {'status':'success','contract_id':contract_id}
         except Exception:
@@ -216,7 +212,7 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
                         raise HTTPException(409, 'Un contrat actif couvre déjà cette période.')
                 cur.execute('UPDATE personnel_contracts SET is_archived=%s WHERE id=%s AND username=%s',
                             (payload.is_archived, contract_id, username))
-                sync_current(cur, username)
+                sync_current_contract(cur, username)
             db.commit()
             return {'status': 'success', 'contract_id': contract_id, 'is_archived': payload.is_archived}
         except Exception:
@@ -239,8 +235,11 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
                     raise HTTPException(400, 'Confirmez le numéro exact du contrat.')
                 if contract_referenced_by_attendance(cur, contract_id, username):
                     raise HTTPException(409, 'Ce contrat est lié à des fiches de présence conservées ; sa suppression est refusée.')
+                cur.execute('SELECT period_id FROM personnel_register_periods WHERE account_contract_id=%s LIMIT 1', (contract_id,))
+                if cur.fetchone():
+                    raise HTTPException(409, 'Ce contrat est lié au registre du personnel ; conservez-le archivé.')
                 cur.execute('DELETE FROM personnel_contracts WHERE id=%s AND username=%s', (contract_id, username))
-                sync_current(cur, username)
+                sync_current_contract(cur, username)
                 append_deletion_event(cur, current, 'contract', contract_id,
                                       {'deleted_records': 1, 'contract_count': 1,
                                        'confirmed': True, 'previous_is_archived': True})

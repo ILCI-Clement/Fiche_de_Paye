@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import dayjs from 'dayjs'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import { CalendarMonthHeader } from './CalendarMonthHeader'
 
 /** French display and calendar; API values remain ISO dates. */
 export function FrenchDateField({ label, value, onChange, disabled, required, fullWidth, min, error, helperText }: {
@@ -9,6 +10,7 @@ export function FrenchDateField({ label, value, onChange, disabled, required, fu
 }) {
   const input = useRef<HTMLInputElement>(null)
   return <DatePicker label={label} value={value ? dayjs(value) : null} format="DD/MM/YYYY"
+    views={['day']} slots={{ calendarHeader: CalendarMonthHeader }}
     disabled={disabled} minDate={min ? dayjs(min) : undefined} inputRef={input}
     onChange={(date, context) => {
       const invalid = Boolean(context.validationError)

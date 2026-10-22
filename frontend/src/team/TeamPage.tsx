@@ -37,8 +37,11 @@ export function TeamPage({ token, session, onAttendance }: { token: string; sess
       <Box className="workspace-action-bar" sx={{ width: '100%' }}>
         {sheet === 'team' && <>
           <TextField size="small" placeholder="Rechercher une personne" value={search} onChange={event => setSearch(event.target.value)} slotProps={{ htmlInput: { 'aria-label': 'Rechercher une personne' } }} sx={{ width: { xs: '100%', sm: 230 }, maxWidth: '100%' }} />
-          {privileged && <TextField select size="small" label="Consulter un profil" value="" sx={{ minWidth: 'min(100%, 220px)', maxWidth: 360, flex: { xs: '1 1 100%', sm: '0 1 260px' } }} onChange={event => setProfile(event.target.value)}>
-            {(people.data?.users || []).filter(person => isAdmin(session) || person.username === session.username || person.manager_id === session.username).map(person => <MenuItem key={person.username} value={person.username}>{personDisplayName(person)} · {person.email}</MenuItem>)}
+          {privileged && <TextField select size="small" label="Consulter un profil" value="" sx={{ minWidth: 'min(100%, 220px)', maxWidth: 360, flex: { xs: '1 1 100%', sm: '0 1 260px' } }} slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { width: 640, maxWidth: 'calc(100vw - 32px)' } } } } } }} onChange={event => setProfile(event.target.value)}>
+            {(people.data?.users || []).filter(person => isAdmin(session) || person.username === session.username || person.manager_id === session.username).map(person => <MenuItem key={person.username} value={person.username} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.5fr)', columnGap: 2, alignItems: 'center', py: 1 }}>
+              <Typography component="span" title={personDisplayName(person)} sx={{ minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{personDisplayName(person)}</Typography>
+              <Typography component="span" title={person.email || ''} sx={{ minWidth: 0, fontSize: 13, color: 'text.secondary', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{person.email || '—'}</Typography>
+            </MenuItem>)}
           </TextField>}
         </>}
         <Tooltip title="Consulter mon profil mensuel"><Button variant="outlined" startIcon={<PersonOutlineRounded />} onClick={() => setProfile(session.username)}>Mon profil</Button></Tooltip>

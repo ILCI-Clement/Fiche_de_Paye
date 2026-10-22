@@ -7,6 +7,7 @@ import RefreshRounded from '@mui/icons-material/RefreshRounded'
 import FilterAltOffOutlined from '@mui/icons-material/FilterAltOffOutlined'
 import InfoOutlined from '@mui/icons-material/InfoOutlined'
 import CloseRounded from '@mui/icons-material/CloseRounded'
+import DownloadOutlined from '@mui/icons-material/DownloadOutlined'
 import { personnelTypes, statusLabels } from './api'
 import type { PersonnelFilters } from './api'
 
@@ -14,11 +15,11 @@ interface Props {
   filters: PersonnelFilters; search: string; total: number; busy: boolean; hasData: boolean;
   onSearchChange: (value: string) => void; onSearch: () => void;
   onFilter: (value: Partial<PersonnelFilters>) => void; onReset: () => void;
-  onRegister: () => void; onRefresh: () => void; onPage: (page: number) => void;
+  onRegister: () => void; onRefresh: () => void; onPage: (page: number) => void; onExport: () => void;
 }
 
 /** Rendered by WorkspaceToolbar in the active page's application header. */
-export function PersonnelToolbar({ filters, search, total, busy, hasData, onSearchChange, onSearch, onFilter, onReset, onRegister, onRefresh, onPage }: Props) {
+export function PersonnelToolbar({ filters, search, total, busy, hasData, onSearchChange, onSearch, onFilter, onReset, onRegister, onRefresh, onPage, onExport }: Props) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null)
   const filterId = useId()
   const filterCount = Number(!!filters.personnel_type) + Number(filters.status !== 'all') + Number(filters.archive !== 'active')
@@ -27,6 +28,7 @@ export function PersonnelToolbar({ filters, search, total, busy, hasData, onSear
     '& .MuiIconButton-root': { width: 40, height: 40 }, '& .MuiButton-root': { minHeight: 40, fontWeight: 500 },
   }}>
     <Button variant="contained" size="small" startIcon={<PersonAddOutlined fontSize="small" />} onClick={onRegister} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>Enregistrer un salarié</Button>
+    <Tooltip title="Exporter toutes les personnes correspondant aux filtres, toutes pages incluses"><span><Button size="small" startIcon={<DownloadOutlined fontSize="small" />} disabled={busy || !hasData || total === 0} onClick={onExport} sx={{ whiteSpace: 'nowrap' }}>Exporter Excel</Button></span></Tooltip>
     <Box component="form" onSubmit={event => { event.preventDefault(); onSearch() }} sx={{ flex: '1 1 200px', minWidth: 170, maxWidth: { xs: 'none', md: 340 } }}>
       <TextField placeholder="Nom, compte ou n°…" value={search} onChange={event => onSearchChange(event.target.value)} fullWidth
         sx={{ '& .MuiInputBase-root': { minHeight: 40, height: 40 }, '& .MuiInputBase-input': { py: 1, fontSize: 13 } }}

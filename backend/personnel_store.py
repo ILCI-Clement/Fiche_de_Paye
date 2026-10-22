@@ -16,7 +16,7 @@ EMPLOYEE_FIELDS = (
 PERIOD_FIELDS = ('entry_date', 'exit_date', 'contract_type', 'other_contract')
 EMPLOYEE_COLUMNS = ('employee_id', *EMPLOYEE_FIELDS, 'is_archived', 'version', 'created_at', 'updated_at',
                     'has_social_security_number')
-PERIOD_COLUMNS = ('period_id', 'employee_id', *PERIOD_FIELDS, 'created_at', 'updated_at')
+PERIOD_COLUMNS = ('period_id', 'employee_id', *PERIOD_FIELDS, 'account_contract_id', 'created_at', 'updated_at')
 # Known dates take precedence; ties and entirely undated history use registration order.
 PERIOD_ORDER = 'entry_date DESC, period_id DESC'
 
@@ -95,6 +95,10 @@ def ensure_personnel_schema(cursor):
         CONSTRAINT personnel_period_owner FOREIGN KEY (employee_id)
             REFERENCES personnel_register (employee_id) ON DELETE RESTRICT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4''')
+    cursor.execute("SHOW COLUMNS FROM personnel_register_periods LIKE 'account_contract_id'")
+    if not cursor.fetchone():
+        cursor.execute('''ALTER TABLE personnel_register_periods ADD COLUMN account_contract_id INT NULL,
+            ADD UNIQUE KEY personnel_period_contract (account_contract_id)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS personnel_register_events (
         event_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         employee_id BIGINT NOT NULL,

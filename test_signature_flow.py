@@ -80,7 +80,7 @@ class SignatureFlowTests(unittest.TestCase):
         from backend import main
         import json
         reply=MagicMock(); reply.__enter__.return_value.read.return_value=b'{"success":true,"document_id":"mock"}'
-        with patch.dict('os.environ',{'CLAWSHOW_ESIGN_API_KEY':'test-only'}), patch('backend.esign.place_signature_fields',return_value=attendance_signature_fields()), patch.object(main.urllib.request,'urlopen',return_value=reply) as request:
+        with patch.dict('os.environ',{'CLAWSHOW_ESIGN_API_KEY':'test-only'}), patch('backend.esign.place_signature_fields',return_value=attendance_signature_fields()), patch('backend.esign.urllib.request.urlopen',return_value=reply) as request:
             main.submit_to_clawshow(document_url='https://example.com/file.pdf',employee_name='Employee',employee_email='employee@example.com',manager_name='Boss',manager_email='boss@example.com',month=9,year=2026,pdf_bytes=b'%PDF-test')
             payload=json.loads(request.call_args.args[0].data)
             self.assertEqual(len(payload['signers']),2)

@@ -13,8 +13,10 @@ export function PeriodSelector({ month, year, onChange, disabled = false }: {
     <TextField select label="Mois" value={month} disabled={disabled} onChange={e => onChange(Number(e.target.value), year)} sx={{ minWidth: 150 }}>
       {months.map((label, index) => <MenuItem key={label} value={index + 1}>{label[0].toUpperCase() + label.slice(1)}</MenuItem>)}
     </TextField>
-    <TextField label="Année" type="number" value={year} disabled={disabled} sx={{ width: 105 }} slotProps={{ htmlInput: { min: 2000, max: 2100 } }}
-      onChange={e => { const value = Number(e.target.value); if (value >= 2000 && value <= 2100) onChange(month, value) }} />
+    <TextField select label="Année" value={year} disabled={disabled} sx={{ width: 105 }} slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { maxHeight: 280 } } } } } }}
+      onChange={e => onChange(month, Number(e.target.value))}>
+      {Array.from({ length: 101 }, (_, index) => 2000 + index).map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}
+    </TextField>
     <IconButton disabled={disabled} aria-label="Mois suivant" onClick={() => shift(1)}><ChevronRightRounded /></IconButton>
   </Box>
 }

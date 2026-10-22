@@ -27,10 +27,10 @@ export function EmploymentEditor({ token, employee, period, onClose, onSaved }: 
       <DialogTitle id="employment-editor-title">{period ? 'Corriger une période d’emploi' : 'Ajouter une période d’emploi'}</DialogTitle>
       <DialogContent dividers>
         <Typography sx={{ mb: 1, fontWeight: 500 }}>{employee.full_name}</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Dates et contrat sont facultatifs. Une nouvelle entrée après un départ est enregistrée comme une nouvelle période. L’état du compte de connexion reste inchangé.</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{employee.linked_username ? 'Les dates sont synchronisées avec le contrat du compte associé. Le début et la fin sont requis, sauf pour un CDI sans date de fin. Le type du contrat existant se gère dans Administration.' : 'Dates et contrat sont facultatifs. Une nouvelle entrée après un départ est enregistrée comme une nouvelle période.'}</Typography>
         {validation && <Alert severity="error" sx={{ mb: 2 }}>{validation}</Alert>}
         <WriteError error={action.error} conflict={action.conflict} />
-        <EmploymentFields token={token} username={employee.linked_username} accountDisplayName={employee.linked_display_name} value={value} onChange={setValue} busy={action.busy} />
+        <EmploymentFields value={value} onChange={setValue} busy={action.busy} />
       </DialogContent>
       <DialogActions sx={{ p: 2 }}><Button disabled={action.busy} onClick={() => close(onClose)}>Annuler</Button><Button type="submit" variant="contained" disabled={action.busy || action.conflict}>{action.busy ? 'Enregistrement…' : 'Enregistrer la période'}</Button></DialogActions>
     </Box>

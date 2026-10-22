@@ -53,7 +53,7 @@ class ResourceDeletionTests(unittest.TestCase):
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
                 CREATE TABLE personnel_register_periods (
                 period_id INTEGER PRIMARY KEY AUTOINCREMENT,employee_id INTEGER,
-                entry_date TEXT,exit_date TEXT,contract_type TEXT DEFAULT '',other_contract TEXT DEFAULT '',
+                entry_date TEXT,exit_date TEXT,contract_type TEXT DEFAULT '',other_contract TEXT DEFAULT '',account_contract_id INTEGER UNIQUE,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
                 CREATE TABLE personnel_register_events (
                 event_id INTEGER PRIMARY KEY AUTOINCREMENT,employee_id INTEGER,actor_username TEXT,

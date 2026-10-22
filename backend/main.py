@@ -15,8 +15,6 @@ import secrets
 import smtplib
 import threading
 import time
-import urllib.error
-import urllib.request
 from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -1592,45 +1590,6 @@ def migrate_username_in_saved_fiches(
             )
 
 
-def purge_user_from_saved_fiches(cursor: pymysql.cursors.Cursor, username: str, email: str) -> None:
-    """Remove a deleted person from every saved fiche configuration, not only their own account."""
-    cursor.execute("SELECT user_id, form_content FROM Presence")
-    for row in cursor.fetchall():
-        owner = str(row["user_id"])
-        if owner == username:
-            cursor.execute("DELETE FROM Presence WHERE user_id = %s", (username,))
-            continue
-        content = row.get("form_content")
-        try:
-            config = content if isinstance(content, dict) else json.loads(content)
-        except (TypeError, json.JSONDecodeError):
-            continue
-        employees = config.get("employes_data") if isinstance(config, dict) else None
-        if not isinstance(employees, list):
-            continue
-        changed = False
-        retained: list[dict[str, Any]] = []
-        for employee in employees:
-            if not isinstance(employee, dict):
-                retained.append(employee)
-                continue
-            if fiche_record_belongs_to_user(employee, username, email):
-                changed = True
-                continue
-            manager_email = str(employee.get("email_responsable") or "").strip()
-            if manager_email and manager_email.casefold() == email.casefold():
-                employee["responsable"] = ""
-                employee["email_responsable"] = ""
-                changed = True
-            retained.append(employee)
-        if changed:
-            config["employes_data"] = retained
-            cursor.execute(
-                "UPDATE Presence SET form_content = %s WHERE user_id = %s",
-                (json.dumps(config, default=str), owner),
-            )
-
-
 @app.delete("/delete-user/{username_to_delete}")
 def delete_user(username_to_delete: str, payload: AccountPurgeRequest,
                 actor: dict[str, Any] = Depends(require_roles("SuperAdmin"))) -> dict[str, Any]:
@@ -1896,8 +1855,8 @@ if __package__:
     from .account_lifecycle import register_account_lifecycle
     from .ui_capabilities import register_ui_capabilities
     from .leave_requests import register_leave_routes
-    from .leave_store import rename_leave_owner, detach_leave_owner
-    from .personnel_register import rename_personnel_account_link
+    from .leave_store import rename_leave_owner
+    from .personnel_store import rename_personnel_account_link
     from .team_directory import register_team_directory
     from .contract_history import register_contract_history
     from .attendance_permissions import validate_manager_save
@@ -1907,8 +1866,8 @@ else:
     from account_lifecycle import register_account_lifecycle
     from ui_capabilities import register_ui_capabilities
     from leave_requests import register_leave_routes
-    from leave_store import rename_leave_owner, detach_leave_owner
-    from personnel_register import rename_personnel_account_link
+    from leave_store import rename_leave_owner
+    from personnel_store import rename_personnel_account_link
     from contract_history import register_contract_history
     from team_directory import register_team_directory
     from attendance_permissions import validate_manager_save

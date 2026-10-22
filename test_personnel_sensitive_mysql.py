@@ -20,7 +20,7 @@ from backend.personnel_register import register_personnel_routes
 from backend.personnel_sensitive import ensure_local_nir_key_file
 
 
-TABLES = {'users', 'personnel_register', 'personnel_register_periods', 'personnel_register_events'}
+TABLES = {'users', 'personnel_contracts', 'personnel_register', 'personnel_register_periods', 'personnel_register_events'}
 # Fictional parts for format-only testing; these fixtures are never tied to a real person.
 SYNTHETIC_NIR = '19999' + '00' + '000000' + '01'
 REPLACEMENT_NIR = '29999' + '00' + '000000' + '02'
@@ -95,7 +95,12 @@ class PersonnelSensitiveMySQLTests(unittest.TestCase):
         with self.db.cursor() as cursor:
             cursor.execute('''CREATE TEMPORARY TABLE users (
                 username VARCHAR(255) PRIMARY KEY,email VARCHAR(255),role_tags TEXT,is_active TINYINT DEFAULT 1,
-                login_deleted_at DATETIME NULL,session_version INT DEFAULT 0) ENGINE=InnoDB''')
+                login_deleted_at DATETIME NULL,session_version INT DEFAULT 0,employee_type VARCHAR(20) DEFAULT 'salarie',
+                contract_start_date DATE NULL,contract_end_date DATE NULL,is_cdi BOOLEAN DEFAULT 0) ENGINE=InnoDB''')
+            cursor.execute('''CREATE TEMPORARY TABLE personnel_contracts (
+                id INT AUTO_INCREMENT PRIMARY KEY,username VARCHAR(255) NOT NULL,
+                employee_type VARCHAR(20) NOT NULL,start_date DATE NOT NULL,end_date DATE NULL,
+                is_cdi BOOLEAN DEFAULT 0,is_archived TINYINT DEFAULT 0) ENGINE=InnoDB''')
             # Start with the old register schema to exercise the actual additive ALTER.
             cursor.execute('''CREATE TEMPORARY TABLE personnel_register (
                 employee_id BIGINT AUTO_INCREMENT PRIMARY KEY,full_name VARCHAR(200) NOT NULL,

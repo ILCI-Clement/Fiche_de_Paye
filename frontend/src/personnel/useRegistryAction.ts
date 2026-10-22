@@ -20,6 +20,10 @@ export function useRegistryAction() {
         client.invalidateQueries({ queryKey: ['personnel-register'] }),
         client.invalidateQueries({ queryKey: ['account-personnel'] }),
         client.invalidateQueries({ queryKey: ['account-personnel-choices'] }),
+        client.invalidateQueries({ queryKey: ['admin-contracts'] }),
+        client.invalidateQueries({ queryKey: ['admin-users'] }),
+        client.invalidateQueries({ queryKey: ['attendance-workspace'] }),
+        client.invalidateQueries({ queryKey: ['person-profile'] }),
       ])
       return true
     } catch (value) {

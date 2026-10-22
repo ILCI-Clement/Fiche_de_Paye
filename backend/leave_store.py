@@ -148,8 +148,3 @@ def align_leave_identity_collations(store):
 def rename_leave_owner(cursor, previous, current):
     """Follow account renames; immutable event actor snapshots remain unchanged."""
     cursor.execute('UPDATE leave_requests SET employee_username=%s WHERE employee_username=%s', (current, previous))
-
-
-def detach_leave_owner(cursor, username):
-    """Preserve history but prevent a recreated username inheriting old requests."""
-    cursor.execute('UPDATE leave_requests SET employee_username=NULL WHERE employee_username=%s', (username,))

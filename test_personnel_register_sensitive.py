@@ -53,7 +53,7 @@ class Cursor:
         if row is None:
             return None
         result = dict(row)
-        for field in ('birth_date', 'entry_date', 'exit_date', 'period_entry_date', 'period_exit_date'):
+        for field in ('birth_date', 'entry_date', 'exit_date', 'start_date', 'end_date', 'period_entry_date', 'period_exit_date'):
             if result.get(field):
                 result[field] = date.fromisoformat(result[field])
         return result
@@ -98,7 +98,12 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
             db.executescript('''CREATE TABLE users (
                 username TEXT PRIMARY KEY,email TEXT UNIQUE,role_tags TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1,session_version INTEGER NOT NULL DEFAULT 0,
-                login_deleted_at TEXT NULL);
+                login_deleted_at TEXT NULL,employee_type TEXT DEFAULT 'salarie',
+                contract_start_date TEXT,contract_end_date TEXT,is_cdi INTEGER DEFAULT 0);
+                CREATE TABLE personnel_contracts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,
+                employee_type TEXT NOT NULL,start_date TEXT NOT NULL,end_date TEXT,
+                is_cdi INTEGER DEFAULT 0,is_archived INTEGER DEFAULT 0);
                 CREATE TABLE personnel_register (
                 employee_id INTEGER PRIMARY KEY AUTOINCREMENT,full_name TEXT NOT NULL,
                 nationality TEXT NOT NULL DEFAULT '',sex TEXT NOT NULL DEFAULT '',
@@ -111,7 +116,8 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
                 CREATE TABLE personnel_register_periods (
                 period_id INTEGER PRIMARY KEY AUTOINCREMENT,employee_id INTEGER NOT NULL,
                 entry_date TEXT NULL,exit_date TEXT NULL,contract_type TEXT NOT NULL DEFAULT '',
-                other_contract TEXT NOT NULL DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                other_contract TEXT NOT NULL DEFAULT '',account_contract_id INTEGER UNIQUE,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
                 CREATE TABLE personnel_register_events (
                 event_id INTEGER PRIMARY KEY AUTOINCREMENT,employee_id INTEGER NOT NULL,
@@ -159,7 +165,7 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
         return self.client.post(f"/personnel-register/{employee['employee_id']}/social-security-number/reveal")
 
     def rows(self, table):
-        self.assertIn(table, {'users', 'personnel_register', 'personnel_register_periods', 'personnel_register_events'})
+        self.assertIn(table, {'users', 'personnel_contracts', 'personnel_register', 'personnel_register_periods', 'personnel_register_events'})
         with closing(sqlite3.connect(self.path)) as db:
             db.row_factory = sqlite3.Row
             return [dict(row) for row in db.execute('SELECT * FROM ' + table)]

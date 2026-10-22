@@ -1,4 +1,4 @@
-"""Admin-only employee register, independent from login accounts and contract management.
+"""Admin-only employee register with linked contract date synchronization.
 
 Every mutation locks users before the employee and checks the actor again. Ordinary
 changes retain snapshots; confirmed SuperAdmin deletion removes archived registry PII
@@ -12,11 +12,13 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.routing import APIRoute
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from pymysql.err import IntegrityError, OperationalError
 
 try:
+    from .personnel_contract_sync import detach_contract_links, sync_account_contracts, sync_register_period
+    from .personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
     from .personnel_rules import (
         ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
         EmploymentStatus, MAX_IDENTIFIER, PeriodMutation, PersonnelType, like_search, paris_today,
@@ -24,7 +26,7 @@ try:
     from .personnel_store import (
         EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
         append_personnel_event, delete_personnel_records, employee_record, ensure_personnel_schema, insert_period,
-        load_employee_detail, period_record, rename_personnel_account_link, selected_columns,
+        load_employee_detail, period_record, selected_columns,
         sensitive_metadata, touch_employee, utc_timestamp,
     )
     from .personnel_sensitive import (
@@ -34,6 +36,8 @@ try:
     from .role_policy import checked_resource_actor, is_admin, is_super_admin
     from .person_names import load_display_names, person_display_name
 except ImportError:
+    from personnel_contract_sync import detach_contract_links, sync_account_contracts, sync_register_period
+    from personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
     from personnel_rules import (
         ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
         EmploymentStatus, MAX_IDENTIFIER, PeriodMutation, PersonnelType, like_search, paris_today,
@@ -41,7 +45,7 @@ except ImportError:
     from personnel_store import (
         EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
         append_personnel_event, delete_personnel_records, employee_record, ensure_personnel_schema, insert_period,
-        load_employee_detail, period_record, rename_personnel_account_link, selected_columns,
+        load_employee_detail, period_record, selected_columns,
         sensitive_metadata, touch_employee, utc_timestamp,
     )
     from personnel_sensitive import (
@@ -79,6 +83,15 @@ class AccountPersonnelLinkInput(BaseModel):
     expected_employee_id: int | None = Field(ge=1, le=MAX_IDENTIFIER, strict=True)
     expected_version: int | None = Field(ge=1, le=2_147_483_646, strict=True)
     target_version: int | None = Field(ge=1, le=2_147_483_646, strict=True)
+
+
+class PersonnelExportInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True, hide_input_in_errors=True)
+    q: str = Field(default='', max_length=200)
+    personnel_type: PersonnelType = ''
+    archive: ArchiveFilter = 'active'
+    status: EmploymentStatus = 'all'
+    confirm_sensitive_export: bool = Field(strict=True)
 
 
 class PersonnelRoute(APIRoute):
@@ -197,6 +210,16 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             with db.cursor() as cursor:
                 ensure_personnel_schema(cursor)
             db.commit()
+            with db.cursor() as cursor:
+                cursor.execute('SELECT username FROM users ORDER BY username FOR UPDATE')
+                cursor.fetchall()
+                cursor.execute('SELECT linked_username FROM personnel_register WHERE linked_username IS NOT NULL ORDER BY employee_id')
+                for row in cursor.fetchall():
+                    sync_account_contracts(cursor, row['linked_username'], 'system:contract-sync')
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()
 
@@ -286,6 +309,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                     raise HTTPException(409, 'Restaurez la fiche archivée avant de l’associer.')
             if current_id != payload.employee_id:
                 if current_id is not None:
+                    detach_contract_links(cursor, current_id)
                     cursor.execute('UPDATE personnel_register SET linked_username=NULL,version=version+1 WHERE employee_id=%s',
                                    (current_id,))
                     after = detail_or_404(cursor, current_id)
@@ -296,6 +320,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                     after = detail_or_404(cursor, payload.employee_id)
                     append_personnel_event(cursor, payload.employee_id, actor_username, 'account_linked',
                                            details[payload.employee_id], after)
+                    sync_account_contracts(cursor, target['username'], actor_username)
             return account_personnel(cursor, target, True)
         return transact(actor, change)
 
@@ -332,6 +357,68 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
         finally:
             db.close()
 
+    def employee_filter(q, personnel_type, archive, status):
+        clauses, params = [], []
+        if q.strip():
+            clauses.append("(e.full_name LIKE %s ESCAPE '=' OR e.linked_username LIKE %s ESCAPE '=' "
+                           'OR CAST(e.employee_id AS CHAR)=%s)')
+            params.extend((like_search(q.strip()), like_search(q.strip()), q.strip()))
+        if personnel_type:
+            clauses.append('e.personnel_type=%s')
+            params.append(personnel_type)
+        if archive != 'all':
+            clauses.append('e.is_archived=%s')
+            params.append(archive == 'archived')
+        if status != 'all':
+            clauses.append(f'({_STATUS_FILTER})=%s')
+            today = paris_today()
+            params.extend((today, today, status))
+        where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
+        return where, params
+
+    @router.post('/personnel-register/export.xlsx')
+    def export_employees(payload: PersonnelExportInput, actor=Depends(get_current_user)):
+        def generate(cursor, actor_username):
+            if not payload.confirm_sensitive_export:
+                raise HTTPException(400, 'Confirmez l’export des données personnelles et des numéros de sécurité sociale.')
+            require_nir_storage()
+            where, params = employee_filter(payload.q, payload.personnel_type, payload.archive, payload.status)
+            columns = ','.join(f'e.{key}' for key in (
+                'employee_id', 'full_name', 'nationality', 'sex', 'address', 'birth_date',
+                'job_title', 'qualification', 'social_security_number_encrypted'))
+            history_columns = ','.join(f'h.{key}' for key in PERIOD_FIELDS)
+            cursor.execute(f'''SELECT {columns},{history_columns}
+                FROM personnel_register e {_LATEST_PERIOD_JOIN}
+                LEFT JOIN personnel_register_periods h ON h.employee_id=e.employee_id
+                {where} ORDER BY e.employee_id,h.entry_date,h.period_id LIMIT %s''',
+                           (*params, MAX_EXPORT_ROWS + 1))
+            rows = cursor.fetchall()
+            if not rows:
+                raise HTTPException(404, 'Aucune personne ne correspond aux filtres à exporter.')
+            if len(rows) > MAX_EXPORT_ROWS:
+                raise HTTPException(400, f'L’export est limité à {MAX_EXPORT_ROWS} lignes. Précisez les filtres ; aucun fichier partiel n’a été généré.')
+            numbers, counts = {}, {}
+            for row in rows:
+                identifier = row['employee_id']
+                if identifier not in numbers:
+                    envelope = row.get('social_security_number_encrypted')
+                    numbers[identifier] = decrypt_social_security_number(envelope, identifier) if envelope is not None else ''
+                row['social_security_number'] = numbers[identifier]
+                row.pop('social_security_number_encrypted', None)
+                counts[identifier] = counts.get(identifier, 0) + 1
+            content = generate_personnel_excel(rows)
+            # Commit one metadata-only event per person before releasing plaintext.
+            # Never persist the generated file, filter text, number or envelope.
+            for identifier, row_count in counts.items():
+                metadata = sensitive_metadata(identifier, bool(numbers[identifier]))
+                metadata['export'] = {'format': 'xlsx', 'row_count': row_count,
+                                      'includes_social_security_number': True}
+                append_personnel_event(cursor, identifier, actor_username, 'excel_exported', metadata, metadata)
+            filename = f'registre-du-personnel-{paris_today().isoformat()}.xlsx'
+            return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+        return transact(actor, generate)
+
     @router.get('/personnel-register')
     def list_employees(q: str = Query(default='', max_length=200), personnel_type: PersonnelType = '',
                        archive: ArchiveFilter = 'active', status: EmploymentStatus = 'all',
@@ -341,21 +428,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
         try:
             with db.cursor() as cursor:
                 checked_admin(cursor, actor)
-                clauses, params = [], []
-                if q.strip():
-                    clauses.append("(e.full_name LIKE %s ESCAPE '=' OR e.linked_username LIKE %s ESCAPE '=' "
-                                   'OR CAST(e.employee_id AS CHAR)=%s)')
-                    params.extend((like_search(q.strip()), like_search(q.strip()), q.strip()))
-                if personnel_type:
-                    clauses.append('e.personnel_type=%s')
-                    params.append(personnel_type)
-                if archive != 'all':
-                    clauses.append('e.is_archived=%s')
-                    params.append(archive == 'archived')
-                if status != 'all':
-                    clauses.append(f'({_STATUS_FILTER})=%s')
-                    params.extend((paris_today(), paris_today(), status))
-                where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
+                where, params = employee_filter(q, personnel_type, archive, status)
                 base = f'FROM personnel_register e {_LATEST_PERIOD_JOIN}{where}'
                 cursor.execute(f'SELECT COUNT(*) AS total {base}', tuple(params))
                 total = cursor.fetchone()['total']
@@ -392,7 +465,14 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                 cursor.execute('UPDATE personnel_register SET social_security_number_encrypted=%s WHERE employee_id=%s',
                                (envelope, employee_id))
             if payload.initial_period is not None:
-                insert_period(cursor, employee_id, payload.initial_period.model_dump())
+                period_id = insert_period(cursor, employee_id, payload.initial_period.model_dump())
+            if values['linked_username']:
+                sync_account_contracts(cursor, values['linked_username'], actor_username)
+                if payload.initial_period is not None:
+                    # First association uses account dates, including an existing period match.
+                    cursor.execute('SELECT account_contract_id FROM personnel_register_periods WHERE period_id=%s', (period_id,))
+                    if cursor.fetchone()['account_contract_id'] is None:
+                        sync_register_period(cursor, employee_id, period_id)
             after = detail_or_404(cursor, employee_id)
             append_personnel_event(cursor, employee_id, actor_username, 'registered', None, after)
             if after['employee']['has_social_security_number']:
@@ -443,6 +523,11 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                     append_personnel_event(cursor, employee_id, actor_username, 'social_security_number_changed',
                                            sensitive_metadata(employee_id, before['employee']['has_social_security_number']),
                                            sensitive_metadata(employee_id, after['employee']['has_social_security_number']))
+                if before['employee']['linked_username'] != values['linked_username']:
+                    detach_contract_links(cursor, employee_id)
+                    if values['linked_username']:
+                        sync_account_contracts(cursor, values['linked_username'], actor_username)
+                    after = detail_or_404(cursor, employee_id)
                 return after
             return before
         return transact(actor, change)
@@ -470,7 +555,8 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                    actor=Depends(get_current_user)):
         def change(cursor, actor_username):
             before = editable_detail(cursor, employee_id, payload.expected_version)
-            insert_period(cursor, employee_id, payload.model_dump(include=set(PERIOD_FIELDS)))
+            period_id = insert_period(cursor, employee_id, payload.model_dump(include=set(PERIOD_FIELDS)))
+            sync_register_period(cursor, employee_id, period_id)
             touch_employee(cursor, employee_id)
             after = detail_or_404(cursor, employee_id)
             append_personnel_event(cursor, employee_id, actor_username, 'period_added', before, after)
@@ -492,6 +578,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                     f'UPDATE personnel_register_periods SET {assignments} WHERE employee_id=%s AND period_id=%s',
                     (*(values[key] for key in PERIOD_FIELDS), employee_id, period_id),
                 )
+                sync_register_period(cursor, employee_id, period_id)
                 touch_employee(cursor, employee_id)
                 after = detail_or_404(cursor, employee_id)
                 append_personnel_event(cursor, employee_id, actor_username, 'period_updated', before, after)
@@ -548,7 +635,9 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                             related.add(employee['linked_username'])
                 labels = load_display_names(cursor, related)
                 for event in events:
-                    event['actor_display_name'] = labels.get(event['actor_username'], 'Ancien compte')
+                    event['actor_display_name'] = ('Synchronisation automatique'
+                        if event['actor_username'] == 'system:contract-sync'
+                        else labels.get(event['actor_username'], 'Ancien compte'))
                     for snapshot in (event['before'], event['after']):
                         employee = snapshot.get('employee', {}) if isinstance(snapshot, dict) else {}
                         linked = employee.get('linked_username')

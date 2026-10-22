@@ -1,5 +1,8 @@
 import { useState } from 'react'
-import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, MenuItem, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
+import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
+import VisibilityOffOutlined from '@mui/icons-material/VisibilityOffOutlined'
+import { SensitiveNumber } from './SensitiveNumber'
 import { useDraftGuard } from '../draftGuard'
 import { FrenchDateField } from '../components/FrenchDateField'
 import { personnelApi, personnelTypes, blankPeriod } from './api'
@@ -25,6 +28,7 @@ export function PersonnelEditor({ token, employee, onClose, onSaved }: { token: 
   const [period, setPeriod] = useState(blankPeriod)
   const [validation, setValidation] = useState('')
   const [socialSecurityNumber, setSocialSecurityNumber] = useState('')
+  const [numberVisible, setNumberVisible] = useState(false)
   const [clearSocialSecurityNumber, setClearSocialSecurityNumber] = useState(false)
   const capability = useSensitiveNumberCapability(token)
   const nirEnabled = capability.data?.nir_enabled === true && !capability.error
@@ -62,9 +66,20 @@ export function PersonnelEditor({ token, employee, onClose, onSaved }: { token: 
           <TextField fullWidth label="Emploi" value={value.job_title} disabled={action.busy} onChange={event => field('job_title', event.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
           <TextField fullWidth label="Qualification" value={value.qualification} disabled={action.busy} onChange={event => field('qualification', event.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
           <Box sx={{ gridColumn: '1 / -1' }}>
-            <TextField fullWidth type="password" autoComplete="off" label={employee?.has_social_security_number ? 'Remplacer le n° de sécurité sociale' : 'N° de sécurité sociale'} value={socialSecurityNumber} disabled={action.busy || !nirEnabled || clearSocialSecurityNumber} onChange={event => setSocialSecurityNumber(event.target.value)}
-              slotProps={{ htmlInput: { maxLength: 64, spellCheck: false, autoCapitalize: 'none', 'data-lpignore': 'true', 'data-1p-ignore': 'true' } }}
-              helperText={capability.isPending ? 'Vérification de la protection…' : !nirEnabled ? 'Saisie protégée indisponible dans cet environnement. Les autres informations restent modifiables.' : employee?.has_social_security_number ? 'Un numéro est déjà enregistré et chiffré. Laissez ce champ vide pour le conserver ; aucune valeur existante n’est préchargée.' : 'Facultatif. Le numéro sera chiffré avant stockage ; il n’apparaît pas dans l’historique.'} />
+            <SensitiveNumber token={token} employeeId={employee?.employee_id || 0} hasNumber={!!employee?.has_social_security_number && !clearSocialSecurityNumber} renderInput={secret => {
+              const visible = socialSecurityNumber ? numberVisible : !!secret.value
+              const toggle = () => { if (socialSecurityNumber) setNumberVisible(current => !current); else secret.toggle() }
+              return <TextField fullWidth type={visible ? 'text' : 'password'} autoComplete="off" label="N° de sécurité sociale"
+                value={socialSecurityNumber || secret.value} placeholder={employee?.has_social_security_number && !clearSocialSecurityNumber ? '•'.repeat(15) : ''}
+                disabled={action.busy || !nirEnabled || clearSocialSecurityNumber}
+                onChange={event => setSocialSecurityNumber(event.target.value)}
+                slotProps={{ inputLabel: { shrink: true }, htmlInput: { maxLength: 64, spellCheck: false, autoCapitalize: 'none', 'data-lpignore': 'true', 'data-1p-ignore': 'true' }, input: {
+                  endAdornment: <InputAdornment position="end"><Tooltip title={visible ? 'Masquer le numéro' : 'Afficher le numéro'}><span><IconButton
+                    aria-label={visible ? 'Masquer le numéro' : 'Afficher le numéro'} aria-pressed={visible}
+                    disabled={action.busy || !nirEnabled || clearSocialSecurityNumber || secret.busy || (!socialSecurityNumber && (!employee?.has_social_security_number || !secret.enabled))}
+                    onMouseDown={event => event.preventDefault()} onClick={toggle} edge="end">{visible ? <VisibilityOffOutlined /> : <VisibilityOutlined />}</IconButton></span></Tooltip></InputAdornment>,
+                } }} />
+            }} />
             {!!socialSecurityNumber && <Button size="small" disabled={action.busy} onClick={() => setSocialSecurityNumber('')}>Effacer la nouvelle saisie</Button>}
             {employee?.has_social_security_number && <FormControlLabel control={<Checkbox checked={clearSocialSecurityNumber} disabled={action.busy || (!nirEnabled && !clearSocialSecurityNumber)} onChange={event => { setClearSocialSecurityNumber(event.target.checked); if (event.target.checked) setSocialSecurityNumber('') }} />} label={<Typography variant="body2">Effacer explicitement le numéro actuellement enregistré</Typography>} />}
           </Box>
@@ -73,7 +88,7 @@ export function PersonnelEditor({ token, employee, onClose, onSaved }: { token: 
         {!employee && <>
           <Divider sx={{ my: 2 }} />
           <FormControlLabel control={<Checkbox checked={withPeriod} disabled={action.busy} onChange={event => setWithPeriod(event.target.checked)} />} label="Ajouter une première période d’emploi (facultatif)" />
-          {withPeriod && <Box sx={{ mt: 2 }}><EmploymentFields token={token} username={value.linked_username} accountDisplayName={linkedDisplayName} value={period} onChange={setPeriod} busy={action.busy} /></Box>}
+          {withPeriod && <Box sx={{ mt: 2 }}><EmploymentFields value={period} onChange={setPeriod} busy={action.busy} /></Box>}
         </>}
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 2 }}><Button disabled={action.busy} onClick={() => close(onClose)}>Annuler</Button><Button type="submit" variant="contained" disabled={action.busy || !value.full_name.trim() || action.conflict}>{action.busy ? 'Enregistrement…' : employee ? 'Enregistrer les modifications' : 'Enregistrer au registre'}</Button></DialogActions>

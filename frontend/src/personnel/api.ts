@@ -6,7 +6,7 @@ export type EmploymentStatus = 'employed' | 'left' | 'upcoming' | 'unknown'
 export interface EmploymentInput {
   entry_date: string | null; exit_date: string | null; contract_type: ContractType; other_contract: string;
 }
-export interface EmploymentPeriod extends EmploymentInput { period_id: number }
+export interface EmploymentPeriod extends EmploymentInput { period_id: number; account_contract_id?: number | null }
 export interface PersonnelInput {
   full_name: string; nationality: string; sex: '' | 'F' | 'M'; address: string;
   birth_date: string | null; job_title: string; qualification: string;
@@ -32,7 +32,10 @@ export interface RegistryAccount {
   username: string; email: string; is_active: boolean; linked_employee_id: number | null;
   full_name?: string | null; display_name?: string;
 }
-export interface RegistrySnapshot { employee: Partial<Employee>; periods: EmploymentPeriod[] }
+export interface RegistrySnapshot {
+  employee: Partial<Employee>; periods: EmploymentPeriod[];
+  export?: { format: 'xlsx'; row_count: number; includes_social_security_number: boolean };
+}
 export interface RegistryEvent {
   event_id: number; actor_username: string; action: string; created_at: string;
   actor_display_name?: string;
@@ -45,6 +48,12 @@ export const personnelApi = {
   list: (token: string, filters: PersonnelFilters, signal?: AbortSignal) => {
     const params = new URLSearchParams(Object.entries(filters).map(([key, value]) => [key, String(value)]))
     return request<PersonnelList>(`${path}?${params}`, token, { signal })
+  },
+  exportExcel: (token: string, filters: PersonnelFilters, signal: AbortSignal) => {
+    const { q, personnel_type, archive, status } = filters
+    return request<{ blob: Blob; filename: string }>(`${path}/export.xlsx`, token,
+      { ...body('POST', { q, personnel_type, archive, status, confirm_sensitive_export: true }), signal, cache: 'no-store' },
+      { blob: true, timeout: 120000 })
   },
   detail: (token: string, id: number, signal?: AbortSignal) => request<PersonnelDetail>(`${path}/${id}`, token, { signal }),
   create: (token: string, data: PersonnelWriteInput & { initial_period?: EmploymentInput }) => request<PersonnelDetail>(path, token, body('POST', data)),
