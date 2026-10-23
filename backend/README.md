@@ -25,12 +25,12 @@ NIR 关闭或密钥无效时拒绝导出。接口与映射见 [名册说明](../
 
 ## 当前版本与回退
 
-- 前端、React API：`account-names-20261023T150121Z` / `b6ca83d5e046`；保留 API 的 flat 模块同步更新。
-- 当前目录：`/var/www/presence-react/current`；Nginx 静态目录为该版本的 `frontend/dist`。
+- 前端：`admin-workspace-ui-20261023T151905Z` / `63ef6c3935f2`；[Admin 导航分组发布与界面回退](../doc/releases/admin-workspace-ui-20261023.md)。
+- React API：`account-names-20261023T150121Z` / `b6ca83d5e046`；保留 API 的 flat 模块已同步更新。`/var/www/presence-react/current` 仍指向此 API 版本；Nginx 静态目录独立指向上述前端版本的 `frontend/dist`。
 - 完整备份：`/var/backups/presence-react/account-names-20261023T150121Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
 - [发布内容、验证与回退](../doc/releases/account-names-20261023.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
 
-协调回退：
+协调回退（先按上述前端发布记录回退独立界面）：
 
 ```sh
 sudo /var/backups/presence-react/account-names-20261023T150121Z/rollback.sh
