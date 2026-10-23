@@ -30,6 +30,7 @@ def purge_account(cursor, actor, target, *, reason):
         ('leave_requests', 'employee_username', 'congés'),
         ('annual_interviews', 'employee_username', 'entretiens'),
         ('personnel_register', 'linked_username', 'registre'),
+        ('signed_fiche_documents', 'employee_username', 'fiches_signées'),
     ):
         cursor.execute(f'SELECT COUNT(*) AS total FROM {table} WHERE {column}=%s', (username,))
         count = cursor.fetchone()['total']

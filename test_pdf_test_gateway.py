@@ -2,6 +2,7 @@ import json
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 from pathlib import Path
 from fastapi.testclient import TestClient
 from backend.pdf_test_gateway import create_pdf_gateway
@@ -55,6 +56,25 @@ class PdfGatewayTests(unittest.TestCase):
         response = self.client.head(f'/esign/documents/{self.token}')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b'')
+
+    def test_callback_only_forwards_to_fixed_local_api_without_client_headers(self):
+        upstream = Mock(); upstream.status = 204
+        upstream.__enter__ = Mock(return_value=upstream); upstream.__exit__ = Mock(return_value=False)
+        with patch('backend.pdf_test_gateway.urllib.request.build_opener') as opener:
+            opener.return_value.open.return_value = upstream
+            response = self.client.post('/esign/callback', json={'reference_id': 'synthetic'},
+                                        headers={'Authorization': 'Bearer synthetic-do-not-forward'})
+            self.assertEqual(response.status_code, 204)
+            request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url, 'http://127.0.0.1:8013/esign/callback')
+            self.assertIsNone(request.get_header('Authorization'))
+            self.assertEqual(request.get_method(), 'POST')
+
+    def test_oversized_and_query_callbacks_never_reach_api(self):
+        with patch('backend.pdf_test_gateway.urllib.request.build_opener') as opener:
+            self.assertEqual(self.client.post('/esign/callback',content=b'x'*32769).status_code,413)
+            self.assertEqual(self.client.post('/esign/callback?target=http://example.test',json={}).status_code,404)
+            opener.assert_not_called()
 
 
 if __name__ == '__main__':

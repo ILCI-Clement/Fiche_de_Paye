@@ -11,6 +11,7 @@ import type { Cell, Config, Fiche, SavedConfig, Workspace } from './types'
 import { FicheEditor } from './FicheEditor'
 import { AttendanceCalendar } from './AttendanceCalendar'
 import { SignaturePreview } from './SignaturePreview'
+import { SignedFichesPanel } from './SignedFichesPanel'
 import { ApiError } from '../api'
 import { AttendanceToolbar } from './AttendanceToolbar'
 import { FicheExportMenu } from './FicheExportMenu'
@@ -46,6 +47,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   const [month, setMonth] = useState(() => workspace.config.mois || new Date().getMonth() + 1)
   const [year, setYear] = useState(() => workspace.config.annee || new Date().getFullYear())
   const [account, setAccount] = useState('')
+  const [view, setView] = useState<'editing' | 'signed'>('editing')
   const [sheet, setSheet] = useState<'calendar' | 'identity' | 'planning'>('calendar')
   const [active, setActive] = useState<Record<string, string>>(() => {
     try { return JSON.parse(sessionStorage.getItem(`attendance-active-${session.username}`) || '{}') } catch { return {} }
@@ -134,7 +136,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
     })
   }
   return <Box className="workspace attendance-workspace" sx={{ '&.workspace': { maxWidth: 'none', px: { xs: 1.5, sm: 2 }, pt: 1.5 }, '& .fiche-panel, & .batch-panel': { p: { xs: 1.5, sm: 2 }, mb: 2 } }}>
-    <AttendanceToolbar month={month} year={year} busy={busy} account={account} accounts={workspace.accounts} onPeriod={setPeriod} onAccount={value => protectSelection(() => {
+    <AttendanceToolbar month={month} year={year} busy={busy} account={account} accounts={workspace.accounts} view={view} onView={value => protectSelection(() => setView(value))} onPeriod={setPeriod} onAccount={value => protectSelection(() => {
       setAccount(value); setError('')
       const existing = visible.find(fiche => fiche.account_username === value)
       if (existing) setActive(previous => ({ ...previous, [period]: String(existing.id) }))
@@ -144,6 +146,8 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
           revision.current = result.revision; syncLabels(result)
           setConfig(result.config); setDirty(false); setArchived(false); setActive(a => ({ ...a, [period]: result.active_id })); setMessage('Fiche ouverte.'); setVersion(v => v + 1)
         }))} />
+    {view === 'signed' && <SignedFichesPanel key={period} token={token} viewer={session.username} month={month} year={year} />}
+    <Box hidden={view !== 'editing'}>
     {chosenAccount && !accountInMonth && <Alert severity="info" sx={{ mb: 2 }}>
       <Typography variant="body2">{personDisplayName(chosenAccount)} : aucune fiche {archived ? 'archivée ' : ''}enregistrée pour {periodLabel(month, year)}.{visible.length > 0 ? ' Les onglets ci-dessous correspondent aux autres personnes de ce mois.' : ''}</Typography>
       {savedPeriods.length > 0 && <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: .5, mt: .5 }}>
@@ -186,7 +190,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
           <Tab value="planning" id="fiche-tab-planning" aria-controls="fiche-panel-planning" label={current.type === 'Stagiaire' ? 'Rémunération et présence' : 'Planning hebdomadaire'} />
         </Tabs>
         <Box role="tabpanel" id="fiche-panel-calendar" aria-labelledby="fiche-tab-calendar" hidden={sheet !== 'calendar'}>
-          <AttendanceCalendar key={`${current.id}-${period}`} token={token} id={String(current.id)} month={month} year={year} version={version} busy={busy || !!current.is_archived} active={sheet === 'calendar'} showPeriodSelector={false} onPeriod={setPeriod} onApply={apply} onSelectionPending={setPendingCalendar} />
+          <AttendanceCalendar key={`${current.id}-${period}`} token={token} id={String(current.id)} month={month} year={year} version={version} busy={busy || !!current.is_archived} active={view === 'editing' && sheet === 'calendar'} showPeriodSelector={false} onPeriod={setPeriod} onApply={apply} onSelectionPending={setPendingCalendar} />
         </Box>
         {(['identity', 'planning'] as const).map(section => <Box key={section} role="tabpanel" id={`fiche-panel-${section}`} aria-labelledby={`fiche-tab-${section}`} hidden={sheet !== section}>
           <FicheEditor key={String(current.id)} fiche={current} section={section} admin={workspace.can_edit_identity} disabled={busy || !!current.is_archived} onChange={update} />
@@ -212,6 +216,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
       </Typography>
       <Button variant={dirty ? 'contained' : 'outlined'} startIcon={<SaveOutlined />} disabled={busy || (!dirty && pendingCalendar)} onClick={() => void perform(async () => { await persist(); setMessage('Configuration sauvegardée.') })}>{dirty ? 'Enregistrer les modifications' : 'Sauvegarder'}</Button>
     </Paper>
+    </Box>
     {signing && <SignaturePreview token={token} {...signing} personLabels={Object.fromEntries(config.employes_data.map(fiche => [String(fiche.id), personNameFor(fiche)]))} onClose={() => setSigning(null)} />}
     {archiveConfirm && <Dialog open onClose={() => { if (!busy) setArchiveConfirm(null) }}><DialogTitle>{archiveConfirm.is_archived ? 'Restaurer cette fiche ?' : 'Archiver cette fiche ?'}</DialogTitle><DialogContent><Alert severity="info">{ficheDisplayLabel(archiveConfirm)} : la fiche et son historique seront conservés. Les modifications déjà saisies seront enregistrées en même temps.</Alert>{error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}</DialogContent><DialogActions><Button disabled={busy} onClick={() => setArchiveConfirm(null)}>Annuler</Button><Button disabled={busy} onClick={() => void perform(async () => {
       const next = { ...config, mois: month, annee: year, employes_data: config.employes_data.map(fiche => fiche.id === archiveConfirm.id ? { ...fiche, is_archived: !archiveConfirm.is_archived } : fiche) }

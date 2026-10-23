@@ -4,7 +4,7 @@ body { margin: 0; min-width: 320px; }
 .app-shell { min-height: 100dvh; display: flex; }
 .sidebar { width: 248px; flex-shrink: 0; position: fixed; inset: 0 auto 0 0; background: var(--sidebar); color: var(--sidebar-text); padding: 28px 18px 16px; display: flex; flex-direction: column; z-index: 2; }
 .brand { display: flex; align-items: center; gap: 12px; margin: 0 8px 44px; }
-.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 8px; background: var(--accent); color: var(--accent-contrast); font-size: 26px; font-weight: 800; }
+.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border-radius: 8px; background: var(--accent); color: var(--accent-contrast); font-size: 20px; font-weight: 800; }
 .nav-heading.MuiTypography-root { font-size: 10px; letter-spacing: 1.8px; color: var(--sidebar-muted); margin: 0 14px 12px; }
 .nav-item.MuiButton-root { color: var(--sidebar-text); padding: 11px 14px; margin-bottom: 5px; justify-content: flex-start; border-radius: 9px; width: 100%; gap: 6px; font-size: 13px; }
 .nav-item.MuiButton-root.active { background: var(--nav-active); color: var(--sidebar-text); }

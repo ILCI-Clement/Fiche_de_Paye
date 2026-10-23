@@ -8,7 +8,7 @@ import { downloadFile } from '../download'
 const PdfPreview = lazy(() => import('./PdfPreview'))
 interface PreviewFile { blob: Blob; filename: string; url: string; pdf: boolean; imageSource?: string }
 
-export function DocumentPreview({ token, receipt, onClose }: { token: string; receipt: Receipt; onClose: () => void }) {
+export function DocumentPreview({ token, receipt, onClose, loadFile }: { token: string; receipt: Pick<Receipt, 'id' | 'original_filename' | 'document_number'>; onClose: () => void; loadFile?: (signal: AbortSignal) => Promise<{ blob: Blob; filename: string }> }) {
   const fullScreen = useMediaQuery(useTheme().breakpoints.down('sm'))
   const [file, setFile] = useState<PreviewFile | null>(null)
   const [error, setError] = useState('')
@@ -16,7 +16,7 @@ export function DocumentPreview({ token, receipt, onClose }: { token: string; re
   useEffect(() => {
     const controller = new AbortController()
     let url: string | undefined
-    void documentsApi.file(token, receipt.id, controller.signal).then(async result => {
+    void (loadFile ? loadFile(controller.signal) : documentsApi.file(token, receipt.id, controller.signal)).then(async result => {
       if (controller.signal.aborted) return
       const type = result.blob.type.split(';')[0].toLowerCase()
       if (!['application/pdf', 'image/jpeg', 'image/png'].includes(type)) {
@@ -35,7 +35,7 @@ export function DocumentPreview({ token, receipt, onClose }: { token: string; re
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Impossible de charger le document.')
     })
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url) }
-  }, [token, receipt.id, attempt])
+  }, [token, receipt.id, attempt, loadFile])
   return <Dialog open fullWidth maxWidth="lg" fullScreen={fullScreen} onClose={onClose} aria-labelledby="document-preview-title">
     <DialogTitle id="document-preview-title" sx={{ overflowWrap: 'anywhere' }}>
       Aperçu · {receipt.original_filename}

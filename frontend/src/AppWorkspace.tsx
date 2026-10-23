@@ -1,4 +1,5 @@
 import { useCapabilities } from './capabilities'
+import { brand } from './brand'
 import { canManageTeam, displayRoles, isAdmin } from './rolePolicy'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -79,8 +80,8 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
   }
   function requestLogout() { guard.request(logout) }
   const nav = <>
-    <Box className="brand"><Box className="brand-mark">P</Box><Box><Typography sx={{ fontWeight: 750, fontSize: 21 }}>Presence</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 11, letterSpacing: 2 }}>ILCI · ESPACE RH</Typography></Box></Box>
-    <Typography className="nav-heading">GESTION DES PRÉSENCES</Typography>
+    <Box className="brand"><Box className="brand-mark">{brand.mark}</Box><Box><Typography sx={{ fontWeight: 750, fontSize: 21 }}>{brand.name}</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 11, letterSpacing: 2 }}>{brand.organization} · PORTAIL RH</Typography></Box></Box>
+    <Typography className="nav-heading">RESSOURCES HUMAINES</Typography>
     {attendanceAllowed && <Button className={`nav-item ${page === 'dashboard' ? 'active' : ''}`} startIcon={<DashboardOutlined />} onClick={() => navigate('dashboard')}>Tableau de bord</Button>}
     {attendanceAllowed && <Button className={`nav-item ${page === 'attendance' ? 'active' : ''}`} startIcon={<CalendarMonthRounded />} onClick={() => navigate('attendance')}>Création de Fiches</Button>}
     <Button className={`nav-item ${page === 'leave' ? 'active' : ''}`} startIcon={<EventAvailableOutlined />} onClick={() => navigate('leave')}>Congés payés</Button>
@@ -89,7 +90,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
     {personnelAllowed && <Button className={`nav-item ${page === 'personnel' ? 'active' : ''}`} startIcon={<BadgeOutlined />} onClick={() => navigate('personnel')}>Registre du personnel</Button>}
     {isAdmin(session) && <Button className={`nav-item ${page === 'admin' ? 'active' : ''}`} startIcon={<AdminPanelSettingsOutlined />} onClick={() => navigate('admin')}>Administration</Button>}
     <Button className={`nav-item ${page === 'profile' ? 'active' : ''}`} startIcon={<SettingsOutlined />} onClick={() => navigate('profile')}>Paramètres</Button>
-    <Box className="sidebar-note"><Typography sx={{ fontWeight: 650, fontSize: 13 }}>{local ? 'Version locale de test' : 'Espace Presence'}</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 12, mt: 1, lineHeight: 1.7 }}>{local ? 'Vos modifications restent dans la copie locale de test.' : 'Présences, documents et équipe dans votre espace.'}</Typography></Box>
+    <Box className="sidebar-note"><Typography sx={{ fontWeight: 650, fontSize: 13 }}>{local ? 'Version locale de test' : brand.title}</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 12, mt: 1, lineHeight: 1.7 }}>{local ? 'Vos modifications restent dans la copie locale de test.' : 'Personnel, contrats, documents et congés dans votre espace.'}</Typography></Box>
     <Box className="sidebar-user"><Avatar sx={{ width: 36, height: 36, bgcolor: 'var(--nav-active)', color: 'var(--sidebar-text)', fontSize: 13 }}>{initials(session.name)}</Avatar><Box sx={{ flex: 1, minWidth: 0 }}><Typography noWrap sx={{ fontSize: 13, fontWeight: 650 }}>{session.name}</Typography><Typography noWrap title={displayRoles(session.role_tags)} sx={{ fontSize: 11, color: 'var(--sidebar-muted)' }}>{displayRoles(session.role_tags)}</Typography></Box><IconButton aria-label="Se déconnecter" disabled={guard.busy} onClick={requestLogout} sx={{ color: 'var(--sidebar-muted)' }}><LogoutRounded fontSize="small" /></IconButton></Box>
   </>
   return <Box className="app-shell">

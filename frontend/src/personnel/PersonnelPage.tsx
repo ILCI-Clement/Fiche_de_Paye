@@ -11,6 +11,7 @@ import { RegistryViewerContext } from './context'
 import { WorkspaceToolbar } from '../components/WorkspaceToolbar'
 import { PersonnelToolbar } from './PersonnelToolbar'
 import { PersonnelExport } from './PersonnelExport'
+import { SensitiveNumber } from './SensitiveNumber'
 import { isAdmin, isSuperAdmin } from '../rolePolicy'
 
 export function PersonnelPage({ token, session }: { token: string; session: Session }) {
@@ -33,6 +34,8 @@ function PersonnelWorkspace({ token, viewer, canDelete }: { token: string; viewe
   const selectedFilters = !!filters.q || !!filters.personnel_type || filters.status !== 'all' || filters.archive !== 'active'
   const typeColumn = { display: { xs: 'none', sm: 'table-cell' }, width: 128 }
   const jobColumn = { display: { xs: 'none', lg: 'table-cell' }, width: { lg: 180, xl: 220 } }
+  const numberColumn = { width: { xs: 164, sm: 188 }, px: { xs: .75, sm: 1.25 } }
+  const statusColumn = { display: { xs: 'none', sm: 'table-cell' }, width: 136 }
   return <Box className="workspace personnel-workspace" sx={{
     '&.workspace': { maxWidth: 'none', m: 0, p: { xs: 1, sm: '12px 16px' }, height: 'max(0px, calc(100dvh - var(--workspace-toolbar-height, 80px)))', minHeight: 0, display: 'flex', flexDirection: 'column' },
     '& .MuiButton-root, & .MuiTypography-h6': { fontWeight: 500 }, '& .MuiTableCell-root': { py: .75, px: 1.25, fontSize: 13 }, '& .MuiTableCell-head': { fontWeight: 500, py: 1 },
@@ -53,15 +56,18 @@ function PersonnelWorkspace({ token, viewer, canDelete }: { token: string; viewe
             <TableHead><TableRow>
               <TableCell>Nom et prénoms</TableCell>
               <TableCell sx={typeColumn}>Personnel</TableCell><TableCell sx={jobColumn}>Emploi</TableCell>
-              <TableCell sx={{ width: { xs: 104, sm: 136 } }}>État</TableCell><TableCell sx={{ width: 64 }}><span aria-label="Fiche complète" /></TableCell>
+              <TableCell sx={numberColumn}>N° de sécurité sociale</TableCell>
+              <TableCell sx={statusColumn}>État</TableCell><TableCell sx={{ width: { xs: 36, sm: 48 } }}><span aria-label="Fiche complète" /></TableCell>
             </TableRow></TableHead>
             <TableBody>{list.data.employees.map(employee => <TableRow key={employee.employee_id} hover>
               <TableCell><Tooltip title={employee.full_name}><Button onClick={() => setSelected(employee.employee_id)} sx={{ minWidth: 0, maxWidth: '100%', minHeight: 32, py: .5, px: 0, textAlign: 'left', justifyContent: 'flex-start' }}><Box component="span" sx={{ overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{employee.full_name}</Box></Button></Tooltip>
                 {employee.is_archived && <Typography variant="caption" color="text.secondary">Archivé</Typography>}
+                <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'block', sm: 'none' } }}>{statusLabels[employee.status] || 'À préciser'}</Typography>
               </TableCell>
               <TableCell sx={typeColumn}><Tooltip title={typeLabel(employee.personnel_type)}><Typography variant="body2" noWrap>{typeLabel(employee.personnel_type)}</Typography></Tooltip></TableCell>
               <TableCell sx={jobColumn}><Tooltip title={employee.job_title || ''}><Typography variant="body2" noWrap>{employee.job_title || '—'}</Typography></Tooltip></TableCell>
-              <TableCell><Tooltip title={statusLabels[employee.status] || 'À préciser'}><Chip size="small" label={statusLabels[employee.status] || 'À préciser'} color={employee.status === 'employed' ? 'primary' : 'default'} variant="outlined" sx={{ maxWidth: '100%', height: 25, fontWeight: 400, '& .MuiChip-label': { px: .75 } }} /></Tooltip></TableCell>
+              <TableCell sx={numberColumn}><SensitiveNumber key={JSON.stringify([filters, employee.version, selected, creating, exporting])} inline token={token} employeeId={employee.employee_id} hasNumber={employee.has_social_security_number} active={!list.isFetching && selected === null && !creating && !exporting} /></TableCell>
+              <TableCell sx={statusColumn}><Tooltip title={statusLabels[employee.status] || 'À préciser'}><Chip size="small" label={statusLabels[employee.status] || 'À préciser'} color={employee.status === 'employed' ? 'primary' : 'default'} variant="outlined" sx={{ maxWidth: '100%', height: 25, fontWeight: 400, '& .MuiChip-label': { px: .75 } }} /></Tooltip></TableCell>
               <TableCell align="right" sx={{ px: .5 }}><Tooltip title="Ouvrir la fiche complète"><IconButton aria-label={`Ouvrir la fiche complète de ${employee.full_name}`} onClick={() => setSelected(employee.employee_id)}><MoreHorizRounded fontSize="small" /></IconButton></Tooltip></TableCell>
             </TableRow>)}</TableBody>
           </Table>

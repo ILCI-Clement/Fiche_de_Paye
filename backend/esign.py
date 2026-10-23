@@ -134,6 +134,8 @@ def submit_to_clawshow(
     year: int,
     intern: bool = False,
     pdf_bytes: bytes | None = None,
+    reference_id: str | None = None,
+    callback_url: str | None = None,
 ) -> dict[str, Any]:
     api_key = os.getenv("CLAWSHOW_ESIGN_API_KEY")
     if not api_key:
@@ -155,8 +157,10 @@ def submit_to_clawshow(
                 "title": os.getenv("PRESENCE_ESIGN_REPRESENTATIVE_TITLE", "Responsable"),
             },
         },
-        "reference_id": f"presence-{year}-{month:02d}-{secrets.token_hex(8)}",
+        "reference_id": reference_id or f"presence-{year}-{month:02d}-{secrets.token_hex(8)}",
     }
+    if callback_url:
+        body['callback_url'] = callback_url
     request = urllib.request.Request(
         CLAWSHOW_CREATE_URL,
         data=json.dumps(body).encode("utf-8"),
@@ -291,7 +295,7 @@ def register_esign_routes(app, *, get_db_connection, require_roles, load_user,
         actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable")),
     ) -> dict[str, Any]:
         """Convert a generated fiche to PDF and create a ClawShow signature request."""
-        manager = resolve_manager(payload.recipient_email, actor, get_db_connection, load_user, require_target_access)
+        manager = resolve_manager(payload.recipient_email, actor, get_db_connection, load_user, require_target_access, include_identity=True)
         recipient_policy = getattr(app.state, 'esign_recipient_policy', None)
         if recipient_policy:
             recipient_policy(str(payload.recipient_email), manager['email'])
@@ -310,9 +314,17 @@ def register_esign_routes(app, *, get_db_connection, require_roles, load_user,
             conversion_seconds = time.monotonic() - conversion_started
             pdf_filename = f"{Path(payload.filename).stem}.pdf"
             document_token, pdf_name = store_esign_pdf(pdf_bytes, pdf_filename)
+            archive_service = getattr(app.state, 'signed_fiches', None)
+            archive_request = None
             try:
                 if recipient_policy:
                     recipient_policy(str(payload.recipient_email), manager['email'])
+                if archive_service:
+                    archive_request = archive_service.prepare(
+                        employee=manager['employee_username'], sender=actor['username'], name=manager['employee_name'],
+                        month=payload.month, year=payload.year,
+                        namespace=os.getenv('CLAWSHOW_ESIGN_NAMESPACE', 'ilci'),
+                        mode='sandbox-only' if os.getenv('CLAWSHOW_ESIGN_API_KEY', '').startswith('sk_test_') else 'production')
                 provider_started = time.monotonic()
                 result = submit_to_clawshow(
                     document_url=f"{e_sign_public_base_url()}/esign/documents/{document_token}",
@@ -324,8 +336,17 @@ def register_esign_routes(app, *, get_db_connection, require_roles, load_user,
                     year=payload.year,
                     intern=Path(payload.filename).suffix.lower() == ".docx",
                     pdf_bytes=pdf_bytes,
+                    **({'reference_id': archive_request['reference'], 'callback_url': archive_request['callback_url']}
+                       if archive_request else {}),
                 )
+                if archive_request:
+                    import re
+                    if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', str(result.get('document_id') or '')):
+                        raise HTTPException(502, 'La référence de signature doit être vérifiée dans ClawShow.')
+                    archive_service.store.accepted(archive_request['id'], str(result['document_id']))
             except Exception:
+                if archive_request:
+                    archive_service.store.uncertain(archive_request['id'])
                 delete_esign_pdf(document_token, pdf_name)
                 raise
 
@@ -333,6 +354,7 @@ def register_esign_routes(app, *, get_db_connection, require_roles, load_user,
                 "status": "success",
                 "message": f"Signature du salarié : {payload.recipient_email}, puis du responsable : {manager['email']}.",
                 "document_id": str(result.get("document_id", "")),
+                "archive_id": archive_request['id'] if archive_request else None,
                 "signing_links": sandbox_signing_links(result) if os.getenv('CLAWSHOW_ESIGN_API_KEY', '').startswith('sk_test_') else [],
                 "signing_actions": sandbox_signature_actions(result, str(payload.recipient_email), manager['email']) if os.getenv('CLAWSHOW_ESIGN_API_KEY', '').startswith('sk_test_') else [],
                 "timings": {"pdf_conversion_seconds": round(conversion_seconds, 2),

@@ -17,7 +17,7 @@ def signer_display_name(name, email):
     return value
 
 
-def resolve_manager(recipient_email, actor, connect, load_user, access):
+def resolve_manager(recipient_email, actor, connect, load_user, access, *, include_identity=False):
     db = connect()
     try:
         with db.cursor() as cursor:
@@ -36,9 +36,12 @@ def resolve_manager(recipient_email, actor, connect, load_user, access):
                 raise HTTPException(400, 'Le responsable direct doit avoir un compte valide et une adresse e-mail.')
             if manager['email'].strip().casefold() == str(recipient_email).strip().casefold():
                 raise HTTPException(400, 'Le salarié et le responsable doivent avoir des adresses e-mail distinctes.')
-            return {'name': signer_display_name(person_display_name(manager), manager['email']),
+            result = {'name': signer_display_name(person_display_name(manager), manager['email']),
                     'email': manager['email'].strip(),
                     'employee_name': signer_display_name(person_display_name(employee), recipient_email)}
+            if include_identity:
+                result['employee_username'] = employee['username']
+            return result
     finally:
         db.close()
 

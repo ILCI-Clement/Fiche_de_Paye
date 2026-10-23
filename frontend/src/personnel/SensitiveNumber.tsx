@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material'
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
 import VisibilityOffOutlined from '@mui/icons-material/VisibilityOffOutlined'
 import { useQueryClient } from '@tanstack/react-query'
@@ -12,7 +12,7 @@ import { useSensitiveNumberCapability } from './useSensitiveNumberCapability'
 
 /** Plaintext lives only in this short-lived view, never in query cache or storage. */
 type NumberInputRenderer = (state: { value: string; busy: boolean; enabled: boolean; toggle: () => void }) => ReactNode
-export function SensitiveNumber({ token, employeeId, hasNumber, active = true, renderInput }: { token: string; employeeId: number; hasNumber: boolean; active?: boolean; renderInput?: NumberInputRenderer }) {
+export function SensitiveNumber({ token, employeeId, hasNumber, active = true, renderInput, inline = false }: { token: string; employeeId: number; hasNumber: boolean; active?: boolean; renderInput?: NumberInputRenderer; inline?: boolean }) {
   const capability = useSensitiveNumberCapability(token)
   const viewer = useRegistryViewer()
   const slot = useWorkspaceToolbar()
@@ -22,11 +22,11 @@ export function SensitiveNumber({ token, employeeId, hasNumber, active = true, r
   const enabled = capability.data?.nir_enabled === true && !capability.error
   return <SensitiveNumberView key={JSON.stringify([viewer, employeeId, token, hasNumber, enabled])}
     token={token} employeeId={employeeId} hasNumber={hasNumber} viewer={viewer}
-    enabled={enabled} pending={capability.isPending} checking={capability.isFetching} renderInput={renderInput} />
+    enabled={enabled} pending={capability.isPending} checking={capability.isFetching} renderInput={renderInput} inline={inline} />
 }
 
-function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pending, checking, renderInput }: {
-  token: string; employeeId: number; hasNumber: boolean; viewer: string; enabled: boolean; pending: boolean; checking: boolean; renderInput?: NumberInputRenderer;
+function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pending, checking, renderInput, inline }: {
+  token: string; employeeId: number; hasNumber: boolean; viewer: string; enabled: boolean; pending: boolean; checking: boolean; renderInput?: NumberInputRenderer; inline: boolean;
 }) {
   const client = useQueryClient()
   const [value, setValue] = useState('')
@@ -74,6 +74,19 @@ function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pe
     } finally {
       if (current === generation.current) { request.current = null; setBusy(false) }
     }
+  }
+  if (inline) {
+    if (!hasNumber) return <Typography variant="body2" color="text.secondary" aria-label="Numéro de sécurité sociale non renseigné">—</Typography>
+    const label = value ? 'Masquer le numéro' : busy ? 'Annuler l’affichage' : !enabled && !pending ? 'Consultation protégée indisponible' : 'Afficher le numéro pendant 30 secondes'
+    return <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: .5, minHeight: 32 }}>
+        <Typography component="output" aria-label={value ? 'Numéro de sécurité sociale' : 'Numéro de sécurité sociale masqué'} sx={{ fontFamily: 'monospace', fontSize: 12, width: '15ch', flexShrink: 0, whiteSpace: 'nowrap', userSelect: value ? 'text' : 'none', color: value ? 'text.primary' : 'text.secondary' }}>{value || '•'.repeat(15)}</Typography>
+        <Tooltip title={label}><span><IconButton size="small" aria-label={label} aria-pressed={!!value} disabled={!value && !busy && (!enabled || checking)} onClick={() => { if (value || busy) hide(); else void reveal() }}>
+          {busy ? <CircularProgress size={16} aria-label="Chargement du numéro protégé" /> : value ? <VisibilityOffOutlined fontSize="small" /> : <VisibilityOutlined fontSize="small" />}
+        </IconButton></span></Tooltip>
+      </Box>
+      {error && <Typography role="alert" variant="caption" color="error" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{error}</Typography>}
+    </Box>
   }
   if (renderInput) return <Box>
     {/* The renderer only binds event handlers; refs are accessed on user actions. */}

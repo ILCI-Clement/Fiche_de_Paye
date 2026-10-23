@@ -67,6 +67,7 @@ class AccountLifecycleMySQLTests(unittest.TestCase):
                 cursor.execute('''CREATE TEMPORARY TABLE users (
                     username VARCHAR(255) PRIMARY KEY,email VARCHAR(255) UNIQUE,role_tags TEXT,password_hash TEXT,
                     is_active TINYINT NOT NULL DEFAULT 1,session_version INT NOT NULL DEFAULT 0,
+                    login_failed_attempts INT NOT NULL DEFAULT 0,login_locked_until DATETIME(6) NULL,login_last_failed_at DATETIME(6) NULL,
                     login_deleted_at DATETIME NULL,remember_token_hash CHAR(64) NULL,remember_token_expires DATETIME NULL,
                     reset_token TEXT NULL,reset_token_expires DATETIME NULL) ENGINE=InnoDB''')
                 cursor.execute('''CREATE TEMPORARY TABLE account_status_events (

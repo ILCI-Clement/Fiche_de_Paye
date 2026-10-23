@@ -18,7 +18,7 @@ function signerActions(result: { document_id?: string; links?: string[]; actions
   })
 }
 export function SignaturePreview({ token, ids, month, year, onClose, personLabels = {} }: { token: string; ids: string[]; month: number; year: number; onClose: () => void; personLabels?: Record<string, string> }) {
-  const preview = useQuery({ queryKey: ['signature-preview', ids, month, year], queryFn: ({ signal }) => request<{ items: PreviewItem[]; reason: string; can_send: boolean; mode: string }>('/attendance/signature-preview', token,
+  const preview = useQuery({ queryKey: ['signature-preview', ids, month, year], queryFn: ({ signal }) => request<{ items: PreviewItem[]; reason: string; can_send: boolean; mode: string; automatic_archive?: boolean }>('/attendance/signature-preview', token,
     { method: 'POST', signal, body: JSON.stringify({ ids, month, year }) }), retry: false, staleTime: 0, gcTime: 0, refetchOnWindowFocus: false })
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -70,6 +70,7 @@ export function SignaturePreview({ token, ids, month, year, onClose, personLabel
     <Alert severity="info" sx={{ mb: 2 }}>Le salarié signe en premier, puis son responsable direct enregistré dans Administration. Le téléchargement et la signature sont deux opérations distinctes.</Alert>
     {preview.isPending ? <CircularProgress /> : preview.error ? <Alert severity="error">{preview.error.message}</Alert> : preview.data && <>
       <Alert severity={live || !preview.data.can_send ? 'warning' : 'info'} sx={{ mb: 2 }}>{preview.data.reason}</Alert>
+      <Alert severity={preview.data.automatic_archive ? 'info' : 'warning'} sx={{ mb: 2 }}>{preview.data.automatic_archive ? 'Après la signature des deux parties, le PDF final sera récupéré automatiquement dans l’onglet Signatures du mois de la fiche.' : 'Le retour automatique des PDF signés n’est pas configuré dans cet environnement. Les documents resteront à récupérer dans ClawShow.'}</Alert>
       <Typography variant="body2" sx={{ mb: 2 }}>{total} fiche(s) sélectionnée(s) · {validCount} prête(s) à envoyer · {total - validCount} à corriger.</Typography>
       {busy && <><LinearProgress variant="determinate" value={total ? processed / total * 100 : 0} /><Typography role="status" variant="body2" sx={{ my: 1 }}>{currentName} · Préparation du PDF et création de la demande ClawShow… {seconds} s · {processed}/{total} fiche(s) traitée(s). Gardez cette fenêtre ouverte.</Typography></>}
       {started && !busy && <Alert severity={uncertain || notSent ? 'warning' : 'info'} sx={{ mb: 2 }}>

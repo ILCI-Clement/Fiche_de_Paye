@@ -1,16 +1,48 @@
-"""PDF-only public edge for the local sandbox; never mounts the private API."""
+"""Local signing edge: expiring source PDFs and one bounded callback route only."""
 import json
 import math
 import re
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 
 def create_pdf_gateway(storage):
     root = Path(storage).resolve()
     app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+
+    @app.post('/esign/callback')
+    async def callback(request: Request):
+        if request.url.query:
+            raise HTTPException(404, 'Notification introuvable.')
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > 32 * 1024:
+                raise HTTPException(413, 'Notification trop volumineuse.')
+
+        def forward():
+            # Fixed loopback destination, no client headers/URLs or authentication
+            # forwarded. The private API validates the per-document capability.
+            upstream = urllib.request.Request('http://127.0.0.1:8013/esign/callback',
+                data=bytes(body), headers={'Content-Type': 'application/json'}, method='POST')
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, *args, **kwargs):
+                    return None
+            try:
+                with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(upstream, timeout=10) as response:
+                    status = response.status
+            except urllib.error.HTTPError as error:
+                status = error.code if error.code in {400, 404, 409, 413} else 503
+                error.close()
+            except (OSError, urllib.error.URLError):
+                status = 503
+            return Response(status_code=status, headers={'Cache-Control': 'no-store'})
+        return await run_in_threadpool(forward)
 
     @app.api_route('/esign/documents/{token}', methods=['GET', 'HEAD'])
     def document(token: str, request: Request):

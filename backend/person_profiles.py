@@ -84,6 +84,23 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                         elif y == year and isinstance(m, int) and 1 <= m <= 12 and (m, key) not in seen:
                             seen.add((m, key)); months[m - 1]['attendance_sheets'] += 1
                 signatures, signatures_available = attempts.profile_receipts(target['username'], year)
+                if getattr(app.state, 'signed_fiches', None):
+                    cursor.execute('''SELECT id,document_id,fiche_month,mode,status,created_at,completed_at
+                        FROM signed_fiche_documents WHERE employee_username=%s AND fiche_year=%s
+                        ORDER BY created_at,id''', (target['username'], year))
+                    archived_requests = cursor.fetchall()
+                    by_document = {row['document_id']: row for row in archived_requests if row['document_id']}
+                    linked = set()
+                    for item in signatures:
+                        row = by_document.get(item['document_id'])
+                        if row:
+                            item.update(status=row['status'], archive_id=row['id'], month=row['fiche_month'])
+                            linked.add(row['id'])
+                    for row in archived_requests:
+                        if row['id'] not in linked:
+                            signatures.append({'month': row['fiche_month'], 'document_id': row['document_id'] or row['id'],
+                                               'created_at': row['created_at'], 'mode': row['mode'],
+                                               'status': row['status'], 'archive_id': row['id']})
                 for item in signatures:
                     months[item['month'] - 1]['signature_requests'].append(item)
                 return {'username': target['username'], 'name': display_name, 'display_name': display_name,

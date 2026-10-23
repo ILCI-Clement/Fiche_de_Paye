@@ -1,26 +1,36 @@
 $ErrorActionPreference = 'Stop'
 $gatewayRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'local_process.ps1')
 $gatewayState = Join-Path $gatewayRoot '.local-test/rebuild'
 $gatewayPython = Join-Path $gatewayRoot '.venv/Scripts/python.exe'
 $cloudBinary = Join-Path $gatewayState 'cloudflared.exe'
 if (-not (Test-Path -LiteralPath $cloudBinary)) { throw 'Download and verify official cloudflared first.' }
-$gatewayListener = Get-NetTCPConnection -State Listen -LocalPort 8014 -ErrorAction SilentlyContinue
-if ($gatewayListener) {
-    $gatewayProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($gatewayListener.OwningProcess)"
-    if ($gatewayProcess.CommandLine -notlike '*uvicorn*backend.pdf_test_gateway:app*') { throw 'Unexpected process on port 8014.' }
-    $gatewayPid = $gatewayProcess.ProcessId
-} else {
-    $gatewayProcess = Start-Process -FilePath $gatewayPython -WorkingDirectory $gatewayRoot -WindowStyle Hidden -PassThru -ArgumentList @(
+$gatewayProcess = Get-WorkspaceUvicornProcess 8014 'backend.pdf_test_gateway:app' $gatewayRoot
+if ($gatewayProcess) {
+    Stop-Process -Id $gatewayProcess.ProcessId
+}
+# Reload the gateway too: an existing PDF-only process cannot accept callbacks.
+$gatewayProcess = Start-Process -FilePath $gatewayPython -WorkingDirectory $gatewayRoot -WindowStyle Hidden -PassThru -ArgumentList @(
         '-m', 'uvicorn', 'backend.pdf_test_gateway:app', '--host', '127.0.0.1', '--port', '8014', '--no-access-log'
     ) -RedirectStandardOutput (Join-Path $gatewayState 'pdf-gateway.log') -RedirectStandardError (Join-Path $gatewayState 'pdf-gateway-errors.log')
-    $gatewayPid = $gatewayProcess.Id
+$gatewayPid = $gatewayProcess.Id
+function Set-SigningGatewayUrl([string]$SigningPublicUrl) {
+    $runtimeFile = Join-Path $gatewayState 'runtime.json'
+    $gatewayRuntime = Get-Content -LiteralPath $runtimeFile -Raw | ConvertFrom-Json
+    $gatewayRuntime | Add-Member -NotePropertyName esign_public_url -NotePropertyValue $SigningPublicUrl -Force
+    $gatewayRuntime | Add-Member -NotePropertyName esign_callback_url -NotePropertyValue "$SigningPublicUrl/esign/callback" -Force
+    $gatewayRuntime | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $runtimeFile -Encoding utf8
+    & (Join-Path $PSScriptRoot 'restart_local_rebuild.ps1')
 }
 $savedTunnelFile = Join-Path $gatewayState 'pdf-tunnel.json'
 if (Test-Path -LiteralPath $savedTunnelFile) {
     $savedTunnel = Get-Content -LiteralPath $savedTunnelFile -Raw | ConvertFrom-Json
     $savedProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($savedTunnel.tunnel_pid)" -ErrorAction SilentlyContinue
     if ($savedProcess -and $savedProcess.ExecutablePath -eq $cloudBinary -and $savedProcess.CommandLine -like '*127.0.0.1:8014*') {
-        Write-Output "Existing PDF-only tunnel: $($savedTunnel.public_url)"
+        $savedTunnel.gateway_pid = $gatewayPid
+        $savedTunnel | ConvertTo-Json | Set-Content -LiteralPath $savedTunnelFile -Encoding utf8
+        Set-SigningGatewayUrl $savedTunnel.public_url
+        Write-Output "Existing signing test tunnel (PDF + callback): $($savedTunnel.public_url)"
         exit 0
     }
 }
@@ -39,9 +49,6 @@ for ($tunnelIndex = 0; $tunnelIndex -lt 30; $tunnelIndex++) {
 }
 if (-not $publicUrl) { throw 'Temporary tunnel URL not available; inspect its private log.' }
 @{ tunnel_pid = $tunnelProcess.Id; gateway_pid = $gatewayPid; public_url = $publicUrl } | ConvertTo-Json | Set-Content -LiteralPath $savedTunnelFile -Encoding utf8
-$runtimeFile = Join-Path $gatewayState 'runtime.json'
-$gatewayRuntime = Get-Content -LiteralPath $runtimeFile -Raw | ConvertFrom-Json
-$gatewayRuntime | Add-Member -NotePropertyName esign_public_url -NotePropertyValue $publicUrl -Force
-$gatewayRuntime | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $runtimeFile -Encoding utf8
-Write-Output "PDF-only test URL: $publicUrl"
-Write-Output 'Restart the independent local backend to load the new URL. Stop with scripts/stop_pdf_test_tunnel.ps1.'
+Set-SigningGatewayUrl $publicUrl
+Write-Output "Signing test URL (PDF + callback): $publicUrl"
+Write-Output 'Local backend restarted. Keep the tunnel running until final PDF archiving completes. Stop with scripts/stop_pdf_test_tunnel.ps1.'

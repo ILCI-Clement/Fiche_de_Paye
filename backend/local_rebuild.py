@@ -27,6 +27,8 @@ os.environ.update({
     'PRESENCE_APP_URL': 'http://127.0.0.1:5173',
     'PRESENCE_TRANSPORT_RECEIPTS_DIR': str(STATE / 'snapshot' / 'documents'),
     'PRESENCE_ESIGN_DOCUMENTS_DIR': str(STATE / 'esign-documents'),
+    'PRESENCE_SIGNED_FICHES_DIR': str(STATE / 'signed-fiches'),
+    'PRESENCE_ESIGN_CALLBACK_URL': str(runtime.get('esign_callback_url') or ''),
     'PRESENCE_PERSONNEL_NIR_ENABLED': '1',
     'PRESENCE_PERSONNEL_NIR_KEYS_FILE': str(nir_key_file),
 })

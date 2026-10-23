@@ -2,7 +2,8 @@ import type { Filter, LeaveDetail, LeaveInput, LeaveList, LeaveRequest, Scope, S
 
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) { super(message); this.status = status }
+  retryAfterSeconds?: number
+  constructor(message: string, status: number, retryAfterSeconds?: number) { super(message); this.status = status; this.retryAfterSeconds = retryAfterSeconds }
 }
 
 export async function request<T>(path: string, token: string | null, init?: RequestInit, options?: { blob?: boolean; timeout?: number }): Promise<T> {
@@ -20,7 +21,7 @@ export async function request<T>(path: string, token: string | null, init?: Requ
   if (response.ok && options?.blob) {
     const disposition = response.headers.get('Content-Disposition') || ''
     const encoded = disposition.match(/filename\*=UTF-8''(.+)$/)?.[1]
-    const filename = encoded ? decodeURIComponent(encoded) : disposition.match(/filename="([^"]+)"/)?.[1] || 'presence.zip'
+    const filename = encoded ? decodeURIComponent(encoded) : disposition.match(/filename="([^"]+)"/)?.[1] || 'espace-rh.zip'
     return { blob: await response.blob(), filename } as T
   }
   const body = await response.json().catch(() => null)
@@ -30,7 +31,8 @@ export async function request<T>(path: string, token: string | null, init?: Requ
     const message = typeof detail === 'string' ? detail : Array.isArray(detail)
       ? detail.map((item: { msg: string }) => item.msg.replace(/^Value error, /, '')).join(' ')
       : 'Une erreur est survenue. Veuillez réessayer.'
-    throw new ApiError(message, response.status)
+    const retryAfter = Number(response.headers.get('Retry-After'))
+    throw new ApiError(message, response.status, response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined)
   }
   if (body === null) throw new ApiError('Réponse du serveur invalide.', response.status)
   return body as T

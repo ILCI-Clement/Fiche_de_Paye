@@ -5,6 +5,7 @@ from pathlib import Path
 import secrets
 import sqlite3
 import tempfile
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 import unittest
@@ -46,7 +47,13 @@ class Cursor:
 
     def fetchone(self):
         row = self.cursor.fetchone()
-        return dict(row) if row is not None else None
+        if row is None:
+            return None
+        value = dict(row)
+        for key in ('login_now', 'login_locked_until', 'login_last_failed_at'):
+            if value.get(key):
+                value[key] = datetime.fromisoformat(value[key])
+        return value
 
     def fetchall(self): return [dict(row) for row in self.cursor.fetchall()]
 
@@ -56,6 +63,7 @@ class Connection:
         self.fixture = fixture
         self.db = sqlite3.connect(fixture.path, timeout=10, isolation_level=None)
         self.db.row_factory = sqlite3.Row
+        self.db.create_function('UTC_TIMESTAMP', 1, lambda _: datetime.utcnow().isoformat(' '))
 
     def cursor(self): return Cursor(self)
     def commit(self): self.db.commit()
@@ -76,6 +84,7 @@ class AccountLifecycleTests(unittest.TestCase):
             db.executescript('''CREATE TABLE users (
                 username TEXT PRIMARY KEY, email TEXT UNIQUE, role_tags TEXT, password_hash TEXT,
                 is_active INTEGER DEFAULT 1, session_version INTEGER DEFAULT 0, login_deleted_at TEXT,
+                login_failed_attempts INTEGER NOT NULL DEFAULT 0,login_locked_until TEXT,login_last_failed_at TEXT,
                 remember_token_hash TEXT,remember_token_expires TEXT,reset_token TEXT,reset_token_expires TEXT);
                 CREATE TABLE account_status_events (id INTEGER PRIMARY KEY AUTOINCREMENT,
                 target_username TEXT,actor_username TEXT,was_active INTEGER,is_active INTEGER,

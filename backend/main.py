@@ -28,6 +28,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 if __package__:
+    from .login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
+                              ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
     from .person_names import (annotate_person_names, load_person_accounts,
                                load_person_names, person_display_name)
     from .role_policy import (VALID_ROLES, ROLE_PRIORITY, active_super_admin_count, can_assign_roles,
@@ -35,6 +37,8 @@ if __package__:
                               ensure_role_audit_schema, is_admin, is_super_admin, record_role_change,
                               reserve_deleted_account_name, username_is_reserved)
 else:
+    from login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
+                             ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
     from person_names import (annotate_person_names, load_person_accounts,
                               load_person_names, person_display_name)
     from role_policy import (VALID_ROLES, ROLE_PRIORITY, active_super_admin_count, can_assign_roles,
@@ -43,7 +47,7 @@ else:
                              reserve_deleted_account_name, username_is_reserved)
 
 
-app = FastAPI(title="Presence API")
+app = FastAPI(title="ILCI · Espace RH API")
 VALID_EMPLOYEE_TYPES = {"salarie", "stagiaire"}
 SESSION_DURATION_SECONDS = 8 * 60 * 60
 REMEMBER_SESSION_DURATION_DAYS = 30
@@ -215,6 +219,7 @@ def ensure_organization_schema() -> None:
             ensure_role_audit_schema(cursor)
             cursor.execute("SHOW COLUMNS FROM users")
             columns = {item["Field"] for item in cursor.fetchall()}
+            ensure_login_guard_schema(cursor, columns)
             if "employee_type" not in columns:
                 cursor.execute("ALTER TABLE users ADD COLUMN employee_type VARCHAR(20) NULL")
             if "manager_username" not in columns:
@@ -807,7 +812,7 @@ def send_password_reset_email(email: str, token: str) -> bool:
         MIMEText(
             f"""<h3>Demande de réinitialisation de mot de passe</h3>
             <p>Bonjour,</p>
-            <p>Une demande de réinitialisation a été effectuée pour votre compte Presence.</p>
+            <p>Une demande de réinitialisation a été effectuée pour votre compte ILCI · Espace RH.</p>
             <p><a href=\"{reset_url}\">Réinitialiser mon mot de passe</a></p>
             <p>Ce lien est valable pendant 15 minutes.</p>""",
             "html",
@@ -969,17 +974,35 @@ def login(payload: dict[str, Any]) -> dict[str, Any]:
             if len(matches) != 1:
                 raise HTTPException(status_code=401, detail="Identifiants incorrects.")
             username = matches[0]["username"]
+        # Discard the resolution snapshot before the locking read. load_user below
+        # must see current account status/roles, not a snapshot from before the lock.
+        connection.commit()
+        with connection.cursor() as cursor:
+            state = lock_login_attempt(cursor, username, identifier)
+            if not state:
+                raise HTTPException(status_code=401, detail="Identifiants incorrects.")
             user = load_user(cursor, username)
-        if not user or not user.get("is_active", True) or user.get("login_deleted_at") or not verify_password(password, user["password_hash"]):
-            raise HTTPException(status_code=401, detail="Identifiants incorrects.")
+            if not user or not user.get("is_active", True) or user.get("login_deleted_at"):
+                raise HTTPException(status_code=401, detail="Identifiants incorrects.")
+            check_cooldown(state)
+            if not verify_password(password, user["password_hash"]):
+                locked = record_failure(cursor, username, state)
+                connection.commit()  # Persist the failure before returning an HTTP error.
+                if locked:
+                    raise cooldown_error(COOLDOWN_SECONDS)
+                raise HTTPException(status_code=401, detail="Identifiants incorrects.")
+            reset_failures(cursor, username)
         response = public_user(user)
         response["status"] = "success"
         response["auth_token"] = create_session_token(username, user.get("session_version", 0))
         if bool(payload.get("remember_me")):
             with connection.cursor() as cursor:
                 response["remember_token"] = create_remember_token(cursor, username)
-            connection.commit()
+        connection.commit()
         return response
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
@@ -1713,6 +1736,7 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                     cursor.execute("UPDATE personnel_contracts SET username=%s WHERE username=%s", (target_username, username))
                     rename_leave_owner(cursor, username, target_username)
                     rename_personnel_account_link(cursor, username, target_username, target_username)
+                    rename_signed_fiche_owner(cursor, username, target_username)
                 if target_username != username or target_email != str(user["email"]):
                     migrate_username_in_saved_fiches(
                         cursor,
@@ -1883,6 +1907,16 @@ register_document_routes(
     app, get_db_connection=get_db_connection, get_current_user=get_current_user,
     require_roles=require_roles, load_user=load_user, user_can_manage=user_can_manage,
     all_users=all_users, storage_dir=TRANSPORT_RECEIPTS_DIR, max_file_bytes=MAX_TRANSPORT_RECEIPT_BYTES,
+)
+if __package__:
+    from .signed_fiches import register_signed_fiche_routes
+    from .signed_fiche_store import rename_signed_fiche_owner
+else:
+    from signed_fiches import register_signed_fiche_routes
+    from signed_fiche_store import rename_signed_fiche_owner
+register_signed_fiche_routes(
+    app, get_db_connection=get_db_connection, get_current_user=get_current_user, load_user=load_user,
+    root=os.getenv('PRESENCE_SIGNED_FICHES_DIR', '/var/lib/presence-app/signed-fiches'),
 )
 send_fiche_for_signature = register_esign_routes(
     app, get_db_connection=get_db_connection, require_roles=require_roles,

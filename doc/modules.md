@@ -1,4 +1,6 @@
-# Presence 模块索引
+# ILCI · Espace RH 模块索引
+
+产品显示名称统一为 ILCI · Espace RH，React 共用 `frontend/src/brand.ts`；图标为 RH，网页标题与图标在 `frontend/index.html` 和 `frontend/public/favicon.svg`。技术服务名、数据库表、环境变量与本地会话键沿用原标识，避免影响部署和已有登录。此次更名尚未部署。
 
 ## 入口与环境
 
@@ -22,8 +24,9 @@
 | 考勤 | `attendance/AttendancePage.tsx`；`AttendanceToolbar.tsx` / `PeriodToolbar.tsx` 顶栏；`FicheEditor.tsx` 编辑；`FicheExportMenu.tsx` 导出菜单 |
 | 日历 | `attendance/AttendanceCalendar.tsx`、`useCalendarSelection.ts`、`calendarStatus.ts`；半天拖选、批量应用及状态颜色 |
 | 签署与批量结果 | `attendance/SignaturePreview.tsx`、`components/BatchExportResult.tsx`；下载和签署独立，异常提交不自动重发 |
+| 已签文件 | `attendance/SignedFichesPanel.tsx`、`signedFichesApi.ts`；考勤顶部 Signatures 页签与个人 Profile 月度列表；每页 20 项、共用 DocumentPreview、管理员月度 ZIP，生产/SPECIMEN 分开 |
 | Documents | `documents/DocumentsPage.tsx` 每页 20 条、跨页勾选；`DocumentsToolbar.tsx`；`DocumentUpload.tsx` 上传弹窗；`DocumentRow.tsx` 紧凑横条及操作；`documentSearch.ts` 搜索；`DocumentPreview.tsx` / `PdfPreview.tsx` 私有预览 |
-| 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`SensitiveNumber.tsx` 短时查看；`PersonnelExport.tsx` 管理员 Excel 导出确认 |
+| 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`SensitiveNumber.tsx` 共用表格行内、详情及输入框的受控短时查看；`PersonnelExport.tsx` 管理员 Excel 导出确认 |
 | Administration | `admin/AdminPage.tsx`；`UserEditor.tsx`、`OrganizationFields.tsx`、`ContractEditor.tsx`、`GroupEditor.tsx`；`CreateAccount.tsx` 建号弹窗；`AccountAccess.tsx` 登录状态；`AdvancedMaintenance.tsx` 资源维护 |
 | 人员选择和姓名 | `personDisplayName.ts`；`admin/AccountOption.tsx` / `accountOptionLayout.ts` 分列显示；`components/DepartmentBadge.tsx` / `departmentColor.ts` 部门标签和颜色 |
 | Mon équipe / 月度 Profile | `team/TeamPage.tsx`、`OrganizationCards.tsx`、`PersonProfile.tsx`；名单/架构页签，月度考勤、文件、请假和签署发送回执 |
@@ -41,6 +44,7 @@
 | --- | --- |
 | `main.py` | 认证、组织、账户、提醒、面谈、考勤 JSON 保存；`/login`、`/restore-session`、`/list-users`、`/groups`、`/dashboard`、`/get-config/{user_id}`、`/save-config/{user_id}` |
 | `role_policy.py` | 角色继承、实时身份/会话检查、最后 SuperAdmin 保护、角色审计和用户名保留 |
+| `login_guard.py` | 密码连续失败 5 次冷却 10 分钟；未满 5 次距上次失败满 10 分钟重置。users 行锁与 UTC 持久计数/时间，用户名/邮箱共用状态，HTTP 429 + Retry-After；成功清零。本地已接入，尚未部署 |
 | `account_lifecycle.py` / `account_purge.py` | 停用/恢复、删除登录、状态历史；永久删除前检查业务依赖，禁止级联清理他人资料 |
 | `person_names.py` | 明确关联名册姓名，缺失时使用有效邮箱前缀；不按同名/邮箱猜测身份，不读 NIR 等隐私字段 |
 | `personnel_register.py` / `personnel_rules.py` / `personnel_store.py` | 员工名册路由、校验、存储及审计；`/personnel-register*`、`/account-personnel/{username}`、`/choices`、`/link` |
@@ -52,6 +56,7 @@
 | `documents.py` / `document_numbers.py` | `/transport-receipts*` 上传、搜索数据、下载、ZIP、改月、归档和受控删除；按巴黎上传日分配 `YYYYMMDD-0001`，删除不回收编号 |
 | `esign.py` / `signature_flow.py` / `signature_placement.py` | PDF 转换、当前直接负责人解析、双签顺序和签名定位；`/fiches/pdf`、`/send-fiche`、`/esign/documents/{token}` |
 | `attendance_signatures.py` / `signature_attempts.py` / `server_signing_readiness.py` | React 预检/发送、幂等回执、配置就绪检查；`/attendance/signature-preview`、`/signature-send` |
+| `signed_fiches.py` / `signed_fiche_store.py` | 新请求随机凭据回调 `/esign/callback`、持久下载队列、最终 PDF 私有归档、逐文件鉴权/完整性和月度 ZIP；`/signed-fiches*`。main 共用注册，flat/package 兼容；本地实现待发布 |
 | `person_profiles.py` | `/person-profiles/{username}?year=YYYY`：本人、当前直接负责人或 Admin 的月度汇总 |
 | `team_directory.py` | `/organization-directory` 和 `/my-team`：公共架构与本人部门目录 |
 | `leave_requests.py` / `leave_rules.py` / `leave_store.py` | `/leave/session`、`/leave-requests*`；半天、审批前撤回、当前直接负责人审批、Admin 代审及历史 |
@@ -85,7 +90,7 @@
 - 全员名册仅 Admin/SuperAdmin；普通账户只能读取本人关联资料。直接负责人查看下属月度 Profile 不获得名册地址、生日或 NIR。
 - 停用和删除登录保留业务历史；状态/角色变化撤销旧会话，用户名保留防止旧身份继承。已发出的外部签署链接须在 ClawShow 单独处理。
 - NIR 生产已显式启用，仅 Admin/SuperAdmin 可录入及受审计查看；本地继续使用合成号码。密钥独立备份，普通 DTO 不含原号/密文，查看禁止缓存。详见 [名册说明](personnel-register.md) 和 [启用记录](releases/nir-enable-20261022.md)。
-- 签署回执只代表发送被受理，不表示双方签完；尚无完成 webhook 或最终已签 PDF 自动归档。
+- 签署回执只代表发送被受理。新增完成回调和最终 PDF 归档仅处理配置回调后的新请求；`all_signed` 完成后后台回收，原始已签 PDF 不重写，按发送时考勤月份归档。两张 signed_fiche 表和永久目录须同时备份；旧签署不自动补发或补收。本地已实现，尚未上线/实际签署联调，配置及安全边界见 backend/README.md。
 
 ## 维护与记录
 
@@ -96,6 +101,6 @@
 - 运行配置、启动和安全回退：[后端说明](../backend/README.md)。
 - 旧发布时间线：[历史发布记录](releases/20261014-20261021.md)。
 - 本地快照及启动：[本地重构说明](local-rebuild.md)；`scripts/start_local_rebuild.ps1`。
-- 本地签署入口：`pdf_test_gateway.py` 仅公开限时 PDF；`local_signing_policy.py` 限制指定收件人和时效，不部署本地私有配置。
+- 本地签署入口：`backend/pdf_test_gateway.py` 仅开放限时 PDF 和有大小限制的 `/esign/callback`，回调固定转发至本地 8013、由私有 API 核对随机凭据；不开放其他接口。`scripts/start_pdf_test_tunnel.ps1` 配置两条公网地址并重启本地 API，`stop_pdf_test_tunnel.ps1` 清除并关闭；`restart_local_rebuild.ps1` 只重启本工作区 8013。共用 `local_process.ps1` 核对监听进程与 Windows venv 启动器身份，拒绝停止其他工作区进程。`local_signing_policy.py` 限制指定真实收件人和时效，不部署本地网关/私有配置。
 
 本次清理仅移除无调用的旧级联清理函数、失效导入与转导入；历史实现可从 Git `7ed872e` 查询。

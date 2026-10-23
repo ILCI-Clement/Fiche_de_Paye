@@ -66,7 +66,11 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
             except (HTTPException, ValueError, TypeError, KeyError) as error:
                 result['error'] = str(error.detail) if isinstance(error, HTTPException) else str(error)
             results.append(result)
-        return {'items': results, 'mode': 'sandbox-only', **readiness()}
+        archive = getattr(app.state, 'signed_fiches', None)
+        if archive:
+            from .signed_fiches import callback_url
+        return {'items': results, 'mode': 'sandbox-only', **readiness(),
+                'automatic_archive': bool(archive and callback_url())}
 
     @app.post('/attendance/signature-send')
     def send(payload: SignatureSubmit, actor=Depends(get_current_user)):
@@ -100,6 +104,7 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
                     month=payload.month, year=payload.year, filename=item['filename'],
                     file_b64=base64.b64encode(item['data']).decode()), actor)
                 response = {'id': payload.id, 'status': 'accepted', 'document_id': result.get('document_id', ''),
+                            'archive_id': result.get('archive_id'),
                             'profile_subject': {'username': subject_username, 'month': payload.month, 'year': payload.year},
                             'mode': ready.get('mode', 'sandbox-only'),
                             'message': result.get('message', ''), 'request_id': payload.request_id,

@@ -70,6 +70,7 @@ class MaintenanceTests(unittest.TestCase):
                 CREATE TABLE personnel_contracts(id INTEGER PRIMARY KEY,username TEXT);
                 CREATE TABLE transport_receipts(id INTEGER PRIMARY KEY,employee_username TEXT,uploaded_by TEXT);
                 CREATE TABLE personnel_register(employee_id INTEGER PRIMARY KEY,linked_username TEXT);
+                CREATE TABLE signed_fiche_documents(id TEXT PRIMARY KEY,employee_username TEXT);
                 CREATE TABLE Presence(user_id TEXT,form_content TEXT);
                 CREATE TABLE account_username_reservations(username TEXT PRIMARY KEY);
             ''')
