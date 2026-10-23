@@ -25,9 +25,10 @@ from typing import Any
 import bcrypt
 import pymysql
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
 
 if __package__:
+    from .account_names import AccountNames, ensure_account_names_schema
     from .login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
                               ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
     from .person_names import (annotate_person_names, load_person_accounts,
@@ -37,6 +38,7 @@ if __package__:
                               ensure_role_audit_schema, is_admin, is_super_admin, record_role_change,
                               reserve_deleted_account_name, username_is_reserved)
 else:
+    from account_names import AccountNames, ensure_account_names_schema
     from login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
                              ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
     from person_names import (annotate_person_names, load_person_accounts,
@@ -220,6 +222,7 @@ def ensure_organization_schema() -> None:
             cursor.execute("SHOW COLUMNS FROM users")
             columns = {item["Field"] for item in cursor.fetchall()}
             ensure_login_guard_schema(cursor, columns)
+            ensure_account_names_schema(cursor, columns)
             if "employee_type" not in columns:
                 cursor.execute("ALTER TABLE users ADD COLUMN employee_type VARCHAR(20) NULL")
             if "manager_username" not in columns:
@@ -1104,7 +1107,13 @@ def update_group(group_id: int, payload: GroupRequest, _: dict[str, Any] = Depen
 
 @app.post("/create-user")
 def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require_roles("Admin"))) -> dict[str, Any]:
-    username = str(payload.get("new_username", "")).strip()
+    try:
+        names = AccountNames(first_name=payload.get('first_name'), last_name=payload.get('last_name'))
+    except ValidationError:
+        raise HTTPException(400, 'Les prénoms et le nom sont obligatoires (100 caractères chacun, 200 au total).') from None
+    # E-mail is the user-facing login. A stable opaque ID keeps namesakes and
+    # subsequent name changes separate from ownership and historical records.
+    username = str(payload.get("new_username", "")).strip() or ('u_' + secrets.token_hex(12))
     email = str(payload.get("new_mail", "")).strip()
     password = str(payload.get("new_password", ""))
     tags = requested_role_tags(payload)
@@ -1144,10 +1153,11 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
 
             cursor.execute(
                 """
-                INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username, first_name, last_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type, manager_username),
+                (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type, manager_username,
+                 names.first_name, names.last_name),
             )
             cursor.execute("UPDATE users SET role_tags = %s WHERE username = %s", (json.dumps(tags), username))
             replace_memberships(cursor, username, "member", group_ids)

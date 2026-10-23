@@ -1,4 +1,5 @@
 """Synthetic NIR and temporary key-file tests; no real employee, database or service."""
+from test_support.personnel_fixtures import registration_payload
 import base64
 import json
 import os
@@ -196,8 +197,8 @@ class NirEncryptionTests(unittest.TestCase):
 
 
 class NirInputTests(unittest.TestCase):
-    def test_only_name_remains_required(self):
-        model = EmployeeCreate(full_name='Synthetic example')
+    def test_social_security_number_remains_optional(self):
+        model = EmployeeCreate(**registration_payload())
         self.assertIsNone(model.social_security_number)
         self.assertNotIn('social_security_number', model.model_fields_set)
 
@@ -210,7 +211,7 @@ class NirInputTests(unittest.TestCase):
             self.assertIsNone(value.social_security_number)
 
     def test_accepted_nir_is_normalized_secret_and_excluded_from_dumps(self):
-        value = EmployeeCreate(full_name='Synthetic example', social_security_number='2 99-12 2a 000 000 01')
+        value = EmployeeCreate(**registration_payload(social_security_number='2 99-12 2a 000 000 01'))
         self.assertIsInstance(value.social_security_number, SecretStr)
         self.assertEqual(value.social_security_number.get_secret_value(), SYNTHETIC_CORSICA)
         self.assertNotIn('social_security_number', value.model_dump())

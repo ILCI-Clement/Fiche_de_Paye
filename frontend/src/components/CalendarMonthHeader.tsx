@@ -2,11 +2,12 @@ import { Box, IconButton, TextField } from '@mui/material'
 import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded'
 import dayjs from 'dayjs'
+import 'dayjs/locale/fr'
 import type { PickersCalendarHeaderProps } from '@mui/x-date-pickers/PickersCalendarHeader'
 
 /** Month and year use ordinary vertical menus, including on mobile pickers. */
 export function CalendarMonthHeader({ currentMonth, onMonthChange, minDate, maxDate, disablePast, disableFuture, disabled, labelId }: PickersCalendarHeaderProps) {
-  const current = dayjs(currentMonth)
+  const current = dayjs(currentMonth).locale('fr')
   const today = dayjs()
   const lower = disablePast && today.isAfter(minDate) ? today : dayjs(minDate)
   const upper = disableFuture && today.isBefore(maxDate) ? today : dayjs(maxDate)

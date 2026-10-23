@@ -16,6 +16,7 @@ from unittest.mock import patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from test_support.personnel_fixtures import registration_payload, extend_sqlite_register
 from backend.personnel_register import register_personnel_routes
 from backend.personnel_sensitive import ensure_local_nir_key_file
 from backend.personnel_store import ensure_personnel_schema, safe_audit_snapshot
@@ -53,7 +54,7 @@ class Cursor:
         if row is None:
             return None
         result = dict(row)
-        for field in ('birth_date', 'entry_date', 'exit_date', 'start_date', 'end_date', 'period_entry_date', 'period_exit_date'):
+        for field in ('birth_date', 'entry_date', 'exit_date', 'start_date', 'end_date', 'actual_exit_date', 'period_actual_exit_date', 'period_entry_date', 'period_exit_date'):
             if result.get(field):
                 result[field] = date.fromisoformat(result[field])
         return result
@@ -123,6 +124,7 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
                 event_id INTEGER PRIMARY KEY AUTOINCREMENT,employee_id INTEGER NOT NULL,
                 actor_username TEXT NOT NULL,action TEXT NOT NULL,before_snapshot TEXT NULL,
                 after_snapshot TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);''')
+            extend_sqlite_register(db)
             for username, role in [('fixture-admin', 'Admin'), ('fixture-manager', 'Responsable'),
                                    ('fixture-employee', 'Employe')]:
                 db.execute('INSERT INTO users(username,email,role_tags) VALUES(?,?,?)',
@@ -149,7 +151,7 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
         self.addCleanup(self.client.close)
 
     def create(self, **values):
-        return self.client.post('/personnel-register', json={'full_name': 'Synthetic personnel fixture', **values})
+        return self.client.post('/personnel-register', json=registration_payload(**values))
 
     def create_number(self):
         response = self.create(social_security_number=SYNTHETIC_NIR)
@@ -158,7 +160,8 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
 
     def update(self, employee, **values):
         return self.client.put('/personnel-register/' + str(employee['employee_id']), json={
-            'full_name': employee['full_name'], 'expected_version': employee['version'], **values,
+            **{key: employee[key] for key in ('full_name', 'first_name', 'last_name', 'nationality', 'sex', 'birth_date', 'address', 'job_title', 'qualification', 'personnel_type', 'linked_username')},
+            'expected_version': employee['version'], **values,
         })
 
     def reveal(self, employee):

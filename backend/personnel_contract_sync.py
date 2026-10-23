@@ -4,10 +4,10 @@ from datetime import date
 from fastapi import HTTPException
 
 try:
-    from .personnel_rules import paris_today
+    from .personnel_rules import paris_today, entry_precedes_birth
     from .personnel_store import append_personnel_event, insert_period, load_employee_detail, touch_employee
 except ImportError:
-    from personnel_rules import paris_today
+    from personnel_rules import paris_today, entry_precedes_birth
     from personnel_store import append_personnel_event, insert_period, load_employee_detail, touch_employee
 
 
@@ -29,7 +29,7 @@ def detach_contract_links(cursor, employee_id):
                    (employee_id,))
 
 
-def sync_account_contracts(cursor, username, actor_username, *, match_legacy_period=True):
+def sync_account_contracts(cursor, username, actor_username, *, match_legacy_period=True, initial_period_id=None):
     """Account dates win on first association; stable IDs drive subsequent updates.
 
     Match old periods by start date, then only an unambiguous one-to-one remainder.
@@ -59,10 +59,13 @@ def sync_account_contracts(cursor, username, actor_username, *, match_legacy_per
             assigned[contract['id']] = period
             free.remove(period)
     remaining = [c for c in contracts if c['id'] not in assigned]
-    if match_legacy_period and len(remaining) == len(free) == 1:
+    if len(remaining) == len(free) == 1 and (match_legacy_period or free[0]['period_id'] == initial_period_id):
         assigned[remaining[0]['id']] = free[0]
     for contract in contracts:
         period = assigned.get(contract['id'])
+        if (period is None or period['entry_date'] != contract['start_date']) and entry_precedes_birth(
+                contract['start_date'], before['employee']['birth_date']):
+            raise HTTPException(409, 'Le début du contrat ne peut pas précéder la naissance. Vérifiez le registre.')
         if period and period.get('actual_exit_date') and contract['start_date'] > period['actual_exit_date']:
             raise HTTPException(409, 'Le début du contrat dépasserait la sortie effective. Vérifiez la période dans le registre.')
         if period is None:

@@ -1,4 +1,5 @@
 """Archived-resource deletion against temporary SQLite/files, never live personnel."""
+from test_support.personnel_fixtures import registration_payload, extend_sqlite_register
 from contextlib import closing
 import json
 from pathlib import Path
@@ -72,6 +73,7 @@ class ResourceDeletionTests(unittest.TestCase):
                 document_type TEXT,other_type TEXT,receipt_month INTEGER,receipt_year INTEGER,
                 document_number TEXT,archived INTEGER DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 archived_at TEXT,archived_by TEXT);''')
+            extend_sqlite_register(db)
             for name, role in [('fixture-super', 'SuperAdmin'), ('fixture-admin', 'Admin'),
                                ('fixture-manager', 'Responsable'), ('fixture-employee', 'Employe')]:
                 db.execute('INSERT INTO users(username,email,role,role_tags,is_admin) VALUES(?,?,?,?,?)',
@@ -134,10 +136,8 @@ class ResourceDeletionTests(unittest.TestCase):
     def ledger(self): return self.sql('SELECT * FROM permanent_deletion_events ORDER BY id')
 
     def personnel(self, archived=False):
-        response = self.client.post('/personnel-register', json={
-            'full_name': 'Synthetic employee identity', 'address': 'Synthetic private address',
-            'initial_period': {'entry_date': '2020-01-01'},
-        })
+        response = self.client.post('/personnel-register', json=registration_payload(full_name='Synthetic employee identity', address='Synthetic private address',
+            initial_period={'entry_date': '2020-01-01'}))
         self.assertEqual(response.status_code, 201, response.text)
         employee = response.json()['employee']
         if archived:

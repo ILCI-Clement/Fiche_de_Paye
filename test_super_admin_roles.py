@@ -80,10 +80,11 @@ class Cursor:
         elif query.startswith('INSERT IGNORE INTO account_username_reservations'):
             self.fixture.reserved.add(params[0])
         elif query.startswith('INSERT INTO users '):
-            name, email, hashed, _admin, role, employee_type, manager = params
+            name, email, hashed, _admin, role, employee_type, manager, first_name, last_name = params
             self.fixture.users[name] = account(name, [role])
             self.fixture.users[name].update(email=email, password_hash=hashed,
-                                            employee_type=employee_type, manager_username=manager)
+                                            employee_type=employee_type, manager_username=manager,
+                                            first_name=first_name, last_name=last_name)
         elif query.startswith('UPDATE users SET role_tags ='):
             self.fixture.users[params[1]]['role_tags'] = json.loads(params[0])
         elif query.startswith('UPDATE users SET role ='):
@@ -234,6 +235,7 @@ class MainRoleMutationTests(unittest.TestCase):
 
     def test_account_creation_cannot_bypass_super_delegation(self):
         data = {'new_username': 'synthetic-new', 'new_mail': 'synthetic-new@example.invalid',
+                'first_name': 'Synthetic', 'last_name': 'Fixture',
                 'new_password': 'synthetic-unit-only', 'role_tags': ['SuperAdmin']}
         self.assert_http(403, lambda: main.create_user(data, self.fixture.load_user(None, 'admin')))
         main.create_user(data, self.fixture.actor())
@@ -243,6 +245,7 @@ class MainRoleMutationTests(unittest.TestCase):
     def test_purged_name_cannot_be_recreated_or_taken_by_profile_rename(self):
         self.fixture.reserved.add('reserved-unit-name')
         data = {'new_username': 'reserved-unit-name', 'new_mail': 'new@example.invalid',
+                'first_name': 'Synthetic', 'last_name': 'Fixture',
                 'new_password': 'synthetic-unit-only', 'role_tags': ['Admin']}
         self.assert_http(409, lambda: main.create_user(data, self.fixture.actor()))
         with patch.object(main, 'verify_password', return_value=True):

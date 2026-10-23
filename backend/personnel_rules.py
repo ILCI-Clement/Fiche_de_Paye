@@ -103,7 +103,8 @@ class EmployeeInput(RegisterInput):
     @classmethod
     def protect_sensitive_validation_input(cls, value):
         if isinstance(value, dict) and 'social_security_number' in value:
-            value = dict(value)
+            # Pydantic retains the original mapping for model-level errors.
+            # Mask that mapping too, before any after-validator can fail.
             raw = value['social_security_number']
             if raw is not None and not isinstance(raw, SecretStr):
                 # Wrap before validation: even ValidationError.errors() holds a masked
@@ -188,6 +189,14 @@ def registration_missing(employee, period=None):
     if not period or not period.get('entry_date'):
         missing.append('Date d’entrée')
     return missing
+
+
+def entry_precedes_birth(entry, birth):
+    if isinstance(entry, str):
+        entry = date.fromisoformat(entry)
+    if isinstance(birth, str):
+        birth = date.fromisoformat(birth)
+    return bool(entry and birth and entry < birth)
 
 
 def like_search(value):

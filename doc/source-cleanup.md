@@ -1,5 +1,7 @@
 # 2026-10-23 源码整理
 
+后续全量功能与安全回归、发现的问题及修复结果见 [回归记录](cleanup-regression-20261023.md)。下文“检查结果”记录的是精简完成时的首轮静态检查。
+
 ## 旧版备案
 
 - 备案目录：[`archive/streamlit`](../archive/streamlit/README.md)，包含 `source.zip`、逐文件 SHA-256 清单和本地恢复命令。

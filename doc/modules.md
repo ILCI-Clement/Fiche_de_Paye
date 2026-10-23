@@ -49,7 +49,7 @@
 | `role_policy.py` | 角色继承、实时身份/会话检查、最后 SuperAdmin 保护、角色审计和用户名保留 |
 | `login_guard.py` | 密码连续失败 5 次冷却 10 分钟；未满 5 次距上次失败满 10 分钟重置。users 行锁与 UTC 持久计数/时间，用户名/邮箱共用状态，HTTP 429 + Retry-After；成功清零。已上线 |
 | `account_lifecycle.py` / `account_purge.py` | 停用/恢复、删除登录、状态历史；永久删除前检查业务依赖，禁止级联清理他人资料 |
-| `person_names.py` | 明确关联名册姓名，缺失时使用有效邮箱前缀；不按同名/邮箱猜测身份，不读 NIR 等隐私字段 |
+| `account_names.py` / `person_names.py` | 建号必填姓/名、users 仅增列迁移；统一显示优先关联名册的结构化姓/名，再用账号姓/名、旧名册全名、邮箱前缀。不猜测旧姓名，不读 NIR 等隐私字段 |
 | `personnel_register.py` / `personnel_rules.py` / `personnel_store.py` | 员工名册路由、校验、存储及审计；`/personnel-register*`、`/account-personnel/{username}`、`/choices`、`/link` |
 | `personnel_sensitive.py` | 独立 keyring、AES-256-GCM、员工 ID 绑定和短时查看保护 |
 | `personnel_export.py` | 按 `template/Exemple-de-modele-de-registre-unique-du-personnel.xlsx` 生成 Excel；复用名册筛选、全部分页、每段任职一行；`POST /personnel-register/export.xlsx` 仅有效管理员并要求敏感导出确认，包含 NIR 明文且先提交逐人审计，不在服务器保存文件 |
@@ -83,7 +83,7 @@
 
 ## 数据与权限约束
 
-- `users` 保存账户/角色/会话版本；`personnel_register*` 独立保存员工资料、任职期间与审计。一对一关联使用唯一 `linked_username`，不从账号自动生成正式员工档案。
+- `users` 保存账户/角色/会话版本及独立的 `first_name`、`last_name`；新建账号前后端都必填姓/名，界面通过邮箱登录，未指定旧式用户名时后端生成稳定的随机账号标识。姓名格式为“名 + 空格 + 姓”，不按姓名建立身份关联。`personnel_register*` 独立保存员工资料、任职期间与审计。一对一关联使用唯一 `linked_username`，不从账号自动生成正式员工档案。
 - `Presence.form_content` 保存绑定月份、合同快照和日历。历史表不因当前合同变化丢失；新建须有有效合同，已归档记录须先恢复。
 - `personnel_contracts` 是考勤合同历史，员工名册通过稳定的 `account_contract_id` 同步入职与预计结束日期；本地新版的 `actual_exit_date` 独立维护，状态与 Excel Sortie 列使用实际离职。旧 `exit_date` 原值保留、不自动推断实际离职。
 - 本地登记规则更新：新员工的姓、名、国籍、性别、出生日期、地址、职位、资格、人员类型、初始入职日期必填。`registration_schema_version=2` 的新档案后续编辑也不能清空必填项；旧档案维持版本 1，可逐步补全、不拆分旧姓名。三类特殊身份按任职期间保存，勾选后后端强制校验对应字段；仅增列迁移，尚未部署。
@@ -108,3 +108,9 @@
 - 本地签署入口：`backend/pdf_test_gateway.py` 仅开放限时 PDF 和有大小限制的 `/esign/callback`，回调固定转发至本地 8013、由私有 API 核对随机凭据；不开放其他接口。`scripts/start_pdf_test_tunnel.ps1` 配置两条公网地址并重启本地 API，`stop_pdf_test_tunnel.ps1` 清除并关闭；`restart_local_rebuild.ps1` 只重启本工作区 8013。共用 `local_process.ps1` 核对监听进程与 Windows venv 启动器身份，拒绝停止其他工作区进程。`local_signing_policy.py` 限制指定真实收件人和时效，不部署本地网关/私有配置。
 
 2026-10-23 旧版分离与名册整理：[整理记录](source-cleanup.md)。备案基线为 `de055e8`，本地名册开发进度在拆分前单独提交 `ff1fc16`；未改变生产部署或业务数据。
+
+## 本轮回归补充（2026-10-23）
+
+`personnel_rules.entry_precedes_birth` 统一检查入职与出生日期；名册编辑和账户合同同步共用。首次登记通过 `sync_account_contracts(..., initial_period_id=...)` 明确传入初始任职，仅唯一对应时采用账户合同日期，避免留下重复任职；常规同步继续按稳定 ID 执行。登记异常中的 NIR 在模型级校验前包装为 SecretStr；日期自定义标题显式固定法语。测试范围与限制见 [精简后回归](cleanup-regression-20261023.md)。
+
+2026-10-23 账号姓名：创建表单移除手工账号标识，改为必填 Prénoms/Nom；账号姓名直接保存在 users，无需自动创建正式员工档案。关联名册的结构化姓名优先，旧记录不自动拆分。模块兼容 flat/package 导入及旧数据库缺列读取；发布时需同步仍可访问的保留 API。存储核对与范围见 [账号姓名说明](account-names.md)。

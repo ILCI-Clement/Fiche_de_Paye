@@ -1,4 +1,5 @@
 """Contract/register HTTP regressions on disposable SQLite fixtures, no real users."""
+from test_support.personnel_fixtures import registration_payload
 from backend.contract_history import register_contract_history
 from backend.personnel_contract_sync import sync_account_contracts
 import unittest
@@ -115,7 +116,7 @@ class ContractDateMySQLTests(unittest.TestCase):
             contract_id = cursor.lastrowid
         self.proxy.commit()
         response = self.client.post('/personnel-register', headers=self.headers,
-                                    json={'full_name': 'Temporary synthetic sync', 'linked_username': 'fixture-employee'})
+                                    json=registration_payload(linked_username='fixture-employee'))
         self.assertEqual(response.status_code, 201, response.text)
         detail = response.json()
         period = detail['periods'][0]

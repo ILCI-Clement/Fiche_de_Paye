@@ -16,6 +16,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
 import pymysql
 
+from test_support.personnel_fixtures import registration_payload
 from backend.personnel_register import register_personnel_routes
 from backend.personnel_sensitive import ensure_local_nir_key_file
 
@@ -155,7 +156,7 @@ class PersonnelSensitiveMySQLTests(unittest.TestCase):
         return response
 
     def create(self, number=SYNTHETIC_NIR):
-        response = self.request('POST', '', json={'full_name': 'Isolated synthetic fixture', 'social_security_number': number})
+        response = self.request('POST', '', json=registration_payload(social_security_number=number))
         self.assertEqual(response.status_code, 201)
         self.assertNotIn(SYNTHETIC_NIR, response.text)
         return response.json()['employee']
@@ -193,18 +194,20 @@ class PersonnelSensitiveMySQLTests(unittest.TestCase):
         employee = self.create()
         identity = employee['employee_id']
         ciphertext = self.stored(identity)['social_security_number_encrypted']
-        changed = self.request('PUT', f'/{identity}', json={'full_name': 'Renamed fixture', 'expected_version': employee['version']})
+        complete = registration_payload()
+        complete.pop('initial_period')
+        changed = self.request('PUT', f'/{identity}', json={**complete, 'job_title': 'Corrected fixture job', 'expected_version': employee['version']})
         self.assertEqual(changed.status_code, 200)
         employee = changed.json()['employee']
         self.assertEqual(self.stored(identity)['social_security_number_encrypted'], ciphertext)
-        replace = self.request('PUT', f'/{identity}', json={'full_name': 'Renamed fixture', 'social_security_number': REPLACEMENT_NIR, 'expected_version': employee['version']})
+        replace = self.request('PUT', f'/{identity}', json={**complete, 'social_security_number': REPLACEMENT_NIR, 'expected_version': employee['version']})
         self.assertEqual(replace.status_code, 200)
         employee = replace.json()['employee']
         self.assertNotIn(REPLACEMENT_NIR, replace.text)
         self.assertGreater(employee['version'], 1)
         stale = self.request('PUT', f'/{identity}', json={'full_name': 'Stale fixture', 'social_security_number': None, 'expected_version': 1})
         self.assertEqual(stale.status_code, 409)
-        cleared = self.request('PUT', f'/{identity}', json={'full_name': 'Renamed fixture', 'social_security_number': None, 'expected_version': employee['version']})
+        cleared = self.request('PUT', f'/{identity}', json={**complete, 'social_security_number': None, 'expected_version': employee['version']})
         self.assertEqual(cleared.status_code, 200)
         self.assertFalse(cleared.json()['employee']['has_social_security_number'])
         self.assertIsNone(self.stored(identity)['social_security_number_encrypted'])
@@ -241,9 +244,9 @@ class PersonnelSensitiveMySQLTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertNotIn(marker, response.text)
         with patch.dict(os.environ, {'PRESENCE_PERSONNEL_NIR_ENABLED': '0'}):
-            response = self.request('POST', '', json={'full_name': 'Disabled fixture', 'social_security_number': SYNTHETIC_NIR})
+            response = self.request('POST', '', json=registration_payload(social_security_number=SYNTHETIC_NIR))
             self.assertEqual(response.status_code, 503)
-            ordinary = self.request('POST', '', json={'full_name': 'Non-sensitive fixture'})
+            ordinary = self.request('POST', '', json=registration_payload())
             self.assertEqual(ordinary.status_code, 201)
 
 

@@ -40,7 +40,7 @@ class DirectoryApiTests(unittest.TestCase):
     def test_all_roles_can_read_sanitized_organization(self):
         for role in ['Employe', 'Responsable', 'Admin']:
             self.actor['role_tags'] = [role]
-            self.cursor.fetchall.side_effect = [GROUPS, [{'username': 'a', 'email': 'a@example.test'}], []]
+            self.cursor.fetchall.side_effect = [GROUPS, [{'username': 'a', 'email': 'a@example.test'}], [], []]
             response = self.client.get('/organization-directory')
             self.assertEqual(response.status_code, 200)
             self.assertNotIn('@', str(response.json()))
@@ -50,7 +50,7 @@ class DirectoryApiTests(unittest.TestCase):
     def test_own_team_scope_cannot_be_overridden_by_query(self):
         self.cursor.fetchall.side_effect = [[GROUPS[1]], [
             {'username': 'lead', 'email': 'lead@example.test', 'group_id': 2, 'relation': 'manager'},
-            {'username': 'employee', 'email': 'a@example.test', 'group_id': 2, 'relation': 'member'}]]
+            {'username': 'employee', 'email': 'a@example.test', 'group_id': 2, 'relation': 'member'}], []]
         response = self.client.get('/my-team?username=outsider&group_id=1')
         self.assertEqual(response.status_code, 200)
         calls = self.cursor.execute.call_args_list

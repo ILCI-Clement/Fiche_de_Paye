@@ -1,6 +1,6 @@
-"""Public person labels from the explicitly linked register, never account IDs.
+"""Public person labels from structured identities, never account IDs.
 
-Only the register's two name/link columns are read. Callers may reuse a batch
+Only account and register name/link columns are read. Callers may reuse a batch
 mapping during one request; there is deliberately no process-wide name cache.
 """
 from collections.abc import Iterable, Mapping
@@ -32,12 +32,24 @@ def _rows(cursor) -> list[dict]:
             for row in cursor.fetchall()]
 
 
-def load_person_names(cursor, usernames: Iterable[str] | None = None) -> dict[str, str]:
-    """Read the authoritative full names, safely supporting older installations.
+def _missing_name_column(error):
+    message = str(error)
+    if isinstance(error, sqlite3.OperationalError):
+        return bool(re.search(r'no such column: (?:\w+\.)?(first_name|last_name)\b', message))
+    return (isinstance(error, pymysql.err.OperationalError) and error.args[0] == 1054
+            and bool(re.search(r"Unknown column '[^']*\b(first_name|last_name)'", message)))
 
-    A missing register is expected during startup and on the legacy server. Other
-    database failures are not swallowed. Matching uses explicit linked usernames;
-    e-mail addresses and similar-looking names never establish a relationship.
+
+def _structured_name(row):
+    first, last = _text(row.get('first_name')), _text(row.get('last_name'))
+    return f'{first} {last}' if first and last else ''
+
+
+def load_person_names(cursor, usernames: Iterable[str] | None = None) -> dict[str, str]:
+    """Registered structured name, account structured name, then legacy full name.
+
+    Missing new columns support old API installations during a staged release.
+    Never split old labels or infer a relationship by name or e-mail.
     """
     selected = None if usernames is None else _usernames(usernames)
     if selected == []:
@@ -47,29 +59,51 @@ def load_person_names(cursor, usernames: Iterable[str] | None = None) -> dict[st
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='personnel_register'")
     else:
         cursor.execute("SHOW TABLES LIKE 'personnel_register'")
-    if not cursor.fetchone():
-        return {}
+    register_exists = bool(cursor.fetchone())
     names: dict[str, str] = {}
+    registered_structured: dict[str, str] = {}
     batches = [None] if selected is None else [selected[i:i + _BATCH_SIZE] for i in range(0, len(selected), _BATCH_SIZE)]
     try:
         for batch in batches:
-            sql = 'SELECT linked_username,full_name FROM personnel_register WHERE linked_username IS NOT NULL'
-            if batch is None:
-                cursor.execute(sql)
-            else:
-                placeholders = ','.join(['?' if sqlite else '%s'] * len(batch))
-                cursor.execute(f'{sql} AND linked_username IN ({placeholders})', tuple(batch))
-            for row in _rows(cursor):
-                username = row.get('linked_username')
-                name = _text(row.get('full_name'))
-                if isinstance(username, str) and username and name:
-                    names[username] = name
+            if register_exists:
+                sql = 'SELECT linked_username,full_name,first_name,last_name FROM personnel_register WHERE linked_username IS NOT NULL'
+                if batch is not None:
+                    placeholders = ','.join(['?' if sqlite else '%s'] * len(batch))
+                    sql += f' AND linked_username IN ({placeholders})'
+                parameters = () if batch is None else tuple(batch)
+                try:
+                    cursor.execute(sql, parameters)
+                except (sqlite3.OperationalError, pymysql.err.OperationalError) as error:
+                    if not _missing_name_column(error):
+                        raise
+                    cursor.execute(sql.replace(',first_name,last_name', ''), parameters)
+                for row in _rows(cursor):
+                    username = row.get('linked_username')
+                    if isinstance(username, str) and username:
+                        if _text(row.get('full_name')):
+                            names[username] = _text(row['full_name'])
+                        if _structured_name(row):
+                            registered_structured[username] = _structured_name(row)
     except pymysql.err.ProgrammingError as exc:
         # A migration/deletion race can remove the optional table after SHOW.
         if exc.args and exc.args[0] == 1146:
             return {}
         raise
-    return names
+    for batch in batches:
+        sql = 'SELECT username,first_name,last_name FROM users'
+        if batch is not None:
+            placeholders = ','.join(['?' if sqlite else '%s'] * len(batch))
+            sql += f' WHERE username IN ({placeholders})'
+        try:
+            cursor.execute(sql, () if batch is None else tuple(batch))
+        except (sqlite3.OperationalError, pymysql.err.OperationalError) as error:
+            if _missing_name_column(error):
+                break
+            raise
+        for row in _rows(cursor):
+            if _structured_name(row):
+                names[row['username']] = _structured_name(row)
+    return {**names, **registered_structured}
 
 
 def person_display_name(account: Mapping | None, names: Mapping[str, str] | None = None) -> str:

@@ -21,7 +21,7 @@ try:
     from .personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
     from .personnel_rules import (
         ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
-        EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing,
+        EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing, entry_precedes_birth,
     )
     from .personnel_store import (
         EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
@@ -34,13 +34,13 @@ try:
     )
     from .destructive_audit import append_deletion_event
     from .role_policy import checked_resource_actor, is_admin, is_super_admin
-    from .person_names import load_display_names, person_display_name
+    from .person_names import load_display_names, load_person_accounts, person_display_name
 except ImportError:
     from personnel_contract_sync import detach_contract_links, sync_account_contracts, sync_register_period
     from personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
     from personnel_rules import (
         ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
-        EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing,
+        EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing, entry_precedes_birth,
     )
     from personnel_store import (
         EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
@@ -53,7 +53,7 @@ except ImportError:
     )
     from destructive_audit import append_deletion_event
     from role_policy import checked_resource_actor, is_admin, is_super_admin
-    from person_names import load_display_names, person_display_name
+    from person_names import load_display_names, load_person_accounts, person_display_name
 
 
 _SAFE_ERROR_LOCATIONS = frozenset({
@@ -240,7 +240,8 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                            (employee['employee_id'],))
             periods = [period_record(row) for row in cursor.fetchall()]
         return {'employee': employee, 'periods': periods, 'can_manage_link': can_manage_link,
-                'account_display_name': employee['full_name'] if employee else person_display_name({'email': target.get('email')}),
+                'account_display_name': load_display_names(cursor, [target['username']]).get(
+                    target['username'], person_display_name({'email': target.get('email')})),
                 'account_email': target.get('email') or ''}
 
     @router.get('/account-personnel/{username}')
@@ -351,8 +352,10 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                     ORDER BY COALESCE(NULLIF(r.full_name,''),u.email),u.username LIMIT %s''',
                                (term, term, term, limit + 1))
                 rows = cursor.fetchall()
+                directory = load_person_accounts(cursor, [row['username'] for row in rows[:limit]])
                 return {'accounts': [{**row, 'is_active': bool(row['is_active']),
-                                      'display_name': person_display_name(row)} for row in rows[:limit]],
+                                      'full_name': directory.get(row['username'], {}).get('full_name'),
+                                      'display_name': directory.get(row['username'], {}).get('display_name', person_display_name(row))} for row in rows[:limit]],
                         'has_more': len(rows) > limit, 'limit': limit}
         finally:
             db.close()
@@ -467,7 +470,8 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             if payload.initial_period is not None:
                 period_id = insert_period(cursor, employee_id, payload.initial_period.model_dump())
             if values['linked_username']:
-                sync_account_contracts(cursor, values['linked_username'], actor_username, match_legacy_period=False)
+                sync_account_contracts(cursor, values['linked_username'], actor_username,
+                                       match_legacy_period=False, initial_period_id=period_id)
                 if payload.initial_period is not None:
                     # First association uses account dates, including an existing period match.
                     cursor.execute('SELECT account_contract_id FROM personnel_register_periods WHERE period_id=%s', (period_id,))
@@ -512,6 +516,9 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                 missing = registration_missing(values, before['employee']['latest_period'])
                 if missing:
                     raise HTTPException(400, 'Champs obligatoires : ' + ', '.join(missing) + '.')
+            if values['birth_date'] != before['employee']['birth_date'] and any(
+                    entry_precedes_birth(p['entry_date'], values['birth_date']) for p in before['periods']):
+                raise HTTPException(400, 'La date d’entrée ne peut pas précéder la naissance.')
             details_changed = any(before['employee'][key] != values[key] for key in EMPLOYEE_FIELDS)
             nir_requested = 'social_security_number' in payload.model_fields_set
             if nir_requested:
@@ -569,6 +576,8 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             before = editable_detail(cursor, employee_id, payload.expected_version)
             if payload.entry_date is None:
                 raise HTTPException(400, 'Renseignez la date d’entrée de la nouvelle période.')
+            if entry_precedes_birth(payload.entry_date, before['employee']['birth_date']):
+                raise HTTPException(400, 'La date d’entrée ne peut pas précéder la naissance.')
             period_id = insert_period(cursor, employee_id, payload.model_dump(include=set(PERIOD_FIELDS)))
             sync_register_period(cursor, employee_id, period_id)
             touch_employee(cursor, employee_id)
@@ -593,6 +602,8 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                 raise HTTPException(400, 'Vérifiez les dates et les champs obligatoires des situations particulières.') from None
             if before['employee']['registration_schema_version'] >= 2 and values['entry_date'] is None:
                 raise HTTPException(400, 'La date d’entrée est obligatoire.')
+            if values['entry_date'] != period['entry_date'] and entry_precedes_birth(values['entry_date'], before['employee']['birth_date']):
+                raise HTTPException(400, 'La date d’entrée ne peut pas précéder la naissance.')
             if any(period[key] != values[key] for key in PERIOD_FIELDS):
                 assignments = ','.join(f'{key}=%s' for key in PERIOD_FIELDS)
                 cursor.execute(
