@@ -1,6 +1,6 @@
 # ILCI · Espace RH 模块索引
 
-产品显示名称统一为 ILCI · Espace RH，React 共用 `frontend/src/brand.ts`；图标为 RH，网页标题与图标在 `frontend/index.html` 和 `frontend/public/favicon.svg`。技术服务名、数据库表、环境变量与本地会话键沿用原标识，避免影响部署和已有登录。此次更名尚未部署。
+产品显示名称统一为 ILCI · Espace RH，React 共用 `frontend/src/brand.ts`；图标为 RH，网页标题与图标在 `frontend/index.html` 和 `frontend/public/favicon.svg`。技术服务名、数据库表、环境变量与本地会话键沿用原标识，避免影响部署和已有登录。随 2026-10-23 已签归档版本上线。
 
 ## 入口与环境
 
@@ -44,7 +44,7 @@
 | --- | --- |
 | `main.py` | 认证、组织、账户、提醒、面谈、考勤 JSON 保存；`/login`、`/restore-session`、`/list-users`、`/groups`、`/dashboard`、`/get-config/{user_id}`、`/save-config/{user_id}` |
 | `role_policy.py` | 角色继承、实时身份/会话检查、最后 SuperAdmin 保护、角色审计和用户名保留 |
-| `login_guard.py` | 密码连续失败 5 次冷却 10 分钟；未满 5 次距上次失败满 10 分钟重置。users 行锁与 UTC 持久计数/时间，用户名/邮箱共用状态，HTTP 429 + Retry-After；成功清零。本地已接入，尚未部署 |
+| `login_guard.py` | 密码连续失败 5 次冷却 10 分钟；未满 5 次距上次失败满 10 分钟重置。users 行锁与 UTC 持久计数/时间，用户名/邮箱共用状态，HTTP 429 + Retry-After；成功清零。已上线 |
 | `account_lifecycle.py` / `account_purge.py` | 停用/恢复、删除登录、状态历史；永久删除前检查业务依赖，禁止级联清理他人资料 |
 | `person_names.py` | 明确关联名册姓名，缺失时使用有效邮箱前缀；不按同名/邮箱猜测身份，不读 NIR 等隐私字段 |
 | `personnel_register.py` / `personnel_rules.py` / `personnel_store.py` | 员工名册路由、校验、存储及审计；`/personnel-register*`、`/account-personnel/{username}`、`/choices`、`/link` |
@@ -56,7 +56,7 @@
 | `documents.py` / `document_numbers.py` | `/transport-receipts*` 上传、搜索数据、下载、ZIP、改月、归档和受控删除；按巴黎上传日分配 `YYYYMMDD-0001`，删除不回收编号 |
 | `esign.py` / `signature_flow.py` / `signature_placement.py` | PDF 转换、当前直接负责人解析、双签顺序和签名定位；`/fiches/pdf`、`/send-fiche`、`/esign/documents/{token}` |
 | `attendance_signatures.py` / `signature_attempts.py` / `server_signing_readiness.py` | React 预检/发送、幂等回执、配置就绪检查；`/attendance/signature-preview`、`/signature-send` |
-| `signed_fiches.py` / `signed_fiche_store.py` | 新请求随机凭据回调 `/esign/callback`、持久下载队列、最终 PDF 私有归档、逐文件鉴权/完整性和月度 ZIP；`/signed-fiches*`。main 共用注册，flat/package 兼容；本地实现待发布 |
+| `signed_fiches.py` / `signed_fiche_store.py` | 新请求随机凭据回调 `/esign/callback`、持久下载队列、最终 PDF 私有归档、逐文件鉴权/完整性和月度 ZIP；`/signed-fiches*`。main 共用注册，flat/package 兼容；已上线 |
 | `person_profiles.py` | `/person-profiles/{username}?year=YYYY`：本人、当前直接负责人或 Admin 的月度汇总 |
 | `team_directory.py` | `/organization-directory` 和 `/my-team`：公共架构与本人部门目录 |
 | `leave_requests.py` / `leave_rules.py` / `leave_store.py` | `/leave/session`、`/leave-requests*`；半天、审批前撤回、当前直接负责人审批、Admin 代审及历史 |
@@ -82,7 +82,7 @@
 
 - `users` 保存账户/角色/会话版本；`personnel_register*` 独立保存员工资料、任职期间与审计。一对一关联使用唯一 `linked_username`，不从账号自动生成正式员工档案。
 - `Presence.form_content` 保存绑定月份、合同快照和日历。历史表不因当前合同变化丢失；新建须有有效合同，已归档记录须先恢复。
-- `personnel_contracts` 是考勤合同历史，与员工名册任职日期独立维护。
+- `personnel_contracts` 是考勤合同历史，员工名册通过稳定的 `account_contract_id` 双向同步对应任职日期。
 - `transport_receipts` 保存元数据；文件留在私有目录，下载须鉴权。ZIP 最多 100 份、100 MiB，失败不返回部分归档。
 - `leave_requests` / `leave_events` 保存申请和操作历史；不自动联动考勤、余额或邮件。
 - SuperAdmin 继承 Admin；Admin 可查看、新建、修改、归档/恢复，永久删除仅 SuperAdmin，且须满足归档/停用、精确确认和依赖检查。权限最终由后端执行。
@@ -90,14 +90,14 @@
 - 全员名册仅 Admin/SuperAdmin；普通账户只能读取本人关联资料。直接负责人查看下属月度 Profile 不获得名册地址、生日或 NIR。
 - 停用和删除登录保留业务历史；状态/角色变化撤销旧会话，用户名保留防止旧身份继承。已发出的外部签署链接须在 ClawShow 单独处理。
 - NIR 生产已显式启用，仅 Admin/SuperAdmin 可录入及受审计查看；本地继续使用合成号码。密钥独立备份，普通 DTO 不含原号/密文，查看禁止缓存。详见 [名册说明](personnel-register.md) 和 [启用记录](releases/nir-enable-20261022.md)。
-- 签署回执只代表发送被受理。新增完成回调和最终 PDF 归档仅处理配置回调后的新请求；`all_signed` 完成后后台回收，原始已签 PDF 不重写，按发送时考勤月份归档。两张 signed_fiche 表和永久目录须同时备份；旧签署不自动补发或补收。本地已实现，尚未上线/实际签署联调，配置及安全边界见 backend/README.md。
+- 签署回执只代表发送被受理。新增完成回调和最终 PDF 归档仅处理配置回调后的新请求；`all_signed` 完成后后台回收，原始已签 PDF 不重写，按发送时考勤月份归档。两张 signed_fiche 表和永久目录须同时备份；旧签署不自动补发或补收。2026-10-23 已上线，真实 Sandbox 双签回存已验证；配置及安全边界见 backend/README.md。
 
 ## 维护与记录
 
 先读对应入口及直接依赖；共用逻辑修改时检查全部调用方。保留历史快照、月份绑定、草稿和鉴权，不清空数据。
 
 - 部署前对比本地/服务器差异，备份源码、数据库、私有文件和签署 SQLite；同时保护仍可访问的旧 API。
-- 2026-10-22 已上线版本及验证结果：[发布记录](releases/personnel-profile-20261022.md)。
+- 2026-10-23 当前版本及验证结果：[发布记录](releases/signed-archive-20261023.md)。
 - 运行配置、启动和安全回退：[后端说明](../backend/README.md)。
 - 旧发布时间线：[历史发布记录](releases/20261014-20261021.md)。
 - 本地快照及启动：[本地重构说明](local-rebuild.md)；`scripts/start_local_rebuild.ps1`。
