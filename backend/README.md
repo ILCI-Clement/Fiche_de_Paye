@@ -25,21 +25,20 @@ NIR 关闭或密钥无效时拒绝导出。接口与映射见 [名册说明](../
 
 ## 当前版本与回退
 
-- 前端：`production-signatures-ui-20261023T120519Z` / `5caa88c`，正式版隐藏 SPECIMEN 切换；[界面更新记录](../doc/releases/production-signatures-ui-20261023.md)。
-- Nginx 静态目录：`/var/www/presence-react/releases/production-signatures-ui-20261023T120519Z/frontend/dist`。
-- API 版本仍为 `signed-archive-20261023T111516Z`；`/var/www/presence-react/current` 保持指向该目录，提交见服务器 `git-release.json`。
-- API 与业务数据完整备份：`/var/backups/presence-react/signed-archive-20261023T111516Z`；[完整验证与已知问题](../doc/releases/signed-archive-20261023.md)。
-- 社保号配置：已单独启用生产加密录入/查看，仅管理员可用；[密钥与开关记录](../doc/releases/nir-enable-20261022.md)。应用源码仍为上述版本。
+- 前端、React API：`account-names-20261023T150121Z` / `b6ca83d5e046`；保留 API 的 flat 模块同步更新。
+- 当前目录：`/var/www/presence-react/current`；Nginx 静态目录为该版本的 `frontend/dist`。
+- 完整备份：`/var/backups/presence-react/account-names-20261023T150121Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
+- [发布内容、验证与回退](../doc/releases/account-names-20261023.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
 
-安全回退界面：
+协调回退：
 
 ```sh
-sudo /var/backups/presence-react/production-signatures-ui-20261023T120519Z/rollback-ui.sh
+sudo /var/backups/presence-react/account-names-20261023T150121Z/rollback.sh
 ```
 
-脚本恢复上一版静态界面，保留新版 API 的账号状态/会话版本保护及业务数据。不要直接运行不识别 `is_active`、`session_version`、`login_deleted_at` 的旧 API；它可能重新放行停用或删除登录的身份。数据库恢复须单独决定，不能覆盖发布后的业务写入。
+脚本恢复上一版前后端及服务配置，保留新增数据库列和发布后的业务写入；不会自动恢复旧数据库。上一版已有账号保护、登录冷却及签署回存。单独 `rollback-ui.sh` 仅用于界面排障，旧建号界面不含新必填姓名字段，不能作为完整功能回退。
 
-旧发布记录见 [历史时间线](../doc/releases/20261014-20261021.md)。当前功能及测试结果见本次发布记录。
+旧发布记录见 [历史时间线](../doc/releases/20261014-20261021.md) 和各版本发布记录。
 
 ## 生产配置
 
@@ -68,7 +67,7 @@ sudo /var/backups/presence-react/production-signatures-ui-20261023T120519Z/rollb
 
 ## 数据与关键行为
 
-本地待发布的员工登记更新：新档案强制填写结构化姓/名、国籍、性别、生日、地址、职位、资格、人员类型及入职日期；旧档案逐步补全。外籍工作许可、临时派遣企业及青年/学徒条件字段与任职期间、Excel 同步。新增 `actual_exit_date` 保存实际离职，旧 `exit_date` 保留为合同预计结束；前者不回写账户合同。启动仅增列，不把旧结束日期推断为实际离职。新版前后端应一起发布，且必须更新保留 API；具体迁移与接口见 [员工名册说明](../doc/personnel-register.md)。当前线上仍为上面的已发布版本。
+本次已发布的员工登记更新：新档案强制填写结构化姓/名、国籍、性别、生日、地址、职位、资格、人员类型及入职日期；旧档案逐步补全。外籍工作许可、临时派遣企业及青年/学徒条件字段与任职期间、Excel 同步。新增 `actual_exit_date` 保存实际离职，旧 `exit_date` 保留为合同预计结束；前者不回写账户合同。启动仅增列，不把旧结束日期推断为实际离职。新版前后端应一起发布，且必须更新保留 API；具体迁移与接口见 [员工名册说明](../doc/personnel-register.md)。当前线上为上面的账号姓名与员工登记版本。
 
 密码登录保护（已上线）：同一账户连续 5 次密码错误后暂停密码登录 10 分钟；第 5 次及冷却中的请求返回 HTTP 429 和剩余秒数 `Retry-After`。成功登录清零；冷却到期后的第一次错误从 1 重新计数。未满 5 次时，距上次失败满 10 分钟，原失败序列失效，下一次尝试先按清零处理（再次输错计为第 1 次），无需后台定时任务。期间重复请求不延长冷却，用户名/邮箱及大小写变体共用计数。`users.login_failed_attempts`、UTC `login_locked_until` 与 `login_last_failed_at` 持久保存，按账户行锁串行更新，刷新页面、重启或切换 API worker 不清零；旧版无失败时间的记录从新序列开始，不记录尝试的密码。停用/删除登录仍统一拒绝，已有有效会话与记住登录流程不因此撤销。
 
@@ -78,7 +77,7 @@ React 根据 Retry-After 显示倒计时并暂停提交；后端独立执行限�
 - 账号停用/角色变更递增会话版本并撤销持久登录；删除登录保留身份及业务历史且不可重新启用。物理删除仅 SuperAdmin，先停用、精确确认并处理依赖，不级联删除他人文件。
 - 员工名册与登录账号、考勤合同独立。Admin 手动一对一关联；本人只读，直接负责人不因此获得名册隐私。关联版本检查、解除/替换和审计同事务提交，失败回滚。
 - `/account-personnel/{username}` 仅本人/Admin；`/choices`、`/link` 仅 Admin。关联提交包含 `employee_id`、`expected_employee_id`、`expected_version`、`target_version`，无关联值为 null。
-- 人名按显式关联的名册姓名显示，否则使用有效邮箱前缀；身份和权限仍以账号 ID 判断，历史快照不自动回写。
+- 新建账号必须分别填写 first_name、last_name；用户名省略时生成稳定随机标识。人名优先采用关联名册的结构化姓名，再用账号结构化姓名、旧名册全名、有效邮箱前缀；身份和权限仍以账号 ID 判断，历史快照不自动回写。
 - 考勤保存按版本和稳定 ID 检查；历史表不因当前合同更改而丢失。新建须有有效合同；Admin 用归档，SuperAdmin 删除还需明确 `deleted_ids`。
 - Documents 接受单份 PDF/JPG/PNG，最大 10 MiB。员工/经理只能为本人上传，Admin 可代传；文件私有下载，ZIP 最多 100 份/100 MiB，失败不返回部分结果。
 - 文档编号按巴黎上传日分配 `YYYYMMDD-0001`；行锁保证每日序号唯一，历史缺号启动时补齐，归档/改月不改号，删除不回收。
@@ -104,7 +103,7 @@ NIR 原号与密文不进入普通 Profile；专用查看须先提交审计，�
 
 本地沙盒操作：在仓库根目录运行 `scripts/start_pdf_test_tunnel.ps1`。脚本启动/重载只开放限时 PDF 与单个完成回调的 8014 网关，建立临时 HTTPS 隧道，写入本地的 PDF/回调地址，并重启 8013；不会自动发送签署或改变签署模式。确认预检为 Sandbox 后，通过本地页面创建并依次完成两个签名，在 Signatures 的 Tests SPECIMEN 中查看归档；保持隧道及 API 运行至回收完成。结束后运行 `scripts/stop_pdf_test_tunnel.ps1`。若要先取消正式邮件测试授权，运行 `scripts/stop_live_signing_test.ps1`。网关不代理登录、员工名册、文件列表等私有接口，禁止启用请求体/访问日志。
 
-本版后端 403 项、前端 43 项、lint/类型/生产构建通过；用户已手动完成一份 Sandbox 双签并通过实际回调归档，原始 PDF 大小、SHA-256 和结构核对正确。线上候选 108 项、发布后新旧 API 176 项检查通过，已配置正式回调；没有新增 Production 测试签署或发送正式通知邮件。
+此前签署归档发布的后端 403 项、前端 43 项、lint/类型/生产构建通过；用户已手动完成一份 Sandbox 双签并通过实际回调归档，原始 PDF 大小、SHA-256 和结构核对正确。线上候选 108 项、发布后新旧 API 176 项检查通过，已配置正式回调；没有新增 Production 测试签署或发送正式通知邮件。
 
 ## 发布顺序
 
@@ -128,4 +127,4 @@ npm --prefix frontend run lint -- src test
 npm --prefix frontend run build
 ```
 
-本地 MySQL 3307 和私有 runtime 配置存在时，设置进程变量 `PRESENCE_MYSQL_TEMP_TEST=1` 可启用连接级 TEMPORARY 表测试；不创建持久测试员工，不写真实业务表。最新已发布基线为后端 403 项、前端 43 项通过，详见发布记录。
+本地 MySQL 3307 和私有 runtime 配置存在时，设置进程变量 `PRESENCE_MYSQL_TEMP_TEST=1` 可启用连接级 TEMPORARY 表测试；不创建持久测试员工，不写真实业务表。最新发布验证为后端 406 项、前端 46 项通过，详见账号姓名发布记录。

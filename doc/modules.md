@@ -55,7 +55,7 @@
 | `personnel_export.py` | 按 `template/Exemple-de-modele-de-registre-unique-du-personnel.xlsx` 生成 Excel；复用名册筛选、全部分页、每段任职一行；`POST /personnel-register/export.xlsx` 仅有效管理员并要求敏感导出确认，包含 NIR 明文且先提交逐人审计，不在服务器保存文件 |
 | `attendance_api.py` / `attendance_revision.py` | `/attendance/workspace`、`/save`、`/open/{username}`、`/calendar/{id}`、`/export`；事务内校验配置版本 |
 | `attendance_permissions.py` | 保存字段与历史 ID 核对；Admin 归档，SuperAdmin 明确确认后才可删除 |
-| `contract_history.py` / `personnel_contract_sync.py` | 合同期间、重叠校验、归档/恢复；`/users/{username}/contracts*`；关联名册按稳定 ID 同步入职与合同预计结束日期，实际离职独立（本地新版）；被考勤或名册引用的合同不可删除 |
+| `contract_history.py` / `personnel_contract_sync.py` | 合同期间、重叠校验、归档/恢复；`/users/{username}/contracts*`；关联名册按稳定 ID 同步入职与合同预计结束日期，实际离职独立（已上线）；被考勤或名册引用的合同不可删除 |
 | `documents.py` / `document_numbers.py` | `/transport-receipts*` 上传、搜索数据、下载、ZIP、改月、归档和受控删除；按巴黎上传日分配 `YYYYMMDD-0001`，删除不回收编号 |
 | `esign.py` / `signature_flow.py` / `signature_placement.py` | PDF 转换、当前直接负责人解析、双签顺序和签名定位；`/fiches/pdf`、`/send-fiche`、`/esign/documents/{token}` |
 | `attendance_signatures.py` / `signature_attempts.py` / `server_signing_readiness.py` | React 预检/发送、幂等回执、配置就绪检查；`/attendance/signature-preview`、`/signature-send` |
@@ -85,8 +85,8 @@
 
 - `users` 保存账户/角色/会话版本及独立的 `first_name`、`last_name`；新建账号前后端都必填姓/名，界面通过邮箱登录，未指定旧式用户名时后端生成稳定的随机账号标识。姓名格式为“名 + 空格 + 姓”，不按姓名建立身份关联。`personnel_register*` 独立保存员工资料、任职期间与审计。一对一关联使用唯一 `linked_username`，不从账号自动生成正式员工档案。
 - `Presence.form_content` 保存绑定月份、合同快照和日历。历史表不因当前合同变化丢失；新建须有有效合同，已归档记录须先恢复。
-- `personnel_contracts` 是考勤合同历史，员工名册通过稳定的 `account_contract_id` 同步入职与预计结束日期；本地新版的 `actual_exit_date` 独立维护，状态与 Excel Sortie 列使用实际离职。旧 `exit_date` 原值保留、不自动推断实际离职。
-- 本地登记规则更新：新员工的姓、名、国籍、性别、出生日期、地址、职位、资格、人员类型、初始入职日期必填。`registration_schema_version=2` 的新档案后续编辑也不能清空必填项；旧档案维持版本 1，可逐步补全、不拆分旧姓名。三类特殊身份按任职期间保存，勾选后后端强制校验对应字段；仅增列迁移，尚未部署。
+- `personnel_contracts` 是考勤合同历史，员工名册通过稳定的 `account_contract_id` 同步入职与预计结束日期；`actual_exit_date` 独立维护，状态与 Excel Sortie 列使用实际离职。旧 `exit_date` 原值保留、不自动推断实际离职。
+- 登记规则更新：新员工的姓、名、国籍、性别、出生日期、地址、职位、资格、人员类型、初始入职日期必填。`registration_schema_version=2` 的新档案后续编辑也不能清空必填项；旧档案维持版本 1，可逐步补全、不拆分旧姓名。三类特殊身份按任职期间保存，勾选后后端强制校验对应字段；仅增列迁移，已随账号姓名版本发布。
 - `transport_receipts` 保存元数据；文件留在私有目录，下载须鉴权。ZIP 最多 100 份、100 MiB，失败不返回部分归档。
 - `leave_requests` / `leave_events` 保存申请和操作历史；不自动联动考勤、余额或邮件。
 - SuperAdmin 继承 Admin；Admin 可查看、新建、修改、归档/恢复，永久删除仅 SuperAdmin，且须满足归档/停用、精确确认和依赖检查。权限最终由后端执行。
@@ -114,3 +114,5 @@
 `personnel_rules.entry_precedes_birth` 统一检查入职与出生日期；名册编辑和账户合同同步共用。首次登记通过 `sync_account_contracts(..., initial_period_id=...)` 明确传入初始任职，仅唯一对应时采用账户合同日期，避免留下重复任职；常规同步继续按稳定 ID 执行。登记异常中的 NIR 在模型级校验前包装为 SecretStr；日期自定义标题显式固定法语。测试范围与限制见 [精简后回归](cleanup-regression-20261023.md)。
 
 2026-10-23 账号姓名：创建表单移除手工账号标识，改为必填 Prénoms/Nom；账号姓名直接保存在 users，无需自动创建正式员工档案。关联名册的结构化姓名优先，旧记录不自动拆分。模块兼容 flat/package 导入及旧数据库缺列读取；发布时需同步仍可访问的保留 API。存储核对与范围见 [账号姓名说明](account-names.md)。
+
+当前生产版本：`account-names-20261023T150121Z` / `b6ca83d5e046`，已发布员工登记、账号姓名及本轮回归修复。此前段落中的本地整理状态为历史记录；最新验证和协调回退见 [发布记录](releases/account-names-20261023.md)。
