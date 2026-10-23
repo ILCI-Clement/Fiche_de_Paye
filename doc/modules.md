@@ -97,7 +97,7 @@
 先读对应入口及直接依赖；共用逻辑修改时检查全部调用方。保留历史快照、月份绑定、草稿和鉴权，不清空数据。
 
 - 部署前对比本地/服务器差异，备份源码、数据库、私有文件和签署 SQLite；同时保护仍可访问的旧 API。
-- 2026-10-23 当前版本及验证结果：[发布记录](releases/signed-archive-20261023.md)。
+- 2026-10-23 API 与归档验证：[发布记录](releases/signed-archive-20261023.md)；最新前端：[正式版隐藏测试入口](releases/production-signatures-ui-20261023.md)。
 - 运行配置、启动和安全回退：[后端说明](../backend/README.md)。
 - 旧发布时间线：[历史发布记录](releases/20261014-20261021.md)。
 - 本地快照及启动：[本地重构说明](local-rebuild.md)；`scripts/start_local_rebuild.ps1`。

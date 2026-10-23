@@ -23,17 +23,16 @@ NIR 关闭或密钥无效时拒绝导出。接口与映射见 [名册说明](../
 
 ## 当前版本与回退
 
-- 版本：`signed-archive-20261023T111516Z`；Git 提交见服务器 `git-release.json`。
-- 应用链接：`/var/www/presence-react/current`。
-- 实际目录：`/var/www/presence-react/releases/signed-archive-20261023T111516Z`。
-- root 专用备份：`/var/backups/presence-react/signed-archive-20261023T111516Z`。
-- 完整验证与已知问题：[发布记录](../doc/releases/signed-archive-20261023.md)。
+- 前端：`production-signatures-ui-20261023T120519Z` / `5caa88c`，正式版隐藏 SPECIMEN 切换；[界面更新记录](../doc/releases/production-signatures-ui-20261023.md)。
+- Nginx 静态目录：`/var/www/presence-react/releases/production-signatures-ui-20261023T120519Z/frontend/dist`。
+- API 版本仍为 `signed-archive-20261023T111516Z`；`/var/www/presence-react/current` 保持指向该目录，提交见服务器 `git-release.json`。
+- API 与业务数据完整备份：`/var/backups/presence-react/signed-archive-20261023T111516Z`；[完整验证与已知问题](../doc/releases/signed-archive-20261023.md)。
 - 社保号配置：已单独启用生产加密录入/查看，仅管理员可用；[密钥与开关记录](../doc/releases/nir-enable-20261022.md)。应用源码仍为上述版本。
 
 安全回退界面：
 
 ```sh
-sudo /var/backups/presence-react/signed-archive-20261023T111516Z/rollback-ui.sh
+sudo /var/backups/presence-react/production-signatures-ui-20261023T120519Z/rollback-ui.sh
 ```
 
 脚本恢复上一版静态界面，保留新版 API 的账号状态/会话版本保护及业务数据。不要直接运行不识别 `is_active`、`session_version`、`login_deleted_at` 的旧 API；它可能重新放行停用或删除登录的身份。数据库恢复须单独决定，不能覆盖发布后的业务写入。
