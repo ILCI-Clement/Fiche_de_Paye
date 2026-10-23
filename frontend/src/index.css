@@ -2,14 +2,20 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
 .app-shell { min-height: 100dvh; display: flex; }
-.sidebar { width: 248px; flex-shrink: 0; position: fixed; inset: 0 auto 0 0; background: var(--sidebar); color: var(--sidebar-text); padding: 28px 18px 16px; display: flex; flex-direction: column; z-index: 2; }
-.brand { display: flex; align-items: center; gap: 12px; margin: 0 8px 44px; }
+.sidebar { width: 248px; flex-shrink: 0; position: fixed; inset: 0 auto 0 0; background: var(--sidebar); color: var(--sidebar-text); padding: 28px 18px 16px; display: flex; flex-direction: column; overflow-y: auto; z-index: 2; }
+.sidebar > * { flex-shrink: 0; }
+.brand { display: flex; align-items: center; gap: 12px; margin: 0 8px 28px; }
 .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border-radius: 8px; background: var(--accent); color: var(--accent-contrast); font-size: 20px; font-weight: 800; }
 .nav-heading.MuiTypography-root { font-size: 10px; letter-spacing: 1.8px; color: var(--sidebar-muted); margin: 0 14px 12px; }
 .nav-item.MuiButton-root { color: var(--sidebar-text); padding: 11px 14px; margin-bottom: 5px; justify-content: flex-start; border-radius: 9px; width: 100%; gap: 6px; font-size: 13px; }
 .nav-item.MuiButton-root.active { background: var(--nav-active); color: var(--sidebar-text); }
 .nav-item.MuiButton-root:hover { background: var(--nav-hover); }
-.sidebar-note { margin: auto 10px 26px; border-top: 1px solid var(--border); padding-top: 24px; }
+.admin-nav-group { margin: 12px -6px 16px; padding: 8px 6px 4px; border: 1px solid var(--border); border-radius: 12px; }
+.admin-nav-group--active { border-color: var(--accent); background: var(--nav-hover); }
+.admin-nav-heading.MuiTypography-root { display: flex; align-items: center; gap: 7px; margin: 0 12px 8px; color: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: .4px; }
+.admin-nav-group .nav-item.MuiButton-root { margin-bottom: 3px; }
+.admin-area-label.MuiChip-root { flex-shrink: 0; height: 26px; font-size: 11px; }
+.sidebar-note { margin: auto 10px 26px; border-top: 1px solid var(--border); padding-top: 18px; }
 .sidebar-user { display: flex; gap: 10px; align-items: center; padding-top: 16px; border-top: 1px solid var(--border); }
 .main-column { margin-left: 248px; min-width: 0; flex: 1; }
 .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; position: sticky; top: 0; z-index: 20; }
@@ -99,6 +105,7 @@ body { margin: 0; min-width: 320px; }
   .fiche-fields, .batch-selection { grid-template-columns: 1fr; }
   .attendance-calendar-grid { gap: 2px; }.calendar-day { padding: 2px; }.calendar-half.MuiButton-root { font-size: 9px; min-height: 38px; }
   .topbar { padding: 0 12px; }.topbar-primary { min-height: 48px; gap: 6px; }.topbar .preview-chip { display: none; }
+  .topbar--with-tools .topbar-primary:has(.admin-area-label) { flex-wrap: wrap; padding-block: 8px; }
   .workspace-action-bar .MuiIconButton-root { width: 44px; height: 44px; }
   .workspace-action-bar .MuiButton-root { min-height: 44px; }
   .workspace { padding: 12px; }

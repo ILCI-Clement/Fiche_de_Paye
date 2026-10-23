@@ -49,6 +49,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
   const attendanceAllowed = canManageTeam(session)
   const personnelAllowed = isAdmin(session)
   const [page, setPage] = useState<Page>(attendanceAllowed ? 'attendance' : 'leave')
+  const adminPage = personnelAllowed && (page === 'personnel' || page === 'admin')
   const [visited, setVisited] = useState<Partial<Record<Page, boolean>>>({ attendance: attendanceAllowed, leave: !attendanceAllowed })
   const [attendanceState, setAttendanceState] = useState({ dirty: false, busy: false })
   const onAttendanceState = useCallback((state: { dirty: boolean; busy: boolean }) => setAttendanceState(state), [])
@@ -87,9 +88,12 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
     <Button className={`nav-item ${page === 'leave' ? 'active' : ''}`} startIcon={<EventAvailableOutlined />} onClick={() => navigate('leave')}>Congés payés</Button>
     <Button className={`nav-item ${page === 'documents' ? 'active' : ''}`} startIcon={<FolderOutlined />} onClick={() => navigate('documents')}>Documents</Button>
     <Button className={`nav-item ${page === 'team' ? 'active' : ''}`} startIcon={<GroupsOutlined />} onClick={() => navigate('team')}>Mon équipe</Button>
-    {personnelAllowed && <Button className={`nav-item ${page === 'personnel' ? 'active' : ''}`} startIcon={<BadgeOutlined />} onClick={() => navigate('personnel')}>Registre du personnel</Button>}
-    {isAdmin(session) && <Button className={`nav-item ${page === 'admin' ? 'active' : ''}`} startIcon={<AdminPanelSettingsOutlined />} onClick={() => navigate('admin')}>Administration</Button>}
     <Button className={`nav-item ${page === 'profile' ? 'active' : ''}`} startIcon={<SettingsOutlined />} onClick={() => navigate('profile')}>Paramètres</Button>
+    {personnelAllowed && <Box component="section" aria-label="Espace Admin" className={`admin-nav-group${adminPage ? ' admin-nav-group--active' : ''}`}>
+      <Typography component="h2" className="admin-nav-heading"><AdminPanelSettingsOutlined aria-hidden="true" sx={{ fontSize: 16 }} />Espace Admin</Typography>
+      <Button className={`nav-item ${page === 'personnel' ? 'active' : ''}`} aria-current={page === 'personnel' ? 'page' : undefined} startIcon={<BadgeOutlined />} onClick={() => navigate('personnel')}>Registre du personnel</Button>
+      <Button className={`nav-item ${page === 'admin' ? 'active' : ''}`} aria-current={page === 'admin' ? 'page' : undefined} startIcon={<AdminPanelSettingsOutlined />} onClick={() => navigate('admin')}>Administration</Button>
+    </Box>}
     <Box className="sidebar-note"><Typography sx={{ fontWeight: 650, fontSize: 13 }}>{local ? 'Version locale de test' : brand.title}</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 12, mt: 1, lineHeight: 1.7 }}>{local ? 'Vos modifications restent dans la copie locale de test.' : 'Personnel, contrats, documents et congés dans votre espace.'}</Typography></Box>
     <Box className="sidebar-user"><Avatar sx={{ width: 36, height: 36, bgcolor: 'var(--nav-active)', color: 'var(--sidebar-text)', fontSize: 13 }}>{initials(session.name)}</Avatar><Box sx={{ flex: 1, minWidth: 0 }}><Typography noWrap sx={{ fontSize: 13, fontWeight: 650 }}>{session.name}</Typography><Typography noWrap title={displayRoles(session.role_tags)} sx={{ fontSize: 11, color: 'var(--sidebar-muted)' }}>{displayRoles(session.role_tags)}</Typography></Box><IconButton aria-label="Se déconnecter" disabled={guard.busy} onClick={requestLogout} sx={{ color: 'var(--sidebar-muted)' }}><LogoutRounded fontSize="small" /></IconButton></Box>
   </>
@@ -101,6 +105,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
         <Tooltip key={page} title={workspacePages[page].description} describeChild enterDelay={650} enterNextDelay={650} arrow>
           <Typography component="h1" className="topbar-title" tabIndex={0} sx={{ m: 0, minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: .75, fontSize: 17, fontWeight: 600, lineHeight: 1.4, cursor: 'help', overflowWrap: 'anywhere', '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 4, borderRadius: 1 } }}>{workspacePages[page].title}<HelpOutlineRounded aria-hidden="true" sx={{ fontSize: 15, flexShrink: 0, color: 'text.secondary' }} /></Typography>
         </Tooltip>
+        {adminPage && <Chip className="admin-area-label" icon={<AdminPanelSettingsOutlined />} label="Espace Admin" size="small" variant="outlined" color="primary" />}
         <Box ref={setInlineToolbarTarget} className="topbar-inline-tools" />
         <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}><ThemeToggle /><Chip className="preview-chip" label={local ? 'Copie locale' : capabilities.data ? 'Serveur' : 'Configuration à vérifier'} variant="outlined" size="small" /></Box>
         </Box>
