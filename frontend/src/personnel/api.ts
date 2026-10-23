@@ -3,12 +3,16 @@ import { request } from '../api'
 export type PersonnelType = '' | 'salarie' | 'stagiaire' | 'alternance'
 export type ContractType = '' | 'CDI' | 'CDD' | 'stage' | 'autre'
 export type EmploymentStatus = 'employed' | 'left' | 'upcoming' | 'unknown'
+export type YouthContractType = '' | 'apprenti' | 'qualification' | 'adaptation'
 export interface EmploymentInput {
-  entry_date: string | null; exit_date: string | null; contract_type: ContractType; other_contract: string;
+  entry_date: string | null; exit_date: string | null; actual_exit_date: string | null; contract_type: ContractType; other_contract: string;
+  is_foreign_worker: boolean; work_permit_type: string; work_permit_number: string;
+  is_temporary_worker: boolean; temporary_company_name: string; temporary_company_address: string;
+  is_young_worker: boolean; youth_contract_type: YouthContractType;
 }
 export interface EmploymentPeriod extends EmploymentInput { period_id: number; account_contract_id?: number | null }
 export interface PersonnelInput {
-  full_name: string; nationality: string; sex: '' | 'F' | 'M'; address: string;
+  full_name: string; last_name: string; first_name: string; nationality: string; sex: '' | 'F' | 'M'; address: string;
   birth_date: string | null; job_title: string; qualification: string;
   personnel_type: PersonnelType; linked_username: string | null;
 }
@@ -18,6 +22,8 @@ export interface Employee extends PersonnelInput {
   linked_display_name?: string | null;
   employee_id: number; registration_number: number; is_archived: boolean; version: number;
   has_social_security_number: boolean;
+  missing_fields: string[];
+  registration_schema_version: number;
   latest_period: EmploymentPeriod | null; status: EmploymentStatus; created_at: string; updated_at: string;
 }
 export interface PersonnelDetail { employee: Employee; periods: EmploymentPeriod[] }
@@ -80,4 +86,11 @@ export const statusLabels: Record<EmploymentStatus, string> = {
 export const typeLabel = (value: PersonnelType) => personnelTypes.find(item => item.value === value)?.label || 'Non renseigné'
 export const contractLabel = (period?: EmploymentInput | null) => !period ? '—' : period.contract_type === 'autre' ? period.other_contract || 'Autre' : contractTypes.find(item => item.value === period.contract_type)?.label || 'Non renseigné'
 export const dateLabel = (value?: string | null) => !value ? '—' : /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split('-').reverse().join('/') : value
-export const blankPeriod = (): EmploymentInput => ({ entry_date: null, exit_date: null, contract_type: '', other_contract: '' })
+export const youthContractTypes: { value: YouthContractType; label: string }[] = [
+  { value: '', label: 'Sélectionner' }, { value: 'apprenti', label: 'Apprenti' },
+  { value: 'qualification', label: 'Contrat de qualification' }, { value: 'adaptation', label: 'Contrat d’adaptation' },
+]
+export const youthContractLabel = (value: YouthContractType) => youthContractTypes.find(item => item.value === value)?.label || '—'
+export const blankPeriod = (): EmploymentInput => ({ entry_date: null, exit_date: null, actual_exit_date: null, contract_type: '', other_contract: '',
+  is_foreign_worker: false, work_permit_type: '', work_permit_number: '', is_temporary_worker: false,
+  temporary_company_name: '', temporary_company_address: '', is_young_worker: false, youth_contract_type: '' })

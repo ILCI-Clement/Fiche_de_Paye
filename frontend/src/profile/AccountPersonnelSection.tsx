@@ -9,6 +9,7 @@ import { useRegistryAction } from '../personnel/useRegistryAction'
 import { WriteError } from '../personnel/WriteError'
 import { accountPersonnelApi } from './accountPersonnelApi'
 import type { AccountPersonnel, PersonnelChoice } from './accountPersonnelApi'
+import { EmploymentSummary } from '../personnel/EmploymentSummary'
 
 /** Account-bound self-service data; only the server can enable association edits. */
 export function AccountPersonnelSection({ token, username, viewer, disabled = false, embedded = false }: { token: string; username: string; viewer: string; disabled?: boolean; embedded?: boolean }) {
@@ -37,10 +38,10 @@ export function AccountPersonnelSection({ token, username, viewer, disabled = fa
             </Box>
             <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>Périodes d’emploi inscrites au registre</Typography>
             {!data.periods.length ? <Typography variant="body2" color="text.secondary">Aucune période renseignée.</Typography> : <Table size="small" sx={{ tableLayout: 'fixed', '& td, & th': { overflowWrap: 'anywhere', px: 1 } }} aria-label="Périodes d’emploi du profil">
-              <TableHead><TableRow><TableCell>Date d’entrée</TableCell><TableCell>Date de sortie</TableCell><TableCell>Contrat</TableCell></TableRow></TableHead>
-              <TableBody>{data.periods.map(period => <TableRow key={period.period_id}><TableCell>{dateLabel(period.entry_date)}</TableCell><TableCell>{dateLabel(period.exit_date)}</TableCell><TableCell>{contractLabel(period)}</TableCell></TableRow>)}</TableBody>
+              <TableHead><TableRow><TableCell>Date d’entrée</TableCell><TableCell>Sortie effective</TableCell><TableCell>Fin prévue du contrat</TableCell><TableCell>Contrat</TableCell></TableRow></TableHead>
+              <TableBody>{data.periods.map(period => <TableRow key={period.period_id}><TableCell>{dateLabel(period.entry_date)}</TableCell><TableCell>{dateLabel(period.actual_exit_date)}</TableCell><TableCell>{dateLabel(period.exit_date)}</TableCell><TableCell>{contractLabel(period)}<EmploymentSummary period={period} /></TableCell></TableRow>)}</TableBody>
             </Table>}
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Ces dates du registre sont indépendantes des contrats utilisés pour les fiches de présence.</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>La sortie effective est renseignée par un administrateur. Elle ne correspond pas automatiquement à la fin prévue du contrat.</Typography>
           </>}
         </>}
   </>

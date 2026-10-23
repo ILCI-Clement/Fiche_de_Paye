@@ -21,7 +21,7 @@ try:
     from .personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
     from .personnel_rules import (
         ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
-        EmploymentStatus, MAX_IDENTIFIER, PeriodMutation, PersonnelType, like_search, paris_today,
+        EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing,
     )
     from .personnel_store import (
         EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
@@ -40,7 +40,7 @@ except ImportError:
     from personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
     from personnel_rules import (
         ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
-        EmploymentStatus, MAX_IDENTIFIER, PeriodMutation, PersonnelType, like_search, paris_today,
+        EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing,
     )
     from personnel_store import (
         EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
@@ -67,7 +67,7 @@ _LATEST_PERIOD_JOIN = '''LEFT JOIN personnel_register_periods p ON p.period_id=(
     WHERE p2.employee_id=e.employee_id ORDER BY p2.entry_date DESC,p2.period_id DESC LIMIT 1)'''
 _STATUS_FILTER = '''CASE WHEN p.entry_date IS NULL THEN 'unknown'
     WHEN p.entry_date>%s THEN 'upcoming'
-    WHEN p.exit_date IS NOT NULL AND p.exit_date<%s THEN 'left'
+    WHEN p.actual_exit_date IS NOT NULL AND p.actual_exit_date<%s THEN 'left'
     ELSE 'employed' END'''
 
 
@@ -457,7 +457,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             values = payload.model_dump(include=set(EMPLOYEE_FIELDS))
             values['linked_username'] = canonical_link(cursor, values['linked_username'])
             placeholders = ','.join(['%s'] * len(EMPLOYEE_FIELDS))
-            cursor.execute(f"INSERT INTO personnel_register ({','.join(EMPLOYEE_FIELDS)}) VALUES ({placeholders})",
+            cursor.execute(f"INSERT INTO personnel_register ({','.join(EMPLOYEE_FIELDS)},registration_schema_version) VALUES ({placeholders},2)",
                            tuple(values[key] for key in EMPLOYEE_FIELDS))
             employee_id = cursor.lastrowid
             if nir_requested and payload.social_security_number is not None:
@@ -467,7 +467,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             if payload.initial_period is not None:
                 period_id = insert_period(cursor, employee_id, payload.initial_period.model_dump())
             if values['linked_username']:
-                sync_account_contracts(cursor, values['linked_username'], actor_username)
+                sync_account_contracts(cursor, values['linked_username'], actor_username, match_legacy_period=False)
                 if payload.initial_period is not None:
                     # First association uses account dates, including an existing period match.
                     cursor.execute('SELECT account_contract_id FROM personnel_register_periods WHERE period_id=%s', (period_id,))
@@ -499,7 +499,19 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
         def change(cursor, actor_username):
             before = editable_detail(cursor, employee_id, payload.expected_version)
             values = payload.model_dump(include=set(EMPLOYEE_FIELDS))
+            # An older client cannot clear structured names it never received.
+            for key in ('first_name', 'last_name'):
+                if key not in payload.model_fields_set:
+                    values[key] = before['employee'][key]
+            if values['first_name'] and values['last_name']:
+                values['full_name'] = f"{values['first_name']} {values['last_name']}"
+                if len(values['full_name']) > 200:
+                    raise HTTPException(400, 'Le nom et les prénoms sont limités à 200 caractères au total.')
             values['linked_username'] = canonical_link(cursor, values['linked_username'], employee_id)
+            if before['employee']['registration_schema_version'] >= 2:
+                missing = registration_missing(values, before['employee']['latest_period'])
+                if missing:
+                    raise HTTPException(400, 'Champs obligatoires : ' + ', '.join(missing) + '.')
             details_changed = any(before['employee'][key] != values[key] for key in EMPLOYEE_FIELDS)
             nir_requested = 'social_security_number' in payload.model_fields_set
             if nir_requested:
@@ -555,6 +567,8 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                    actor=Depends(get_current_user)):
         def change(cursor, actor_username):
             before = editable_detail(cursor, employee_id, payload.expected_version)
+            if payload.entry_date is None:
+                raise HTTPException(400, 'Renseignez la date d’entrée de la nouvelle période.')
             period_id = insert_period(cursor, employee_id, payload.model_dump(include=set(PERIOD_FIELDS)))
             sync_register_period(cursor, employee_id, period_id)
             touch_employee(cursor, employee_id)
@@ -572,13 +586,21 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             if not period:
                 raise HTTPException(404, 'Période d’emploi introuvable pour cette personne.')
             values = payload.model_dump(include=set(PERIOD_FIELDS))
+            try:
+                values = PeriodInput(**{key: values[key] if key in payload.model_fields_set else period[key]
+                                        for key in PERIOD_FIELDS}).storage_values()
+            except ValueError:
+                raise HTTPException(400, 'Vérifiez les dates et les champs obligatoires des situations particulières.') from None
+            if before['employee']['registration_schema_version'] >= 2 and values['entry_date'] is None:
+                raise HTTPException(400, 'La date d’entrée est obligatoire.')
             if any(period[key] != values[key] for key in PERIOD_FIELDS):
                 assignments = ','.join(f'{key}=%s' for key in PERIOD_FIELDS)
                 cursor.execute(
                     f'UPDATE personnel_register_periods SET {assignments} WHERE employee_id=%s AND period_id=%s',
                     (*(values[key] for key in PERIOD_FIELDS), employee_id, period_id),
                 )
-                sync_register_period(cursor, employee_id, period_id)
+                if any(period[key] != values[key] for key in ('entry_date', 'exit_date', 'contract_type')):
+                    sync_register_period(cursor, employee_id, period_id)
                 touch_employee(cursor, employee_id)
                 after = detail_or_404(cursor, employee_id)
                 append_personnel_event(cursor, employee_id, actor_username, 'period_updated', before, after)

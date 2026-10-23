@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, Typography } from '@mui/material'
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
 import { useQuery } from '@tanstack/react-query'
-import { dateLabel, personnelApi, typeLabel, contractLabel } from './api'
+import { dateLabel, personnelApi, typeLabel, contractLabel, youthContractLabel } from './api'
 import type { PersonnelType, RegistryEvent, RegistrySnapshot } from './api'
 import { useRegistryViewer } from './context'
 import { personDisplayName } from '../personDisplayName'
 
-const labels: Record<string, string> = { full_name: 'Nom et prénoms', nationality: 'Nationalité', sex: 'Sexe', address: 'Adresse', birth_date: 'Date de naissance', job_title: 'Emploi', qualification: 'Qualification', personnel_type: 'Type de personnel', linked_username: 'Compte associé', is_archived: 'Archivage', has_social_security_number: 'N° de sécurité sociale · présence' }
+const labels: Record<string, string> = { full_name: 'Nom et prénoms', last_name: 'Nom', first_name: 'Prénoms', nationality: 'Nationalité', sex: 'Sexe', address: 'Adresse', birth_date: 'Date de naissance', job_title: 'Emploi', qualification: 'Qualification', personnel_type: 'Type de personnel', linked_username: 'Compte associé', is_archived: 'Archivage', has_social_security_number: 'N° de sécurité sociale · présence' }
 const actions: Record<string, string> = { contract_dates_synced: 'Synchronisation des dates du contrat', excel_exported: 'Export Excel du registre', registered: 'Inscription au registre', details_updated: 'Correction des informations', account_renamed: 'Renommage du compte associé', account_linked: 'Association à un compte', account_unlinked: 'Dissociation du compte', archived: 'Archivage', restored: 'Restauration', period_added: 'Ajout d’une période d’emploi', period_updated: 'Correction d’une période d’emploi', social_security_number_changed: 'Modification du numéro de sécurité sociale', social_security_number_viewed: 'Consultation du numéro de sécurité sociale' }
 function snapshot(value: RegistrySnapshot | null) {
   const fields = new Map<string, { label: string; value: string; comparison?: string }>()
@@ -21,8 +21,17 @@ function snapshot(value: RegistrySnapshot | null) {
   for (const period of value.periods || []) {
     const title = `Période #${period.period_id}`
     fields.set(`period.${period.period_id}.entry`, { label: `${title} · Date d’entrée`, value: dateLabel(period.entry_date) })
-    fields.set(`period.${period.period_id}.exit`, { label: `${title} · Date de sortie`, value: dateLabel(period.exit_date) })
+    fields.set(`period.${period.period_id}.exit`, { label: `${title} · Fin prévue du contrat`, value: dateLabel(period.exit_date) })
+    fields.set(`period.${period.period_id}.actualExit`, { label: `${title} · Date de sortie effective`, value: dateLabel(period.actual_exit_date) })
     fields.set(`period.${period.period_id}.contract`, { label: `${title} · Contrat`, value: contractLabel(period) })
+    for (const [key, label] of Object.entries({ is_foreign_worker: 'Travailleur étranger', work_permit_type: 'Type du document', work_permit_number: 'N° du document',
+      is_temporary_worker: 'Travailleur temporaire', temporary_company_name: 'Entreprise de travail temporaire', temporary_company_address: 'Adresse de l’entreprise',
+      is_young_worker: 'Jeune travailleur / Apprenti', youth_contract_type: 'Contrat spécifique' })) {
+      const raw = period[key as keyof typeof period]
+      if (raw === undefined) continue
+      const text = key === 'youth_contract_type' ? youthContractLabel(period.youth_contract_type) : key.startsWith('is_') ? raw ? 'Oui' : 'Non' : String(raw ?? '')
+      fields.set(`period.${period.period_id}.${key}`, { label: `${title} · ${label}`, value: text })
+    }
   }
   return fields
 }
@@ -32,7 +41,7 @@ function changes(event: RegistryEvent) {
     const old = before.get(key), next = after.get(key)
     if ((old?.comparison ?? old?.value) === (next?.comparison ?? next?.value)) return []
     // An initial empty field adds no information to the creation record.
-    if (!event.before && (!next?.value || ['—', 'Non renseigné', 'Non archivé'].includes(next.value))) return []
+    if (!event.before && (!next?.value || ['—', 'Non', 'Non renseigné', 'Non archivé'].includes(next.value))) return []
     return [{ key, label: next?.label || old!.label, before: old?.value || 'Non renseigné', after: next?.value || 'Non renseigné' }]
   })
 }

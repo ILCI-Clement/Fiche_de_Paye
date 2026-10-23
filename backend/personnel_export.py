@@ -29,8 +29,13 @@ def generate_personnel_excel(rows):
         values = [number, row['full_name'], row.get('nationality'),
                   {'F': 'Femme', 'M': 'Homme'}.get(row.get('sex'), ''), row.get('address'),
                   row.get('social_security_number'), row.get('birth_date'), row.get('job_title'),
-                  row.get('qualification'), row.get('entry_date'), row.get('exit_date'),
-                  '', '', contract, '', '', '', '']
+                  row.get('qualification'), row.get('entry_date'), row.get('actual_exit_date'),
+                  row.get('work_permit_type') if row.get('is_foreign_worker') else '',
+                  row.get('work_permit_number') if row.get('is_foreign_worker') else '', contract,
+                  '\n'.join(filter(None, [row.get('temporary_company_name'), row.get('temporary_company_address')])) if row.get('is_temporary_worker') else '',
+                  'Oui' if row.get('is_young_worker') and row.get('youth_contract_type') == 'apprenti' else '',
+                  'Oui' if row.get('is_young_worker') and row.get('youth_contract_type') == 'qualification' else '',
+                  'Oui' if row.get('is_young_worker') and row.get('youth_contract_type') == 'adaptation' else '']
         for column, value in enumerate(values, 1):
             cell = sheet.cell(number + 7, column)
             cell._style = copy(styles[column - 1])

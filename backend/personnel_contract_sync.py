@@ -29,17 +29,18 @@ def detach_contract_links(cursor, employee_id):
                    (employee_id,))
 
 
-def sync_account_contracts(cursor, username, actor_username):
+def sync_account_contracts(cursor, username, actor_username, *, match_legacy_period=True):
     """Account dates win on first association; stable IDs drive subsequent updates.
 
     Match old periods by start date, then only an unambiguous one-to-one remainder.
     Unmatched register history is retained, never guessed away or deleted.
     """
-    cursor.execute('SELECT employee_id FROM personnel_register WHERE linked_username=%s FOR UPDATE', (username,))
+    cursor.execute('SELECT employee_id,registration_schema_version FROM personnel_register WHERE linked_username=%s FOR UPDATE', (username,))
     owner = cursor.fetchone()
     if not owner:
         return
     employee_id = owner['employee_id']
+    match_legacy_period = match_legacy_period and owner['registration_schema_version'] < 2
     before = load_employee_detail(cursor, employee_id)
     cursor.execute('SELECT * FROM personnel_contracts WHERE username=%s ORDER BY start_date,id FOR UPDATE',
                    (username,))
@@ -58,10 +59,12 @@ def sync_account_contracts(cursor, username, actor_username):
             assigned[contract['id']] = period
             free.remove(period)
     remaining = [c for c in contracts if c['id'] not in assigned]
-    if len(remaining) == len(free) == 1:
+    if match_legacy_period and len(remaining) == len(free) == 1:
         assigned[remaining[0]['id']] = free[0]
     for contract in contracts:
         period = assigned.get(contract['id'])
+        if period and period.get('actual_exit_date') and contract['start_date'] > period['actual_exit_date']:
+            raise HTTPException(409, 'Le début du contrat dépasserait la sortie effective. Vérifiez la période dans le registre.')
         if period is None:
             kind = 'CDI' if contract['is_cdi'] else 'stage' if contract['employee_type'] == 'stagiaire' else ''
             period_id = insert_period(cursor, employee_id, {
@@ -101,12 +104,18 @@ def sync_register_period(cursor, employee_id, period_id):
         if contract['is_archived']:
             raise HTTPException(409, 'Restaurez le contrat dans Administration avant de modifier ses dates.')
         kind, cdi = contract['employee_type'], bool(contract['is_cdi'])
+        if period['contract_type'] and (period['contract_type'] == 'CDI') != cdi:
+            raise HTTPException(400, 'Le type CDI se modifie dans Administration pour le contrat associé.')
     else:
         cursor.execute('SELECT employee_type FROM users WHERE username=%s', (username,))
         account = cursor.fetchone()
         kind = account['employee_type'] or 'salarie'
         cdi = period['contract_type'] == 'CDI'
     start, end = period['entry_date'], period['exit_date']
+    # Registering a person does not require inventing a fixed-term account contract.
+    # This episode stays independent until its planned contract dates are complete.
+    if contract_id is None and (start is None or (end is None and not cdi)):
+        return
     if start is None or (end is None and not cdi):
         raise HTTPException(400, 'Pour synchroniser le compte, renseignez le début et la fin du contrat (sauf CDI).')
     if cdi and end is not None:

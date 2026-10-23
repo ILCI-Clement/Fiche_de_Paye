@@ -4,17 +4,17 @@ import re
 from datetime import date, datetime, timezone
 
 try:
-    from .personnel_rules import employment_status
+    from .personnel_rules import PeriodInput, employment_status, registration_missing
 except ImportError:
-    from personnel_rules import employment_status
+    from personnel_rules import PeriodInput, employment_status, registration_missing
 
 
 EMPLOYEE_FIELDS = (
-    'full_name', 'nationality', 'sex', 'address', 'birth_date',
+    'full_name', 'last_name', 'first_name', 'nationality', 'sex', 'address', 'birth_date',
     'job_title', 'qualification', 'personnel_type', 'linked_username',
 )
-PERIOD_FIELDS = ('entry_date', 'exit_date', 'contract_type', 'other_contract')
-EMPLOYEE_COLUMNS = ('employee_id', *EMPLOYEE_FIELDS, 'is_archived', 'version', 'created_at', 'updated_at',
+PERIOD_FIELDS = tuple(PeriodInput.model_fields)
+EMPLOYEE_COLUMNS = ('employee_id', *EMPLOYEE_FIELDS, 'registration_schema_version', 'is_archived', 'version', 'created_at', 'updated_at',
                     'has_social_security_number')
 PERIOD_COLUMNS = ('period_id', 'employee_id', *PERIOD_FIELDS, 'account_contract_id', 'created_at', 'updated_at')
 # Known dates take precedence; ties and entirely undated history use registration order.
@@ -42,13 +42,15 @@ def utc_timestamp(value):
 
 def period_record(row):
     value = dict(row)
+    for key in ('is_foreign_worker', 'is_temporary_worker', 'is_young_worker'):
+        value[key] = bool(value.get(key))
     for key in ('created_at', 'updated_at'):
         value[key] = utc_timestamp(value[key])
     return value
 
 
 def ensure_personnel_schema(cursor):
-    """Only add empty tables; never import existing users into official employee records."""
+    """Add tables/columns without rewriting historical identities or contract dates."""
     # Match the legacy username's case/accent semantics for both the join and unique key.
     # These identifiers come from MySQL metadata, never from the request body.
     cursor.execute('''SELECT CHARACTER_SET_NAME AS charset_name,COLLATION_NAME AS collation_name
@@ -111,6 +113,27 @@ def ensure_personnel_schema(cursor):
         CONSTRAINT personnel_event_owner FOREIGN KEY (employee_id)
             REFERENCES personnel_register (employee_id) ON DELETE RESTRICT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4''')
+    # Additive migration: do not split historical names or relabel contract ends as departures.
+    for table, columns in (
+        ('personnel_register', {'last_name': "VARCHAR(100) NOT NULL DEFAULT ''",
+                                'first_name': "VARCHAR(100) NOT NULL DEFAULT ''",
+                                'registration_schema_version': 'SMALLINT NOT NULL DEFAULT 1'}),
+        ('personnel_register_periods', {
+            'actual_exit_date': 'DATE NULL',
+            'is_foreign_worker': 'TINYINT(1) NOT NULL DEFAULT 0',
+            'work_permit_type': "VARCHAR(200) NOT NULL DEFAULT ''",
+            'work_permit_number': "VARCHAR(200) NOT NULL DEFAULT ''",
+            'is_temporary_worker': 'TINYINT(1) NOT NULL DEFAULT 0',
+            'temporary_company_name': "VARCHAR(200) NOT NULL DEFAULT ''",
+            'temporary_company_address': "VARCHAR(1000) NOT NULL DEFAULT ''",
+            'is_young_worker': 'TINYINT(1) NOT NULL DEFAULT 0',
+            'youth_contract_type': "VARCHAR(30) NOT NULL DEFAULT ''",
+        }),
+    ):
+        for column, definition in columns.items():
+            cursor.execute(f"SHOW COLUMNS FROM {table} LIKE '{column}'")
+            if not cursor.fetchone():
+                cursor.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
 
 
 def employee_record(row, latest_period=None):
@@ -122,6 +145,7 @@ def employee_record(row, latest_period=None):
         value[key] = utc_timestamp(value[key])
     value['latest_period'] = latest_period
     value['status'] = employment_status(latest_period)
+    value['missing_fields'] = registration_missing(value, latest_period)
     return value
 
 
@@ -193,9 +217,10 @@ def delete_personnel_records(cursor, employee_id):
 
 
 def insert_period(cursor, employee_id, values):
+    values = PeriodInput(**values).storage_values()
     cursor.execute(
         f"INSERT INTO personnel_register_periods (employee_id,{','.join(PERIOD_FIELDS)}) "
-        'VALUES (%s,%s,%s,%s,%s)',
+        f"VALUES ({','.join(['%s'] * (len(PERIOD_FIELDS) + 1))})",
         (employee_id, *(values[key] for key in PERIOD_FIELDS)),
     )
     return cursor.lastrowid

@@ -26,7 +26,7 @@
 | 签署与批量结果 | `attendance/SignaturePreview.tsx`、`components/BatchExportResult.tsx`；下载和签署独立，异常提交不自动重发 |
 | 已签文件 | `attendance/SignedFichesPanel.tsx`、`signedFichesApi.ts`；考勤顶部 Signatures 页签与个人 Profile 月度列表；每页 20 项、共用 DocumentPreview、管理员月度 ZIP；正式版仅显示正式文件，本地保留生产/SPECIMEN 切换 |
 | Documents | `documents/DocumentsPage.tsx` 每页 20 条、跨页勾选；`DocumentsToolbar.tsx`；`DocumentUpload.tsx` 上传弹窗；`DocumentRow.tsx` 紧凑横条及操作；`documentSearch.ts` 搜索；`DocumentPreview.tsx` / `PdfPreview.tsx` 私有预览 |
-| 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`SensitiveNumber.tsx` 共用表格行内、详情及输入框的受控短时查看；`PersonnelExport.tsx` 管理员 Excel 导出确认 |
+| 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`personnelValidation.ts` 注册必填及期间校验；`EmploymentFields.tsx` / `ContractFields.tsx` / `SpecialEmploymentFields.tsx` 任职与三类特殊身份；`RegistrationContract.tsx` 显式合同预填，`EmploymentSummary.tsx` 只读情况；`SensitiveNumber.tsx` 受控短时查看；`PersonnelExport.tsx` Excel 导出确认 |
 | Administration | `admin/AdminPage.tsx`；`UserEditor.tsx`、`OrganizationFields.tsx`、`ContractEditor.tsx`、`GroupEditor.tsx`；`CreateAccount.tsx` 建号弹窗；`AccountAccess.tsx` 登录状态；`AdvancedMaintenance.tsx` 资源维护 |
 | 人员选择和姓名 | `personDisplayName.ts`；`admin/AccountOption.tsx` / `accountOptionLayout.ts` 分列显示；`components/DepartmentBadge.tsx` / `departmentColor.ts` 部门标签和颜色 |
 | Mon équipe / 月度 Profile | `team/TeamPage.tsx`、`OrganizationCards.tsx`、`PersonProfile.tsx`；名单/架构页签，月度考勤、文件、请假和签署发送回执 |
@@ -35,6 +35,8 @@
 | 共用请求、日期、登录 | `api.ts`、`download.ts`、`components/FrenchDateField.tsx` / `components/CalendarMonthHeader.tsx`、`authSession.ts`、`components/PasswordRecovery.tsx`、`capabilities.ts` |
 
 页面说明放在顶部标题 Tooltip 中。常规提示与操作使用主题蓝色，错误/删除保留语义红色。页签切换保留表单输入；个人设置只在账号页签显示保存操作。
+
+名册 Informations 页直接展示最新任职段的外籍、临时工、青年/学徒情况，并可打开 `EmploymentEditor.tsx` 的 situationsOnly 模式编辑；无任职段时引导填写首段，有多段时可进入完整期间页。人员类型、职位、资格仍由基本资料编辑器维护，期间身份保存复用原版本检查和审计接口。
 
 ## 后端定位
 
@@ -52,7 +54,7 @@
 | `personnel_export.py` | 按 `template/Exemple-de-modele-de-registre-unique-du-personnel.xlsx` 生成 Excel；复用名册筛选、全部分页、每段任职一行；`POST /personnel-register/export.xlsx` 仅有效管理员并要求敏感导出确认，包含 NIR 明文且先提交逐人审计，不在服务器保存文件 |
 | `attendance_api.py` / `attendance_revision.py` | `/attendance/workspace`、`/save`、`/open/{username}`、`/calendar/{id}`、`/export`；事务内校验配置版本 |
 | `attendance_permissions.py` | 保存字段与历史 ID 核对；Admin 归档，SuperAdmin 明确确认后才可删除 |
-| `contract_history.py` / `personnel_contract_sync.py` | 合同期间、重叠校验、归档/恢复；`/users/{username}/contracts*`；关联名册与合同按稳定 ID 双向同步日期，首次以账户为准；被考勤或名册引用的合同不可删除 |
+| `contract_history.py` / `personnel_contract_sync.py` | 合同期间、重叠校验、归档/恢复；`/users/{username}/contracts*`；关联名册按稳定 ID 同步入职与合同预计结束日期，实际离职独立（本地新版）；被考勤或名册引用的合同不可删除 |
 | `documents.py` / `document_numbers.py` | `/transport-receipts*` 上传、搜索数据、下载、ZIP、改月、归档和受控删除；按巴黎上传日分配 `YYYYMMDD-0001`，删除不回收编号 |
 | `esign.py` / `signature_flow.py` / `signature_placement.py` | PDF 转换、当前直接负责人解析、双签顺序和签名定位；`/fiches/pdf`、`/send-fiche`、`/esign/documents/{token}` |
 | `attendance_signatures.py` / `signature_attempts.py` / `server_signing_readiness.py` | React 预检/发送、幂等回执、配置就绪检查；`/attendance/signature-preview`、`/signature-send` |
@@ -82,7 +84,8 @@
 
 - `users` 保存账户/角色/会话版本；`personnel_register*` 独立保存员工资料、任职期间与审计。一对一关联使用唯一 `linked_username`，不从账号自动生成正式员工档案。
 - `Presence.form_content` 保存绑定月份、合同快照和日历。历史表不因当前合同变化丢失；新建须有有效合同，已归档记录须先恢复。
-- `personnel_contracts` 是考勤合同历史，员工名册通过稳定的 `account_contract_id` 双向同步对应任职日期。
+- `personnel_contracts` 是考勤合同历史，员工名册通过稳定的 `account_contract_id` 同步入职与预计结束日期；本地新版的 `actual_exit_date` 独立维护，状态与 Excel Sortie 列使用实际离职。旧 `exit_date` 原值保留、不自动推断实际离职。
+- 本地登记规则更新：新员工的姓、名、国籍、性别、出生日期、地址、职位、资格、人员类型、初始入职日期必填。`registration_schema_version=2` 的新档案后续编辑也不能清空必填项；旧档案维持版本 1，可逐步补全、不拆分旧姓名。三类特殊身份按任职期间保存，勾选后后端强制校验对应字段；仅增列迁移，尚未部署。
 - `transport_receipts` 保存元数据；文件留在私有目录，下载须鉴权。ZIP 最多 100 份、100 MiB，失败不返回部分归档。
 - `leave_requests` / `leave_events` 保存申请和操作历史；不自动联动考勤、余额或邮件。
 - SuperAdmin 继承 Admin；Admin 可查看、新建、修改、归档/恢复，永久删除仅 SuperAdmin，且须满足归档/停用、精确确认和依赖检查。权限最终由后端执行。
