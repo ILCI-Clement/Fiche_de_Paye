@@ -1,13 +1,10 @@
-"""Read-only directory authorization and UI regression, with no production writes."""
+"""Read-only directory authorization and model regression, with no production writes."""
 import unittest
 from unittest.mock import MagicMock, patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from streamlit.testing.v1 import AppTest
 from backend.team_directory import register_team_directory, directory_people, team_members
 from organization_model import build_organization, person_label
-from organization_cards import organization_html
-from team_ui import department_rows
 
 GROUPS = [{'id': 1, 'name': 'Groupe Direction Générale', 'is_active': True},
           {'id': 2, 'name': 'RH', 'is_active': True}]
@@ -96,14 +93,6 @@ class DirectoryModelTests(unittest.TestCase):
         self.assertGreaterEqual(len(model['issues']), 2)
         self.assertEqual(users[-1]['group_ids'], [1, 2])
 
-    def test_html_escapes_names_and_uses_responsive_static_cards(self):
-        model = build_organization(USERS, GROUPS)
-        model['departments'][0]['members'] = ['<script>alert(1)</script>']
-        html = organization_html(model)
-        self.assertNotIn('<script>', html)
-        self.assertIn('&lt;script&gt;', html)
-        self.assertIn('@container (max-width:480px)', html)
-        self.assertNotIn('<svg', html)
 
     def test_private_fields_discarded_and_memberships_deduplicated(self):
         rows = [{'username': 'a', 'email': 'a@example.test', 'password': 'private'}]
@@ -113,47 +102,6 @@ class DirectoryModelTests(unittest.TestCase):
         self.assertNotIn('password', projected[0])
         members = team_members([dict(rows[0], group_id=2, relation='member')] * 2)
         self.assertEqual(len(members), 1)
-
-    def test_leader_department_shown_in_team_table(self):
-        rows = department_rows({'groups': GROUPS, 'members': [
-            {'name': 'Lead', 'group_ids': [], 'managed_group_ids': [2]}]})
-        self.assertEqual(rows[0]['Département'], 'RH')
-
-
-class PeoplePageTests(unittest.TestCase):
-    def page(self, role, *, organization_failure=False):
-        responses = {
-            'organization-directory': None if organization_failure else {'groups': GROUPS, 'users': USERS},
-            'my-team': {'groups': [GROUPS[1]], 'members': [
-                {'name': 'Alice', 'group_ids': [2], 'managed_group_ids': []}]},
-            'list-users': {'users': [{'username': 'employee', 'email': 'a@example.test', 'role': 'Employe', 'group_ids': [2]}]},
-            'groups': {'groups': GROUPS},
-        }
-        app = AppTest.from_file('pages/People.py')
-        app.session_state['user'] = {'username': 'employee', 'role_tags': [role]}
-        with patch('team_api.fetch_directory', side_effect=lambda path: responses[path]) as fetch, \
-                patch('streamlit.page_link'):
-            app.run()
-        self.assertFalse(app.exception)
-        return app, [call.args[0] for call in fetch.call_args_list]
-
-    def test_employee_sees_own_list_without_personnel_request(self):
-        app, paths = self.page('Employe')
-        self.assertEqual(paths, ['organization-directory', 'my-team'])
-        self.assertEqual(app.dataframe[0].value.iloc[0]['Nom'], 'Alice')
-        self.assertFalse(app.expander[0].proto.expanded)
-        self.assertEqual(len(app.segmented_control), 0)
-
-    def test_admin_and_manager_retain_existing_scope(self):
-        for role in ['Admin', 'Responsable']:
-            app, paths = self.page(role)
-            self.assertEqual(paths, ['organization-directory', 'list-users', 'groups'])
-            self.assertIn('Utilisateur', app.dataframe[0].value.columns)
-
-    def test_directory_unavailable_does_not_fabricate_chart(self):
-        app, paths = self.page('Employe', organization_failure=True)
-        self.assertEqual(len(app.expander), 0)
-        self.assertEqual(len(app.dataframe), 1)
 
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@ import CloseRounded from '@mui/icons-material/CloseRounded'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DeleteAction } from '../components/DeleteAction'
 import { PermanentDeleteDialog } from '../components/PermanentDeleteDialog'
-import { contractLabel, dateLabel, personnelApi, statusLabels, typeLabel } from './api'
+import { contractLabel, dateLabel, personnelApi, statusLabels } from './api'
 import type { Employee, EmploymentPeriod } from './api'
 import { PersonnelEditor } from './PersonnelEditor'
 import { EmploymentEditor } from './EmploymentEditor'
@@ -17,7 +17,7 @@ import { PersonnelHistory } from './PersonnelHistory'
 import { ArchiveConfirmation } from './ArchiveConfirmation'
 import { useRegistryViewer } from './context'
 import { SensitiveNumber } from './SensitiveNumber'
-import { EmploymentSummary } from './EmploymentSummary'
+import { EmploymentSummary, PersonnelInformation } from './PersonnelInformation'
 
 export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete = false }: { token: string; employeeId: number; onClose: () => void; onSaved: (message: string) => void; canDelete?: boolean }) {
   const viewer = useRegistryViewer()
@@ -32,12 +32,6 @@ export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete
   const employee = detail.data?.employee
   const latestPeriod = detail.data?.periods[0]
   const inEditor = !!editing || !!employment || !!archiving || !!deleting
-  const rows: [string, string | null | undefined][] = employee ? [
-    ['Nom et prénoms', employee.full_name], ['Nom', employee.last_name], ['Prénoms', employee.first_name], ['Type de personnel', typeLabel(employee.personnel_type)],
-    ['Nationalité', employee.nationality], ['Sexe', employee.sex === 'F' ? 'Femme' : employee.sex === 'M' ? 'Homme' : ''],
-    ['Date de naissance', dateLabel(employee.birth_date)], ['Adresse', employee.address], ['Emploi', employee.job_title],
-    ['Qualification', employee.qualification], ['Compte associé', employee.linked_username ? personDisplayName({ display_name: employee.linked_display_name }) : 'Aucun compte associé'],
-  ] : []
   return <>
     <Dialog open={!inEditor} fullScreen onClose={onClose} aria-labelledby="personnel-detail-title"
       slotProps={{ paper: { sx: {
@@ -85,10 +79,9 @@ export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete
                 <EmploymentSummary period={latestPeriod} />
               </>}
             </Box>
-            <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2.5 }}>
-              {rows.map(([label, value]) => <Box component="div" key={label} sx={label === 'Adresse' ? { gridColumn: '1 / -1' } : undefined}><Typography component="dt" variant="caption" color="text.secondary">{label}</Typography><Typography component="dd" variant="body2" sx={{ m: 0, mt: .5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{value || 'Non renseigné'}</Typography></Box>)}
+            <PersonnelInformation employee={employee} structuredNames accountName={employee.linked_username ? personDisplayName({ display_name: employee.linked_display_name }) : 'Aucun compte associé'}>
               <Box component="div"><Typography component="dt" variant="caption" color="text.secondary">N° de sécurité sociale</Typography><Box component="dd" sx={{ m: 0, mt: .5 }}>{!inEditor && <SensitiveNumber key={`${employee.employee_id}-${employee.version}`} token={token} employeeId={employee.employee_id} hasNumber={!!employee.has_social_security_number} />}</Box></Box>
-            </Box>
+            </PersonnelInformation>
           </Box>}
           {tab === 'periods' && <Box role="tabpanel" id={`${tabsId}-periods-panel`} aria-labelledby={`${tabsId}-periods-tab`}>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}><Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>Les périodes précédentes sont conservées lors d’une nouvelle entrée. Une correction reste visible dans l’historique.</Typography><Button variant="outlined" startIcon={<AddRounded />} onClick={() => setEmployment({ employee: { ...employee } })}>Ajouter une période</Button></Box>

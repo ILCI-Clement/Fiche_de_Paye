@@ -1,0 +1,33 @@
+{
+  "tag": "archive/streamlit-20261023",
+  "commit": "de055e88d769cd4ad0a01ff51fa05fe07d4e3ef4",
+  "archive": "source.zip",
+  "sha256": "f8f5e98ac202ae05f758e865c8ee78e48c99644e63327e15aca5d112b3327c74",
+  "bytes": 591064,
+  "removed_files": {
+    "online_test.py": "f96ccf0ed20c4d6a7cf14eef2108f96549126f6d82978c2ee5f4a1bcac51ccca",
+    "access_control.py": "6e32d575b328a14a90cbcbf9c160c2718dc4a2beff347d908e075f61865d4d71",
+    "api_client.py": "00eae1ac3edd3c30e2470d1ae7c466687ff8f1a9291b9d893aa1cbe15d5a6542",
+    "contract_ui.py": "67ad4c1f060879662fe2992357573a100e5792c321c1ad74af1e4ebf72dd4078",
+    "document_ui.py": "4e4dfd36e7b02357fbd1616a07e44c0294973f395a18c601bea092646ef48892",
+    "fiche_batch_ui.py": "a9e68a202d41690671a4cd2fe204c01faa38afd6970b3cbf2a21e4d07d3abbcf",
+    "organization_cards.py": "645cfa9ab3f61120215a3246a6fb34a22fd0a751b076e1dff21e114967748770",
+    "organization_ui.py": "14a874af36b2b9f3dfa45c808e7dfb701023ff2788abd46ab7d24c3e9890c073",
+    "period_selector.py": "32767ecf5ec38c1f838e21fc120b09355773fc3f609e5dfc4fddd4dfcc945974",
+    "remember_me.py": "86d2970d50ef4413392bc4aa2e3569a91ec9db43206a3e23c14a636e5128f7ad",
+    "team_api.py": "62a5eac73291c6c01571ee908bf1a1d0f60ffc7e5b0b9e5e6b5492a6a3c1c312",
+    "team_ui.py": "6f59972f6f2cdfe3f4f96ce70eb0701ab53d5242ce6544798dd4fdd8ebaad87f",
+    "pdf_export.py": "f391e9541a9ee02aae44444617aa1cefa04737114c688a6018b3438faf73d1e0",
+    "calendar_selector_component/index.html": "8b9ec0b81a31346b2c1fd3a82161bc4a47890746d4bd6d46da25834e2bfbd605",
+    "test_access_control.py": "b407b73cb7493c93767ff9256e5d8da0cb1cd16513d8dfcb2704bebd73f48215",
+    "test_documents_page.py": "ff4ffa6b88b6703fbac0ac5bb1618e76e4d736c6f253492cfb7cb23ac45e687d",
+    "pages/Admin.py": "961028652854343f91f3e83d6dfa7937b54135c3c2fb5cd4f5e23d701a525072",
+    "pages/Dashboard.py": "af5f335fbfe78aadc63c4adca82fc25b0e2dcefa0cadd36424a051acd08ad7fe",
+    "pages/Fiches.py": "263efbec012195a06e96f521c85debb376281654aa81107ad9b82e9f417c620b",
+    "pages/Login.py": "fbb92ae7ee1866912b9528b734e143a2cd615affe654d308b1f912d05acd0bd7",
+    "pages/People.py": "a13e471c2170f006eaae4d98451e959b2792a1a8069ec5e251cd02612e4b95ec",
+    "pages/Profile.py": "7f11b92099f454a0eed0f711f28e909aadf066a593a83285271146ee87a3a7d1",
+    "pages/TransportReceipts.py": "97c26154fe86ce3cc5c5a2a039ec3f7384e3a9d6767d231c8ae45674da47ca8f"
+  },
+  "calendar_original_sha256": "9de8c0d794a07db1df445732515d6944adf68c06dd1738ad79a248af38d806c9"
+}

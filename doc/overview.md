@@ -1,5 +1,7 @@
 # Fiches de présence
 
+> 历史记录：文中的 Streamlit 路径已于 2026-10-23 分离至[源码备案](../archive/streamlit/README.md)。当前程序定位以[模块索引](modules.md)为准。
+
 ## Objectif
 
 Cette application Streamlit permet de préparer des fiches mensuelles de présence pour des salariés et des stagiaires. Elle propose un calendrier par demi-journée, l'export des documents et une administration des comptes. L'interface est en français; le code et les identifiants techniques sont en anglais.

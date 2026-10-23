@@ -3,11 +3,10 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import { useDraftGuard } from '../draftGuard'
 import { blankPeriod, dateLabel, personnelApi } from './api'
 import type { Employee, EmploymentPeriod } from './api'
-import { EmploymentFields } from './EmploymentFields'
+import { EmploymentFields, SpecialEmploymentFields } from './EmploymentFields'
 import { WriteError } from './WriteError'
 import { useRegistryAction } from './useRegistryAction'
 import { validateEmployment } from './personnelValidation'
-import { SpecialEmploymentFields } from './SpecialEmploymentFields'
 
 export function EmploymentEditor({ token, employee, period, situationsOnly = false, onClose, onSaved }: { token: string; employee: Employee; period?: EmploymentPeriod; situationsOnly?: boolean; onClose: () => void; onSaved: (message: string) => void }) {
   const [version] = useState(employee.version)

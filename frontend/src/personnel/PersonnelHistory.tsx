@@ -6,8 +6,9 @@ import { dateLabel, personnelApi, typeLabel, contractLabel, youthContractLabel }
 import type { PersonnelType, RegistryEvent, RegistrySnapshot } from './api'
 import { useRegistryViewer } from './context'
 import { personDisplayName } from '../personDisplayName'
+import { personnelFieldLabels } from './personnelValidation'
 
-const labels: Record<string, string> = { full_name: 'Nom et prénoms', last_name: 'Nom', first_name: 'Prénoms', nationality: 'Nationalité', sex: 'Sexe', address: 'Adresse', birth_date: 'Date de naissance', job_title: 'Emploi', qualification: 'Qualification', personnel_type: 'Type de personnel', linked_username: 'Compte associé', is_archived: 'Archivage', has_social_security_number: 'N° de sécurité sociale · présence' }
+const labels: Record<string, string> = { ...personnelFieldLabels, linked_username: 'Compte associé', is_archived: 'Archivage', has_social_security_number: 'N° de sécurité sociale · présence' }
 const actions: Record<string, string> = { contract_dates_synced: 'Synchronisation des dates du contrat', excel_exported: 'Export Excel du registre', registered: 'Inscription au registre', details_updated: 'Correction des informations', account_renamed: 'Renommage du compte associé', account_linked: 'Association à un compte', account_unlinked: 'Dissociation du compte', archived: 'Archivage', restored: 'Restauration', period_added: 'Ajout d’une période d’emploi', period_updated: 'Correction d’une période d’emploi', social_security_number_changed: 'Modification du numéro de sécurité sociale', social_security_number_viewed: 'Consultation du numéro de sécurité sociale' }
 function snapshot(value: RegistrySnapshot | null) {
   const fields = new Map<string, { label: string; value: string; comparison?: string }>()

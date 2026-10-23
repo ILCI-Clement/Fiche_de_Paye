@@ -11,7 +11,7 @@
 - Documents：`frontend/src/documents/`、`backend/documents.py`、`backend/document_numbers.py`；ZIP 共用工具：`document_downloads.py`。
 - PDF 与签署：`pdf_export.py`、`backend/esign.py`、`backend/signature_flow.py`、`backend/signature_placement.py`。
 - 人员、组织、认证、数据库迁移、提醒：`backend/main.py`；前端对应页面见模块索引。
-- React 请求：`frontend/src/api.ts`；后端考勤权限：`backend/attendance_permissions.py`。旧版 Streamlit 回退入口 `online_test.py` / `pages/` 保留，只有维护回退版本时才读。
+- React 请求：`frontend/src/api.ts`；后端考勤权限：`backend/attendance_permissions.py`。旧版 Streamlit 已分离至 `archive/streamlit/` 的源码包和 Git 标签；只有需要恢复查阅时才按备案 README 解压，不在活动目录重新引入旧入口。
 
 ## 维护约束
 

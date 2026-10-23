@@ -1,10 +1,13 @@
 import type { EmploymentInput, PersonnelInput } from './api'
 
+export const personnelFieldLabels = {
+  full_name: 'Nom et prénoms', last_name: 'Nom', first_name: 'Prénoms', personnel_type: 'Type de personnel',
+  nationality: 'Nationalité', sex: 'Sexe', birth_date: 'Date de naissance', address: 'Adresse', job_title: 'Emploi', qualification: 'Qualification',
+}
+
 export function missingRegistrationFields(value: PersonnelInput, period: EmploymentInput) {
-  const fields: [keyof PersonnelInput, string][] = [['last_name', 'Nom'], ['first_name', 'Prénoms'], ['nationality', 'Nationalité'],
-    ['sex', 'Sexe'], ['birth_date', 'Date de naissance'], ['address', 'Adresse'], ['job_title', 'Emploi'],
-    ['qualification', 'Qualification'], ['personnel_type', 'Type de personnel']]
-  const missing = fields.filter(([key]) => !value[key]?.trim()).map(([, label]) => label)
+  const keys = Object.keys(personnelFieldLabels) as (keyof typeof personnelFieldLabels)[]
+  const missing = keys.filter(key => key !== 'full_name' && !value[key]?.trim()).map(key => personnelFieldLabels[key])
   if (!period.entry_date) missing.push('Date d’entrée')
   return missing
 }

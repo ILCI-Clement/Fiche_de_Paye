@@ -4,12 +4,12 @@ import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
 import LinkOutlined from '@mui/icons-material/LinkOutlined'
 import { useDraftGuard } from '../draftGuard'
-import { contractLabel, dateLabel, typeLabel } from '../personnel/api'
+import { contractLabel, dateLabel } from '../personnel/api'
 import { useRegistryAction } from '../personnel/useRegistryAction'
 import { WriteError } from '../personnel/WriteError'
 import { accountPersonnelApi } from './accountPersonnelApi'
 import type { AccountPersonnel, PersonnelChoice } from './accountPersonnelApi'
-import { EmploymentSummary } from '../personnel/EmploymentSummary'
+import { EmploymentSummary, PersonnelInformation } from '../personnel/PersonnelInformation'
 
 /** Account-bound self-service data; only the server can enable association edits. */
 export function AccountPersonnelSection({ token, username, viewer, disabled = false, embedded = false }: { token: string; username: string; viewer: string; disabled?: boolean; embedded?: boolean }) {
@@ -28,14 +28,7 @@ export function AccountPersonnelSection({ token, username, viewer, disabled = fa
           </Box>
           {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
           {!employee ? <Typography color="text.secondary">Aucune fiche du registre n’est associée à ce compte.{!data.can_manage_link ? ' Contactez un administrateur pour compléter votre profil.' : ''}</Typography> : <>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-              {[
-                ['Nom et prénoms', employee.full_name], ['Type de personnel', typeLabel(employee.personnel_type)],
-                ['Nationalité', employee.nationality], ['Sexe', employee.sex === 'F' ? 'Femme' : employee.sex === 'M' ? 'Homme' : ''],
-                ['Date de naissance', dateLabel(employee.birth_date)], ['Adresse', employee.address],
-                ['Emploi', employee.job_title], ['Qualification', employee.qualification],
-              ].map(([label, value]) => <Box key={label} sx={{ minWidth: 0 }}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="body2" sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>{value || 'Non renseigné'}</Typography></Box>)}
-            </Box>
+            <PersonnelInformation employee={employee} />
             <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>Périodes d’emploi inscrites au registre</Typography>
             {!data.periods.length ? <Typography variant="body2" color="text.secondary">Aucune période renseignée.</Typography> : <Table size="small" sx={{ tableLayout: 'fixed', '& td, & th': { overflowWrap: 'anywhere', px: 1 } }} aria-label="Périodes d’emploi du profil">
               <TableHead><TableRow><TableCell>Date d’entrée</TableCell><TableCell>Sortie effective</TableCell><TableCell>Fin prévue du contrat</TableCell><TableCell>Contrat</TableCell></TableRow></TableHead>

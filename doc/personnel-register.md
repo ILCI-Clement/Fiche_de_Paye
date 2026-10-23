@@ -6,6 +6,8 @@
 
 Informations 页新增“Situations particulières”区，明确显示最新任职段的三项身份及已登记子字段；“Modifier les situations particulières”直接打开对应期间的身份编辑窗口，保存沿用原期间接口的版本/权限/审计规则。有多段任职可进入“所有期间”选择，未登记期间则先创建并填写入职日期。普通人员类型、职位和资格由“Modifier les informations”修改。
 
+本地整理后，字段标签由 `personnelValidation.ts` 共用，资料查看由 `PersonnelInformation.tsx` 同时供完整名册与本人 Profile 使用；NIR 仅在管理员详情显式插入受控组件。合同和三类身份输入集中在 `EmploymentFields.tsx`，仍分别支持完整任职编辑和身份专用编辑；未改变请求、校验或审计流程。
+
 - 新登记必填：`last_name`（姓）、`first_name`（名）、国籍、性别、出生日期、地址、职位、资格、人员类型，以及 `initial_period.entry_date`。社保号、关联账号、合同预计结束、实际离职日期选填；新的任职段也必须有入职日期。姓名显示由已填的名、姓拼接，不从历史姓名猜拆。
 - 通过后端创建的档案持久标记 `registration_schema_version=2`，以后的更正也校验必填项，不能绕过创建后再清空。旧档案增列默认版本 1，仍可逐步更正；DTO `missing_fields` 与列表/详情的“À compléter”提示不阻断业务，也不会自动提升旧档案版本。
 - 三类情况可同时勾选，按任职期间保存。`is_foreign_worker` 要求 `work_permit_type`、`work_permit_number`；`is_temporary_worker` 要求合同类型（Autre 需说明）、`temporary_company_name`、`temporary_company_address`；`is_young_worker` 要求 `youth_contract_type` 为 `apprenti`、`qualification`、`adaptation` 之一，与模板 P/Q/R 对应。取消勾选并保存会清空当前段的不适用子字段，原内容仍留在更正历史。未勾选的字段不导出。

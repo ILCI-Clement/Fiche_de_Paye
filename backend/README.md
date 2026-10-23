@@ -16,6 +16,8 @@ React 入口复用 `main.app`，注册考勤、签署、月度 Profile、员工�
 
 代码定位见 [模块索引](../doc/modules.md)。
 
+旧 Streamlit 界面已从当前源码树分离，备案包与恢复方法见 [`archive/streamlit`](../archive/streamlit/README.md)。当前 Python 安装入口为根目录 `requirements.txt`（含 backend 依赖），不再依赖 Streamlit；保留 API 的 flat 导入和当前权限防护继续维护。线上现存 `presence-interface` 服务及旧部署目录未在这次本地整理中变更，后续发布不得直接将旧服务指向已精简的当前目录。
+
 员工名册 Excel 导出已上线：运行时须同时包含 `personnel_export.py` 与仓库
 `template/Exemple-de-modele-de-registre-unique-du-personnel.xlsx`。仅有效管理员可
 导出，按当前筛选的全部分页、每段任职一行，包含社保号明文并逐人记录审计；
@@ -120,6 +122,7 @@ NIR 原号与密文不进入普通 Profile；专用查看须先提交审计，�
 
 ```powershell
 .venv/Scripts/python.exe -W ignore::DeprecationWarning -m unittest discover -p 'test*.py'
+python -m pip install -r requirements-dev.txt
 npm --prefix frontend test
 npm --prefix frontend run lint -- src test
 npm --prefix frontend run build

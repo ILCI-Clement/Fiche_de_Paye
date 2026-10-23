@@ -9,9 +9,10 @@
 | React 前端 | `frontend/src/main.tsx` → `App.tsx` → `AppWorkspace.tsx` | 本地 5173 |
 | 线上 API | `backend/rebuild_server.py`，复用 `backend/main.py` | `presence-react-api`，8015 |
 | 独立本地 API | `backend/local_rebuild.py` | 8013，独立 MySQL 3307 |
-| 保留版 | `online_test.py` / `pages/`；flat `main:app` | Streamlit 8501 / API 8001 |
+| 保留 API | `backend/main.py` 的 flat 导入布局 | API 8001；仍保留会话和权限保护 |
+| 旧界面备案 | `archive/streamlit/source.zip`、Git 标签 `archive/streamlit-20261023` | 独立解压查阅；线上旧服务另行维护 |
 
-线上使用原数据库及私有文件；本地副本位于被忽略的 `.local-test/rebuild/`，不能作为生产数据发布。当前发布及回退见 [发布索引](rebuild-release-readiness.md)，运行配置见 [后端说明](../backend/README.md)。旧版调用关系见 [架构说明](architecture.md)。
+线上使用原数据库及私有文件；本地副本位于被忽略的 `.local-test/rebuild/`，不能作为生产数据发布。当前发布及回退见 [发布索引](rebuild-release-readiness.md)，运行配置见 [后端说明](../backend/README.md)。当前依赖见 [架构说明](architecture.md)，旧界面恢复见[备案说明](../archive/streamlit/README.md)。
 
 ## 前端定位
 
@@ -26,7 +27,7 @@
 | 签署与批量结果 | `attendance/SignaturePreview.tsx`、`components/BatchExportResult.tsx`；下载和签署独立，异常提交不自动重发 |
 | 已签文件 | `attendance/SignedFichesPanel.tsx`、`signedFichesApi.ts`；考勤顶部 Signatures 页签与个人 Profile 月度列表；每页 20 项、共用 DocumentPreview、管理员月度 ZIP；正式版仅显示正式文件，本地保留生产/SPECIMEN 切换 |
 | Documents | `documents/DocumentsPage.tsx` 每页 20 条、跨页勾选；`DocumentsToolbar.tsx`；`DocumentUpload.tsx` 上传弹窗；`DocumentRow.tsx` 紧凑横条及操作；`documentSearch.ts` 搜索；`DocumentPreview.tsx` / `PdfPreview.tsx` 私有预览 |
-| 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`personnelValidation.ts` 注册必填及期间校验；`EmploymentFields.tsx` / `ContractFields.tsx` / `SpecialEmploymentFields.tsx` 任职与三类特殊身份；`RegistrationContract.tsx` 显式合同预填，`EmploymentSummary.tsx` 只读情况；`SensitiveNumber.tsx` 受控短时查看；`PersonnelExport.tsx` Excel 导出确认 |
+| 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`personnelValidation.ts` 共用字段标签及校验；`EmploymentFields.tsx` 集中合同与三类特殊身份表单；`RegistrationContract.tsx` 显式合同预填；`PersonnelInformation.tsx` 共用名册/个人资料展示及 EmploymentSummary；`SensitiveNumber.tsx` 受控短时查看；`PersonnelExport.tsx` Excel 导出确认 |
 | Administration | `admin/AdminPage.tsx`；`UserEditor.tsx`、`OrganizationFields.tsx`、`ContractEditor.tsx`、`GroupEditor.tsx`；`CreateAccount.tsx` 建号弹窗；`AccountAccess.tsx` 登录状态；`AdvancedMaintenance.tsx` 资源维护 |
 | 人员选择和姓名 | `personDisplayName.ts`；`admin/AccountOption.tsx` / `accountOptionLayout.ts` 分列显示；`components/DepartmentBadge.tsx` / `departmentColor.ts` 部门标签和颜色 |
 | Mon équipe / 月度 Profile | `team/TeamPage.tsx`、`OrganizationCards.tsx`、`PersonProfile.tsx`；名单/架构页签，月度考勤、文件、请假和签署发送回执 |
@@ -72,13 +73,13 @@
 | 需求 | 模块 |
 | --- | --- |
 | 考勤必填校验、命名、文件生成 | `fiche_exports.py`、`fiche_serialization.py` |
-| 默认安排、半天状态、旧日历兼容 | `planning.py`、`calendar_view.py`；旧交互组件 `calendar_selector_component/` |
+| 默认安排、半天状态、旧日历数据兼容 | `planning.py`、`calendar_view.py`；后者仅保留纯规则，旧渲染器与组件在备案源码包中 |
 | 合同快照、月份有效区间和例外 | `contract_periods.py` |
 | Excel / 实习生 Word | `ExcelGen.py` + `Fiche_Exemple.xlsx`；`DocxGen.py` + `template_stagiaire.docx` |
 | ZIP 名称、容量与完整性 | `document_downloads.py` |
 | 组织架构投影 | `organization_model.py` |
 
-旧 UI 和相关共用模块仍用于回退。不能因 React 不显示旧输入区就删除 `vacances`、`absences`、`arret`、`calendar_overrides` 等兼容数据。
+旧 UI 与其专属请求/展示模块已分离备案；考勤、合同、文件生成仍使用根目录共用逻辑。不能因界面迁移就删除 `vacances`、`absences`、`arret`、`calendar_overrides` 等兼容数据。当前运行依赖为根目录 `requirements.txt`，开发依赖为 `requirements-dev.txt`，旧版依赖保留在备案包内。
 
 ## 数据与权限约束
 
@@ -106,4 +107,4 @@
 - 本地快照及启动：[本地重构说明](local-rebuild.md)；`scripts/start_local_rebuild.ps1`。
 - 本地签署入口：`backend/pdf_test_gateway.py` 仅开放限时 PDF 和有大小限制的 `/esign/callback`，回调固定转发至本地 8013、由私有 API 核对随机凭据；不开放其他接口。`scripts/start_pdf_test_tunnel.ps1` 配置两条公网地址并重启本地 API，`stop_pdf_test_tunnel.ps1` 清除并关闭；`restart_local_rebuild.ps1` 只重启本工作区 8013。共用 `local_process.ps1` 核对监听进程与 Windows venv 启动器身份，拒绝停止其他工作区进程。`local_signing_policy.py` 限制指定真实收件人和时效，不部署本地网关/私有配置。
 
-本次清理仅移除无调用的旧级联清理函数、失效导入与转导入；历史实现可从 Git `7ed872e` 查询。
+2026-10-23 旧版分离与名册整理：[整理记录](source-cleanup.md)。备案基线为 `de055e8`，本地名册开发进度在拆分前单独提交 `ff1fc16`；未改变生产部署或业务数据。

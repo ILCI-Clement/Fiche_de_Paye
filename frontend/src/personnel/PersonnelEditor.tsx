@@ -12,7 +12,7 @@ import { EmploymentFields } from './EmploymentFields'
 import { useRegistryAction } from './useRegistryAction'
 import { WriteError } from './WriteError'
 import { useSensitiveNumberCapability } from './useSensitiveNumberCapability'
-import { missingRegistrationFields, validateEmployment } from './personnelValidation'
+import { missingRegistrationFields, personnelFieldLabels, validateEmployment } from './personnelValidation'
 import { RegistrationContract } from './RegistrationContract'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -72,15 +72,15 @@ export function PersonnelEditor({ token, employee, onClose, onSaved }: { token: 
         <WriteError error={action.error} conflict={action.conflict} />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
           {employee && (!employee.last_name || !employee.first_name) && <Typography variant="body2" color="text.secondary" sx={{ gridColumn: '1 / -1' }}>Nom historique : {employee.full_name}</Typography>}
-          <TextField fullWidth required={strictRegistration} label="Nom" autoComplete="family-name" value={value.last_name} disabled={action.busy} onChange={event => field('last_name', event.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
-          <TextField fullWidth required={strictRegistration} label="Prénoms" autoComplete="given-name" value={value.first_name} disabled={action.busy} onChange={event => field('first_name', event.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
-          <TextField fullWidth select required={strictRegistration} label="Type de personnel" value={value.personnel_type} disabled={action.busy} onChange={event => field('personnel_type', event.target.value as PersonnelType)}>{personnelTypes.map(item => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}</TextField>
-          <TextField fullWidth required={strictRegistration} label="Nationalité" value={value.nationality} disabled={action.busy} onChange={event => field('nationality', event.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
-          <TextField fullWidth select required={strictRegistration} label="Sexe" value={value.sex} disabled={action.busy} onChange={event => field('sex', event.target.value)}><MenuItem value="">Non renseigné</MenuItem><MenuItem value="F">Femme</MenuItem><MenuItem value="M">Homme</MenuItem></TextField>
-          <FrenchDateField fullWidth required={strictRegistration} label="Date de naissance" value={value.birth_date || ''} disabled={action.busy} onChange={next => field('birth_date', next || null)} />
-          <TextField fullWidth required={strictRegistration} label="Adresse" multiline minRows={2} value={value.address} disabled={action.busy} onChange={event => field('address', event.target.value)} slotProps={{ htmlInput: { maxLength: 1000 } }} sx={{ gridColumn: '1 / -1' }} />
-          <TextField fullWidth required={strictRegistration} label="Emploi" value={value.job_title} disabled={action.busy} onChange={event => field('job_title', event.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
-          <TextField fullWidth required={strictRegistration} label="Qualification" value={value.qualification} disabled={action.busy} onChange={event => field('qualification', event.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
+          <TextField fullWidth required={strictRegistration} label={personnelFieldLabels.last_name} autoComplete="family-name" value={value.last_name} disabled={action.busy} onChange={event => field('last_name', event.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
+          <TextField fullWidth required={strictRegistration} label={personnelFieldLabels.first_name} autoComplete="given-name" value={value.first_name} disabled={action.busy} onChange={event => field('first_name', event.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
+          <TextField fullWidth select required={strictRegistration} label={personnelFieldLabels.personnel_type} value={value.personnel_type} disabled={action.busy} onChange={event => field('personnel_type', event.target.value as PersonnelType)}>{personnelTypes.map(item => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}</TextField>
+          <TextField fullWidth required={strictRegistration} label={personnelFieldLabels.nationality} value={value.nationality} disabled={action.busy} onChange={event => field('nationality', event.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
+          <TextField fullWidth select required={strictRegistration} label={personnelFieldLabels.sex} value={value.sex} disabled={action.busy} onChange={event => field('sex', event.target.value)}><MenuItem value="">Non renseigné</MenuItem><MenuItem value="F">Femme</MenuItem><MenuItem value="M">Homme</MenuItem></TextField>
+          <FrenchDateField fullWidth required={strictRegistration} label={personnelFieldLabels.birth_date} value={value.birth_date || ''} disabled={action.busy} onChange={next => field('birth_date', next || null)} />
+          <TextField fullWidth required={strictRegistration} label={personnelFieldLabels.address} multiline minRows={2} value={value.address} disabled={action.busy} onChange={event => field('address', event.target.value)} slotProps={{ htmlInput: { maxLength: 1000 } }} sx={{ gridColumn: '1 / -1' }} />
+          <TextField fullWidth required={strictRegistration} label={personnelFieldLabels.job_title} value={value.job_title} disabled={action.busy} onChange={event => field('job_title', event.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
+          <TextField fullWidth required={strictRegistration} label={personnelFieldLabels.qualification} value={value.qualification} disabled={action.busy} onChange={event => field('qualification', event.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
           <Box sx={{ gridColumn: '1 / -1' }}>
             <SensitiveNumber token={token} employeeId={employee?.employee_id || 0} hasNumber={!!employee?.has_social_security_number && !clearSocialSecurityNumber} renderInput={secret => {
               const visible = socialSecurityNumber ? numberVisible : !!secret.value

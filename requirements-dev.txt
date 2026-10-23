@@ -1,0 +1,3 @@
+-r requirements.txt
+# Existing FastAPI TestClient suites; install separately from production dependencies.
+httpx==0.28.1
