@@ -11,6 +11,7 @@ import { downloadFile } from '../download'
 import { periodLabel } from '../documents/api'
 import { useDraftGuard } from '../draftGuard'
 import { useWorkspaceToolbar } from '../workspaceToolbar'
+import { useCapabilities } from '../capabilities'
 
 function SignedPreview({ item, token, onClose }: { item: SignedFiche; token: string; onClose: () => void }) {
   const loadFile = useCallback((signal: AbortSignal) => signedFichesApi.file(token, item.id, signal), [token, item.id])
@@ -18,7 +19,9 @@ function SignedPreview({ item, token, onClose }: { item: SignedFiche; token: str
 }
 
 export function SignedFichesPanel({ token, month, year, username, viewer }: { token: string; month: number; year: number; username?: string; viewer: string }) {
-  const [mode, setMode] = useState('production')
+  const [selectedMode, setMode] = useState('production')
+  const localSandbox = useCapabilities().data?.environment === 'local-snapshot'
+  const mode = localSandbox ? selectedMode : 'production'
   const [page, setPage] = useState(1)
   const [preview, setPreview] = useState<SignedFiche | null>(null)
   const [error, setError] = useState('')
@@ -39,9 +42,9 @@ export function SignedFichesPanel({ token, month, year, username, viewer }: { to
   return <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, mb: 2, minWidth: 0 }}>
     <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
       <Typography component="h2" variant="subtitle1" sx={{ mr: 'auto' }}>Fiches signées · {periodLabel(month, year)}</Typography>
-      <ToggleButtonGroup size="small" exclusive value={mode} disabled={busy} aria-label="Environnement des signatures" onChange={(_, value) => { if (value) { setMode(value); setPage(1) } }}>
+      {localSandbox && <ToggleButtonGroup size="small" exclusive value={mode} disabled={busy} aria-label="Environnement des signatures" onChange={(_, value) => { if (value) { setMode(value); setPage(1) } }}>
         <ToggleButton value="production">Production</ToggleButton><ToggleButton value="sandbox-only">Tests SPECIMEN</ToggleButton>
-      </ToggleButtonGroup>
+      </ToggleButtonGroup>}
       {list.data?.can_export && !username && <Button size="small" startIcon={busy ? <CircularProgress size={16} /> : <DownloadOutlined />} disabled={busy || !list.data.total} onClick={() => void perform(async () => {
         downloadFile(await signedFichesApi.export(token, month, year, mode)); setMessage('ZIP du mois préparé. Téléchargement déclenché.')
       })}>Exporter les PDF signés</Button>}

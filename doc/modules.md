@@ -24,7 +24,7 @@
 | 考勤 | `attendance/AttendancePage.tsx`；`AttendanceToolbar.tsx` / `PeriodToolbar.tsx` 顶栏；`FicheEditor.tsx` 编辑；`FicheExportMenu.tsx` 导出菜单 |
 | 日历 | `attendance/AttendanceCalendar.tsx`、`useCalendarSelection.ts`、`calendarStatus.ts`；半天拖选、批量应用及状态颜色 |
 | 签署与批量结果 | `attendance/SignaturePreview.tsx`、`components/BatchExportResult.tsx`；下载和签署独立，异常提交不自动重发 |
-| 已签文件 | `attendance/SignedFichesPanel.tsx`、`signedFichesApi.ts`；考勤顶部 Signatures 页签与个人 Profile 月度列表；每页 20 项、共用 DocumentPreview、管理员月度 ZIP，生产/SPECIMEN 分开 |
+| 已签文件 | `attendance/SignedFichesPanel.tsx`、`signedFichesApi.ts`；考勤顶部 Signatures 页签与个人 Profile 月度列表；每页 20 项、共用 DocumentPreview、管理员月度 ZIP；正式版仅显示正式文件，本地保留生产/SPECIMEN 切换 |
 | Documents | `documents/DocumentsPage.tsx` 每页 20 条、跨页勾选；`DocumentsToolbar.tsx`；`DocumentUpload.tsx` 上传弹窗；`DocumentRow.tsx` 紧凑横条及操作；`documentSearch.ts` 搜索；`DocumentPreview.tsx` / `PdfPreview.tsx` 私有预览 |
 | 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`SensitiveNumber.tsx` 共用表格行内、详情及输入框的受控短时查看；`PersonnelExport.tsx` 管理员 Excel 导出确认 |
 | Administration | `admin/AdminPage.tsx`；`UserEditor.tsx`、`OrganizationFields.tsx`、`ContractEditor.tsx`、`GroupEditor.tsx`；`CreateAccount.tsx` 建号弹窗；`AccountAccess.tsx` 登录状态；`AdvancedMaintenance.tsx` 资源维护 |
