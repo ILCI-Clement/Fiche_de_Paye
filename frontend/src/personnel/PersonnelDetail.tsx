@@ -33,10 +33,15 @@ export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete
   const latestPeriod = detail.data?.periods[0]
   const inEditor = !!editing || !!employment || !!archiving || !!deleting
   return <>
-    <Dialog open={!inEditor} fullScreen onClose={onClose} aria-labelledby="personnel-detail-title"
-      slotProps={{ paper: { sx: {
-        m: 0, height: '100dvh', maxHeight: '100dvh', width: '100%', borderRadius: 0,
-      } } }}>
+    <Dialog open={!inEditor} fullWidth maxWidth="lg" onClose={onClose} aria-labelledby="personnel-detail-title"
+      slotProps={{
+        backdrop: { sx: { bgcolor: 'rgba(0, 0, 0, .35)' } },
+        paper: { sx: {
+          m: { xs: 2, sm: 4 }, width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 64px)' },
+          height: { xs: 'calc(100dvh - 32px)', sm: 'min(820px, calc(100dvh - 64px))' },
+          maxHeight: { xs: 'calc(100dvh - 32px)', sm: 'calc(100dvh - 64px)' }, borderRadius: 3,
+        } },
+      }}>
       <DialogTitle id="personnel-detail-title" sx={{ pb: 1, flexShrink: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           <Typography component="span" variant="h6" sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{employee?.full_name || 'Fiche du personnel'}</Typography>

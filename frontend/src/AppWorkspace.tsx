@@ -3,7 +3,7 @@ import { brand } from './brand'
 import { canManageTeam, displayRoles, isAdmin } from './rolePolicy'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Alert, Avatar, Box, Button, Chip, Drawer, IconButton, Tooltip, Typography } from '@mui/material'
+import { Avatar, Box, Button, Chip, Drawer, IconButton, Tooltip, Typography } from '@mui/material'
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined'
@@ -18,6 +18,7 @@ import { initials } from './leaveFormat'
 import type { Session } from './types'
 import { useDraftGuard, useWorkspaceGuard } from './draftGuard'
 import { DraftGuardProvider } from './components/DraftGuardProvider'
+import { DraftStatus } from './components/DraftStatus'
 import { recoverableModule } from './components/ModuleBoundary'
 import { WorkspaceToolbarContext } from './workspaceToolbar'
 import { workspacePages } from './workspacePages'
@@ -112,10 +113,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
         <Box ref={setToolbarTarget} className="topbar-tools" />
       </Box>
 
-      {guard.dirtyLabels.length > 0 && <Alert severity="info" role="status" sx={{ mx: { xs: 2, md: 5 }, mt: 2 }}>
-        <Typography variant="body2" sx={{ fontWeight: 650 }}>Modifications non enregistrées</Typography>
-        <Typography variant="body2">{guard.dirtyLabels.join(' · ')}. Enregistrez ou appliquez vos modifications avant de quitter.</Typography>
-      </Alert>}
+      {page !== 'attendance' && <DraftStatus />}
 
       {attendanceAllowed && <WorkspacePageSlot active={page === 'attendance'} target={toolbarTarget} inlineTarget={inlineToolbarTarget}><AttendancePage token={token} session={session} onState={onAttendanceState} /></WorkspacePageSlot>}
       {visited.leave && <WorkspacePageSlot active={page === 'leave'} target={toolbarTarget} inlineTarget={inlineToolbarTarget}><LeaveWorkspace token={token} session={session} /></WorkspacePageSlot>}

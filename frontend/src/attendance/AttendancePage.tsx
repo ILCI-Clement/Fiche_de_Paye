@@ -25,6 +25,7 @@ import { BatchExportResult } from '../components/BatchExportResult'
 import type { ExportResult } from '../components/BatchExportResult'
 import { periodLabel } from '../documents/api'
 import { personDisplayName } from '../personDisplayName'
+import { DraftStatus } from '../components/DraftStatus'
 
 interface EditorState { dirty: boolean; busy: boolean }
 
@@ -146,7 +147,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
           revision.current = result.revision; syncLabels(result)
           setConfig(result.config); setDirty(false); setArchived(false); setActive(a => ({ ...a, [period]: result.active_id })); setMessage('Fiche ouverte.'); setVersion(v => v + 1)
         }))} />
-    {view === 'signed' && <SignedFichesPanel key={period} token={token} viewer={session.username} month={month} year={year} />}
+    {view === 'signed' && <><SignedFichesPanel key={period} token={token} viewer={session.username} month={month} year={year} /><DraftStatus /></>}
     <Box hidden={view !== 'editing'}>
     {chosenAccount && !accountInMonth && <Alert severity="info" sx={{ mb: 2 }}>
       <Typography variant="body2">{personDisplayName(chosenAccount)} : aucune fiche {archived ? 'archivée ' : ''}enregistrée pour {periodLabel(month, year)}.{visible.length > 0 ? ' Les onglets ci-dessous correspondent aux autres personnes de ce mois.' : ''}</Typography>
@@ -210,12 +211,9 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
         <Button variant="outlined" disabled={!selection.length || busy} onClick={() => void perform(async () => { await persist(); setSigning({ ids: [...selection], month, year }) })}>Préparer les signatures ({selection.length})</Button></Box>
       </Paper>}
     </>}
-    <Paper className="attendance-floating-save" sx={{ zIndex: theme => theme.zIndex.appBar }}>
-      <Typography variant="caption" color={dirty ? 'primary.main' : 'text.secondary'} sx={{ display: 'block', textAlign: 'center', mb: .5 }}>
-        {busy ? 'Traitement en cours…' : dirty ? 'Modifications à enregistrer' : pendingCalendar ? 'Sélection à appliquer' : 'Aucune modification en attente'}
-      </Typography>
-      <Button variant={dirty ? 'contained' : 'outlined'} startIcon={<SaveOutlined />} disabled={busy || (!dirty && pendingCalendar)} onClick={() => void perform(async () => { await persist(); setMessage('Configuration sauvegardée.') })}>{dirty ? 'Enregistrer les modifications' : 'Sauvegarder'}</Button>
-    </Paper>
+    <DraftStatus status={busy ? 'En cours…' : pendingCalendar ? 'À appliquer' : dirty ? 'Non enregistré' : undefined}>
+      <Button size="small" variant={dirty ? 'outlined' : 'text'} startIcon={<SaveOutlined fontSize="small" />} disabled={busy || (!dirty && pendingCalendar)} onClick={() => void perform(async () => { await persist(); setMessage('Configuration sauvegardée.') })}>Enregistrer</Button>
+    </DraftStatus>
     </Box>
     {signing && <SignaturePreview token={token} {...signing} personLabels={Object.fromEntries(config.employes_data.map(fiche => [String(fiche.id), personNameFor(fiche)]))} onClose={() => setSigning(null)} />}
     {archiveConfirm && <Dialog open onClose={() => { if (!busy) setArchiveConfirm(null) }}><DialogTitle>{archiveConfirm.is_archived ? 'Restaurer cette fiche ?' : 'Archiver cette fiche ?'}</DialogTitle><DialogContent><Alert severity="info">{ficheDisplayLabel(archiveConfirm)} : la fiche et son historique seront conservés. Les modifications déjà saisies seront enregistrées en même temps.</Alert>{error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}</DialogContent><DialogActions><Button disabled={busy} onClick={() => setArchiveConfirm(null)}>Annuler</Button><Button disabled={busy} onClick={() => void perform(async () => {

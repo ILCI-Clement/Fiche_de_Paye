@@ -44,8 +44,8 @@ export function Login({ onLogin }: { onLogin: (token: string) => void }) {
     <Box className="login-intro">
       <Box className="brand-mark">{brand.mark}</Box>
       <Typography variant="overline" sx={{ color: 'var(--sidebar-muted)', letterSpacing: 3, mt: 5 }}>{brand.title}</Typography>
-      <Typography component="h1" sx={{ fontSize: { xs: 32, md: 48 }, fontWeight: 750, lineHeight: 1.15, my: 2 }}>Vos démarches RH.<br />Un espace unique.</Typography>
-      <Typography sx={{ color: 'var(--sidebar-muted)', maxWidth: 390, lineHeight: 1.8 }}>Retrouvez vos informations RH, vos contrats et documents, gérez vos présences et suivez vos demandes de congé.</Typography>
+      <Typography component="h1" sx={{ fontSize: { xs: 30, md: 38 }, fontWeight: 600, lineHeight: 1.2, my: 2 }}>{brand.name}</Typography>
+      <Typography sx={{ color: 'var(--sidebar-muted)', maxWidth: 390, lineHeight: 1.7 }}>Accédez à vos informations et documents RH.</Typography>
       <Box sx={{ mt: 'auto', pt: 5, color: 'var(--sidebar-muted)', fontSize: 13 }}>Personnel · Contrats · Documents · Congés</Box>
     </Box>
     <Box className="login-content"><Paper sx={{ width: '100%', maxWidth: 470, p: { xs: 3, md: 4 }, border: '1px solid', borderColor: 'divider' }}>

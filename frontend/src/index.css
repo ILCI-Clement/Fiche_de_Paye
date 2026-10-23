@@ -63,8 +63,10 @@ body { margin: 0; min-width: 320px; }
 .account-option-compact .department-badges { flex-direction: row; overflow: hidden; }
 .account-option-compact .department-badge { flex-shrink: 1; min-width: 0; }
 .fiche-panel.MuiPaper-root, .batch-panel.MuiPaper-root { border: 1px solid var(--border); padding: 24px; margin-bottom: 24px; }
-.workspace.attendance-workspace { padding-bottom: 112px; }
-.attendance-floating-save.MuiPaper-root { position: fixed; right: max(24px, env(safe-area-inset-right)); bottom: calc(24px + env(safe-area-inset-bottom)); padding: 6px; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 6px 24px #00000026; }
+.workspace.attendance-workspace { padding-bottom: 88px; }
+.workspace-draft-status.MuiPaper-root { position: fixed; right: max(20px, env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 1100; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px); padding: 6px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 2px 10px #00000012; }
+.workspace-draft-status .MuiTypography-root { font-size: 11px; }
+.workspace-draft-status .MuiButton-root { flex-shrink: 0; min-height: 32px; padding: 3px 8px; font-size: 12px; font-weight: 500; }
 .fiche-heading { display: flex; gap: 20px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 24px; }
 .fiche-details { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .fiche-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding-top: 8px; }
@@ -95,7 +97,7 @@ body { margin: 0; min-width: 320px; }
   .login-intro { padding: 36px; width: 40%; }.login-content { padding: 24px; }
 }
 @media (max-width: 600px) {
-  .attendance-floating-save.MuiPaper-root { right: max(16px, env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .workspace-draft-status.MuiPaper-root { right: max(16px, env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); }
   .workspace .period-selector { display: grid; grid-template-columns: 30px minmax(0, 1fr) 76px 30px; gap: 6px; width: 100%; }
   .workspace .period-selector > .MuiTextField-root { min-width: 0; width: 100%; }
   .workspace .period-selector > .MuiIconButton-root { padding: 3px; }

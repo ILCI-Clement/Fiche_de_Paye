@@ -1,9 +1,8 @@
 import { useState } from 'react'
-import { Alert, Box, Button, Chip, CircularProgress, IconButton, Paper, Snackbar, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material'
-import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded'
+import { Alert, Box, Button, CircularProgress, Paper, Snackbar, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import type { Session } from '../types'
-import { dateLabel, personnelApi, statusLabels, typeLabel } from './api'
+import { personnelApi } from './api'
 import type { PersonnelFilters } from './api'
 import { PersonnelEditor } from './PersonnelEditor'
 import { PersonnelDetail } from './PersonnelDetail'
@@ -11,7 +10,7 @@ import { RegistryViewerContext } from './context'
 import { WorkspaceToolbar } from '../components/WorkspaceToolbar'
 import { PersonnelToolbar } from './PersonnelToolbar'
 import { PersonnelExport } from './PersonnelExport'
-import { SensitiveNumber } from './SensitiveNumber'
+import { PersonnelTable } from './PersonnelTable'
 import { isAdmin, isSuperAdmin } from '../rolePolicy'
 
 export function PersonnelPage({ token, session }: { token: string; session: Session }) {
@@ -32,11 +31,6 @@ function PersonnelWorkspace({ token, viewer, canDelete }: { token: string; viewe
   if (filters.page > lastPage) setFilters({ ...filters, page: lastPage })
   const change = (update: Partial<PersonnelFilters>) => setFilters(current => ({ ...current, ...update, page: 1 }))
   const selectedFilters = !!filters.q || !!filters.personnel_type || filters.status !== 'all' || filters.archive !== 'active'
-  const typeColumn = { display: { xs: 'none', sm: 'table-cell' }, width: 128 }
-  const jobColumn = { display: { xs: 'none', xl: 'table-cell' }, width: 180 }
-  const datesColumn = { display: { xs: 'none', lg: 'table-cell' }, width: 168 }
-  const numberColumn = { width: { xs: 164, sm: 188 }, px: { xs: .75, sm: 1.25 } }
-  const statusColumn = { display: { xs: 'none', sm: 'table-cell' }, width: 136 }
   return <Box className="workspace personnel-workspace" sx={{
     '&.workspace': { maxWidth: 'none', m: 0, p: { xs: 1, sm: '12px 16px' }, height: 'max(0px, calc(100dvh - var(--workspace-toolbar-height, 80px)))', minHeight: 0, display: 'flex', flexDirection: 'column' },
     '& .MuiButton-root, & .MuiTypography-h6': { fontWeight: 500 }, '& .MuiTableCell-root': { py: .75, px: 1.25, fontSize: 13 }, '& .MuiTableCell-head': { fontWeight: 500, py: 1 },
@@ -51,32 +45,9 @@ function PersonnelWorkspace({ token, viewer, canDelete }: { token: string; viewe
         <Typography variant="body2" color="text.secondary">{selectedFilters ? 'Modifiez les filtres ou consultez les archives.' : 'Enregistrez une personne avec ses informations et sa date d’entrée.'}</Typography>
         {filters.page > 1 && <Button sx={{ mt: 2 }} onClick={() => setFilters(current => ({ ...current, page: 1 }))}>Revenir à la première page</Button>}
         {!selectedFilters && <Button sx={{ mt: 2 }} onClick={() => setCreating(true)}>Enregistrer une première personne</Button>}
-      </Box> : <>
-        <TableContainer sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: 'stable' }}>
-          <Table stickyHeader size="small" aria-label="Registre du personnel" sx={{ width: '100%', tableLayout: 'fixed', '& .MuiTableCell-root': { overflow: 'hidden' } }}>
-            <TableHead><TableRow>
-              <TableCell>Nom et prénoms</TableCell>
-              <TableCell sx={typeColumn}>Personnel</TableCell><TableCell sx={jobColumn}>Emploi</TableCell>
-              <TableCell sx={datesColumn}>Entrée / Sortie effective</TableCell>
-              <TableCell sx={numberColumn}>N° de sécurité sociale</TableCell>
-              <TableCell sx={statusColumn}>État</TableCell><TableCell sx={{ width: { xs: 36, sm: 48 } }}><span aria-label="Fiche complète" /></TableCell>
-            </TableRow></TableHead>
-            <TableBody>{list.data.employees.map(employee => <TableRow key={employee.employee_id} hover>
-              <TableCell><Tooltip title={employee.full_name}><Button onClick={() => setSelected(employee.employee_id)} sx={{ minWidth: 0, maxWidth: '100%', minHeight: 32, py: .5, px: 0, textAlign: 'left', justifyContent: 'flex-start' }}><Box component="span" sx={{ overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{employee.full_name}</Box></Button></Tooltip>
-                {employee.is_archived && <Typography variant="caption" color="text.secondary">Archivé</Typography>}
-                {!!employee.missing_fields?.length && <Tooltip title={`À compléter : ${employee.missing_fields.join(', ')}`}><Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>À compléter</Typography></Tooltip>}
-                <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'block', sm: 'none' } }}>{statusLabels[employee.status] || 'À préciser'}</Typography>
-              </TableCell>
-              <TableCell sx={typeColumn}><Tooltip title={typeLabel(employee.personnel_type)}><Typography variant="body2" noWrap>{typeLabel(employee.personnel_type)}</Typography></Tooltip></TableCell>
-              <TableCell sx={jobColumn}><Tooltip title={employee.job_title || ''}><Typography variant="body2" noWrap>{employee.job_title || '—'}</Typography></Tooltip></TableCell>
-              <TableCell sx={datesColumn}><Typography variant="body2">{dateLabel(employee.latest_period?.entry_date)}</Typography><Typography variant="caption" color="text.secondary">Sortie : {dateLabel(employee.latest_period?.actual_exit_date)}</Typography></TableCell>
-              <TableCell sx={numberColumn}><SensitiveNumber key={JSON.stringify([filters, employee.version, selected, creating, exporting])} inline token={token} employeeId={employee.employee_id} hasNumber={employee.has_social_security_number} active={!list.isFetching && selected === null && !creating && !exporting} /></TableCell>
-              <TableCell sx={statusColumn}><Tooltip title={statusLabels[employee.status] || 'À préciser'}><Chip size="small" label={statusLabels[employee.status] || 'À préciser'} color={employee.status === 'employed' ? 'primary' : 'default'} variant="outlined" sx={{ maxWidth: '100%', height: 25, fontWeight: 400, '& .MuiChip-label': { px: .75 } }} /></Tooltip></TableCell>
-              <TableCell align="right" sx={{ px: .5 }}><Tooltip title="Ouvrir la fiche complète"><IconButton aria-label={`Ouvrir la fiche complète de ${employee.full_name}`} onClick={() => setSelected(employee.employee_id)}><MoreHorizRounded fontSize="small" /></IconButton></Tooltip></TableCell>
-            </TableRow>)}</TableBody>
-          </Table>
-        </TableContainer>
-      </>}
+      </Box> : <PersonnelTable employees={list.data.employees} token={token}
+        active={!list.isFetching && selected === null && !creating && !exporting}
+        resetKey={JSON.stringify([filters, selected, creating, exporting])} onOpen={setSelected} />}
     </Paper>
     {creating && <PersonnelEditor token={token} onClose={() => setCreating(false)} onSaved={setMessage} />}
     {exporting && <PersonnelExport token={token} filters={filters} total={list.data?.total ?? 0} onClose={() => setExporting(false)} onSuccess={() => setMessage('Export Excel généré. Téléchargement lancé.')} />}

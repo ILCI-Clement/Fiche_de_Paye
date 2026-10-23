@@ -21,7 +21,7 @@
 | 功能 | 入口与直接依赖 |
 | --- | --- |
 | 导航、页面加载、主题 | `AppWorkspace.tsx`；`workspacePages.ts` 管理标题/悬停说明；`workspaceToolbar.ts`、`components/WorkspaceToolbar.tsx` 管理当前页工具栏；`ThemeModeProvider.tsx`、`theme.ts`、`index.css` 管理深浅主题和布局 |
-| 草稿保护 | `draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx`；已打开页面保留状态，隐藏页不挂载工具栏 |
+| 草稿保护 | `draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx`；`components/DraftStatus.tsx` 在右下角显示紧凑悬浮状态，考勤与保存按钮合并；不占页面布局，离开确认保持；已打开页面保留状态，隐藏页不挂载工具栏 |
 | 考勤 | `attendance/AttendancePage.tsx`；`AttendanceToolbar.tsx` / `PeriodToolbar.tsx` 顶栏；`FicheEditor.tsx` 编辑；`FicheExportMenu.tsx` 导出菜单 |
 | 日历 | `attendance/AttendanceCalendar.tsx`、`useCalendarSelection.ts`、`calendarStatus.ts`；半天拖选、批量应用及状态颜色 |
 | 签署与批量结果 | `attendance/SignaturePreview.tsx`、`components/BatchExportResult.tsx`；下载和签署独立，异常提交不自动重发 |
@@ -39,7 +39,11 @@
 
 侧边栏将员工名册与 Administration 集中在带边框的 `Espace Admin` 分组，仅 Admin/SuperAdmin 可见；进入这两个页面时顶部同步显示区域标识。考勤、团队等共享页面仍位于日常导航，接口权限保持由后端执行。
 
+`personnel/PersonnelTable.tsx` 按 Excel 模板 B:R 的字段顺序提供 Informations de base、Emploi et dates、Situations particulières 三个网格页签；基础页在桌面同屏展示姓名、国籍、性别、地址、社保号、出生日期、职位与资格，按屏宽分配列宽；单元格尽量单行，长内容省略并在悬停时显示全文，性别缩写 H/F（不改变存储值）。分组表头固定、每人一行；任职与特殊身份显示最新任职段，历史通过完整档案查看。窄屏优先展示关键列，不增加横向滚动；社保号继续复用受控显示组件，切换页签即卸载并清除明文。Excel 导出仍使用完整筛选结果与全部任职段。
+
 名册 Informations 页直接展示最新任职段的外籍、临时工、青年/学徒情况，并可打开 `EmploymentEditor.tsx` 的 situationsOnly 模式编辑；无任职段时引导填写首段，有多段时可进入完整期间页。人员类型、职位、资格仍由基本资料编辑器维护，期间身份保存复用原版本检查和审计接口。
+
+`PersonnelDetail.tsx` 使用居中悬浮 Dialog，桌面最大宽度 lg、高度最多 820px，四周保留背景；内容区内部滚动，标题和底部操作固定，切换页签不随内容收缩。小屏同样保留窗口边距。
 
 ## 后端定位
 

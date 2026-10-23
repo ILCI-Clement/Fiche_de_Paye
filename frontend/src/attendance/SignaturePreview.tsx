@@ -1,6 +1,6 @@
 import { personDisplayName } from '../personDisplayName'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Paper, Typography } from '@mui/material'
+import { Alert, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Paper, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { request } from '../api'
 import { useDraftGuard } from '../draftGuard'
@@ -66,29 +66,34 @@ export function SignaturePreview({ token, ids, month, year, onClose, personLabel
       }
     } finally { lock.current = false; setBusy(false); setCurrentName('') }
   }
-  return <Dialog open fullWidth maxWidth="md" onClose={() => { if (!busy) onClose() }}><DialogTitle>Préparer les signatures · {month.toString().padStart(2, '0')}/{year}</DialogTitle><DialogContent>
-    <Alert severity="info" sx={{ mb: 2 }}>Le salarié signe en premier, puis son responsable direct enregistré dans Administration. Le téléchargement et la signature sont deux opérations distinctes.</Alert>
+  return <Dialog open fullWidth maxWidth="md" onClose={() => { if (!busy) onClose() }}><DialogTitle>Préparer les signatures · {month.toString().padStart(2, '0')}/{year}
+    <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'block', mt: .5 }}>Salarié → Responsable{preview.data?.automatic_archive ? ' · PDF final archivé automatiquement' : ''}</Typography>
+  </DialogTitle><DialogContent>
     {preview.isPending ? <CircularProgress /> : preview.error ? <Alert severity="error">{preview.error.message}</Alert> : preview.data && <>
-      <Alert severity={live || !preview.data.can_send ? 'warning' : 'info'} sx={{ mb: 2 }}>{preview.data.reason}</Alert>
-      <Alert severity={preview.data.automatic_archive ? 'info' : 'warning'} sx={{ mb: 2 }}>{preview.data.automatic_archive ? 'Après la signature des deux parties, le PDF final sera récupéré automatiquement dans l’onglet Signatures du mois de la fiche.' : 'Le retour automatique des PDF signés n’est pas configuré dans cet environnement. Les documents resteront à récupérer dans ClawShow.'}</Alert>
-      <Typography variant="body2" sx={{ mb: 2 }}>{total} fiche(s) sélectionnée(s) · {validCount} prête(s) à envoyer · {total - validCount} à corriger.</Typography>
+      <Alert severity={live || !preview.data.can_send || !preview.data.automatic_archive ? 'warning' : 'info'} sx={{ mb: 1.5, py: .5, '& .MuiAlert-message': { fontSize: 13 } }}>
+        {preview.data.reason}{!preview.data.automatic_archive && ' PDF signé à récupérer dans ClawShow (archivage automatique non configuré).'}
+      </Alert>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{total} fiche(s) · {validCount} prête(s) · {total - validCount} à corriger</Typography>
       {busy && <><LinearProgress variant="determinate" value={total ? processed / total * 100 : 0} /><Typography role="status" variant="body2" sx={{ my: 1 }}>{currentName} · Préparation du PDF et création de la demande ClawShow… {seconds} s · {processed}/{total} fiche(s) traitée(s). Gardez cette fenêtre ouverte.</Typography></>}
       {started && !busy && <Alert severity={uncertain || notSent ? 'warning' : 'info'} sx={{ mb: 2 }}>
         Traitement terminé : {created} demande(s) créée(s) · {notSent} non envoyée(s) · {uncertain} à vérifier. Les signatures restent à effectuer.
         {uncertain > 0 && <Typography variant="body2">Une erreur ou un délai d’attente ne prouve pas l’absence d’envoi. Aucune relance automatique : vérifiez ces demandes dans ClawShow pour éviter les doublons.</Typography>}
       </Alert>}
-      {preview.data.items.map(item => <Paper key={item.id} variant="outlined" sx={{ p: 2, mb: 1, overflowWrap: 'anywhere' }}><Typography sx={{ fontWeight: 650 }}>{personLabels[String(item.id)] || personDisplayName({ display_name: item.name, email: item.employee_email })}</Typography>
-        <Typography variant="body2">1. Salarié : {item.employee_email || 'E-mail manquant'}</Typography><Typography variant="body2">2. Responsable : {personDisplayName({ display_name: item.manager_name, email: item.manager_email })} · {item.manager_email || '—'}</Typography>
-        {item.error && <Alert severity="error" sx={{ mt: 1 }}>{item.error}</Alert>}
+      {preview.data.items.map(item => <Paper key={item.id} variant="outlined" sx={{ p: 1.5, mb: 1, overflowWrap: 'anywhere' }}><Typography variant="body2" sx={{ fontWeight: 600, mb: .75 }}>{personLabels[String(item.id)] || personDisplayName({ display_name: item.name, email: item.employee_email })}</Typography>
+        <Box component="dl" sx={{ display: 'grid', gridTemplateColumns: '90px minmax(0, 1fr)', columnGap: 1, rowGap: .25, m: 0, fontSize: 13, '& dt': { color: 'text.secondary' }, '& dd': { m: 0 } }}>
+          <Box component="dt">Salarié</Box><Box component="dd">{item.employee_email || 'E-mail manquant'}</Box>
+          <Box component="dt">Responsable</Box><Box component="dd">{item.manager_email ? `${personDisplayName({ display_name: item.manager_name, email: item.manager_email })} · ${item.manager_email}` : 'Non renseigné'}</Box>
+        </Box>
+        {item.error && <Typography role="alert" variant="body2" color="error.main" sx={{ mt: 1, pl: 1, borderLeft: 2, borderColor: 'error.main', fontSize: 13 }}>{item.error}</Typography>}
         {outcomes[item.id] && <Alert severity={outcomes[item.id].ok ? 'success' : outcomes[item.id].uncertain ? 'warning' : 'error'} sx={{ mt: 1 }}>{outcomes[item.id].ok ? 'Demande créée — signatures en attente. ' : outcomes[item.id].uncertain ? 'À vérifier — ' : 'Non envoyée — '}{outcomes[item.id].message}{outcomes[item.id].document_id && ` Référence : ${outcomes[item.id].document_id}`}</Alert>}
         {outcomes[item.id] && signerActions(outcomes[item.id]).map((action, index) => <Button key={action.url} component="a" href={action.url} target="_blank" rel="noopener noreferrer" sx={{ mt: 1 }}>{action.party === 'employee' ? 'Signature du salarié' : action.party === 'manager' ? 'Signature du responsable' : `Ouvrir la page de signature ${index + 1}`}</Button>)}
         {outcomes[item.id]?.seconds !== undefined && <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>Demande préparée en {outcomes[item.id].seconds} s.</Typography>}
         {outcomes[item.id]?.ok && live && <Typography variant="body2" sx={{ mt: 1 }}>Consultez l’e-mail de signature envoyé au salarié. Le responsable recevra son invitation après la première signature.</Typography>}
         {outcomes[item.id]?.ok && !live && !signerActions(outcomes[item.id]).length && <Typography variant="body2" sx={{ mt: 1 }}>ClawShow n’a pas renvoyé de page de signature identifiable. Conservez la référence pour vérifier la demande.</Typography>}
       </Paper>)}
-      <FormControlLabel control={<Checkbox checked={confirmed} disabled={busy || started || !preview.data.can_send} onChange={e => setConfirmed(e.target.checked)} />} label={live ? 'Je confirme le document et l’envoi réel aux destinataires affichés. Cette demande utilise le quota de signatures Production.' : 'Je confirme les destinataires. Une nouvelle demande sera créée pour chaque fiche valide ; vérifiez les envois précédents pour éviter les doublons.'} />
+      <FormControlLabel sx={{ mt: .25, '& .MuiFormControlLabel-label': { fontSize: 13 } }} control={<Checkbox size="small" checked={confirmed} disabled={busy || started || !preview.data.can_send} onChange={e => setConfirmed(e.target.checked)} />} label={live ? 'Je confirme les documents, les destinataires et l’envoi réel (quota Production).' : 'J’ai vérifié les destinataires et les envois précédents pour éviter les doublons.'} />
     </>}
   </DialogContent><DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
     {started && !busy && <Button onClick={() => downloadFile({ filename: `bilan-signatures-${year}-${String(month).padStart(2, '0')}.json`, blob: new Blob([JSON.stringify({ month, year, created, not_sent: notSent, to_verify: uncertain, items: preview.data?.items.map(item => ({ id: item.id, name: item.name, status: outcomes[item.id]?.ok ? 'created' : outcomes[item.id]?.uncertain ? 'to_verify' : outcomes[item.id] ? 'not_sent' : 'not_processed', document_id: outcomes[item.id]?.document_id || null, message: outcomes[item.id]?.message || '' })) }, null, 2)], { type: 'application/json' }) })}>Télécharger le bilan</Button>}
-    <Button disabled={busy} onClick={onClose}>Fermer</Button><Button variant="contained" disabled={busy || started || !confirmed || !preview.data?.can_send || !validCount} onClick={() => void send()}>{busy ? 'Création en cours…' : started ? 'Traitement terminé' : preview.data?.can_send ? (live ? 'Envoyer les e-mails de signature' : 'Envoyer en sandbox') : 'Envoi indisponible (configuration requise)'}</Button></DialogActions></Dialog>
+    <Button disabled={busy} onClick={onClose}>Fermer</Button><Button variant="contained" disabled={busy || started || !confirmed || !preview.data?.can_send || !validCount} onClick={() => void send()}>{busy ? 'Création en cours…' : started ? 'Traitement terminé' : preview.data?.can_send ? (live ? 'Envoyer les e-mails de signature' : 'Envoyer en sandbox') : 'Envoi indisponible'}</Button></DialogActions></Dialog>
 }

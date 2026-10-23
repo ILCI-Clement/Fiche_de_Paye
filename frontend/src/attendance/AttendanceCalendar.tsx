@@ -32,10 +32,12 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, acti
           </MenuItem>)}
         </TextField>
         {status === 'Autre' && <TextField label="Précision" value={reason} onChange={e => setReason(e.target.value)} disabled={busy} />}
-        <Button variant="contained" disabled={!selection.length || busy} onClick={async () => { if (await onApply(selection, status, reason)) clear() }}>Appliquer ({selection.length})</Button>
+        <Button variant="contained" sx={{ minWidth: 120, whiteSpace: 'nowrap' }} disabled={!selection.length || busy} onClick={async () => { if (await onApply(selection, status, reason)) clear() }}>Appliquer ({selection.length})</Button>
         <Button disabled={!selection.length || busy} onClick={clear}>Effacer la sélection</Button>
+        <Typography component="span" role="status" aria-live="polite" aria-atomic="true" variant="caption" color="text.secondary" sx={{ width: 200, flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          {selection.length} demi-journée{selection.length > 1 ? 's' : ''} sélectionnée{selection.length > 1 ? 's' : ''}
+        </Typography>
       </Box>
-      {pending && <Typography role="status" variant="body2" color="primary.main" sx={{ mb: 2 }}>{selection.length} demi-journée(s) sélectionnée(s) : cliquez sur « Appliquer » pour enregistrer ce statut.</Typography>}
       <Box aria-label="Légende des statuts" sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
         {calendarStatuses.map(s => {
           const color = calendarStatus(s, mode)
