@@ -56,13 +56,13 @@
 | `login_guard.py` | 密码连续失败 5 次冷却 10 分钟；未满 5 次距上次失败满 10 分钟重置。users 行锁与 UTC 持久计数/时间，用户名/邮箱共用状态，HTTP 429 + Retry-After；成功清零。已上线 |
 | `account_lifecycle.py` / `account_purge.py` | 停用/恢复、删除登录、状态历史；永久删除前检查业务依赖，禁止级联清理他人资料 |
 | `account_names.py` / `person_names.py` | 建号必填姓/名、users 仅增列迁移；统一显示优先关联名册的结构化姓/名，再用账号姓/名、旧名册全名、邮箱前缀。不猜测旧姓名，不读 NIR 等隐私字段 |
-| `account_onboarding.py` | 建号邮箱校验、后端安全随机 8 位大写字母＋数字、初始密码邮件（TLS）；仅在建号提交后尝试一次，返回发送结果、不保存或返回原密码。`account_lifecycle.py` 增列 `initial_password_pending`，`/leave/session` 返回建议改密标志；前端 `CreateAccount.tsx` 选择随机/手动，`AppWorkspace.tsx` 提醒修改但不限制访问。开发说明见 [建号通知](account-onboarding.md)，尚未上线 |
+| `account_onboarding.py` | 建号邮箱校验、后端安全随机 8 位大写字母＋数字、初始密码邮件（TLS）；仅在建号提交后尝试一次，返回发送结果、不保存或返回原密码。`account_lifecycle.py` 增列 `initial_password_pending`，`/leave/session` 返回建议改密标志；前端 `CreateAccount.tsx` 选择随机/手动，`AppWorkspace.tsx` 提醒修改但不限制访问。说明见 [建号通知](account-onboarding.md)，2026-10-27 已上线 |
 | `personnel_register.py` / `personnel_rules.py` / `personnel_store.py` | 员工名册路由、校验、存储及审计；`/personnel-register*`、`/account-personnel/{username}`、`/choices`、`/link` |
 | `personnel_sensitive.py` | 独立 keyring、AES-256-GCM、员工 ID 绑定和短时查看保护 |
 | `personnel_export.py` | 按 `template/Exemple-de-modele-de-registre-unique-du-personnel.xlsx` 生成 Excel；复用名册筛选、全部分页、每段任职一行；`POST /personnel-register/export.xlsx` 仅有效管理员并要求敏感导出确认，包含 NIR 明文且先提交逐人审计，不在服务器保存文件 |
 | `attendance_api.py` / `attendance_revision.py` | `/attendance/workspace`、`/save`、`/open/{username}`、`/calendar/{id}`、`/export`；事务内校验完整配置版本；本地负责人隔离历史表与合同补录见 [修复说明](responsable-attendance-fix.md) |
 | `attendance_permissions.py` | 保存字段与历史 ID 核对；`attendance_scope` 隔离不可操作历史表，`preserve_hidden_sheets` 在完整版本锁内原样合并；Admin 归档，SuperAdmin 明确确认后才可删除 |
-| `contract_history.py` / `personnel_contract_sync.py` | 合同期间、重叠校验、归档/恢复；`/users/{username}/contracts*`；本地新增 `POST /attendance/contracts/{username}` 允许 Admin 或直接负责人补录缺少的当月合同并写入 `contract_setup_events`；关联名册按稳定 ID 同步入职与合同预计结束日期，实际离职独立（已上线）；被考勤或名册引用的合同不可删除 |
+| `contract_history.py` / `personnel_contract_sync.py` | 合同期间、重叠校验、归档/恢复；`/users/{username}/contracts*`；`POST /attendance/contracts/{username}` 允许 Admin 或直接负责人补录缺少的当月合同并写入 `contract_setup_events`（2026-10-27 已上线）；关联名册按稳定 ID 同步入职与合同预计结束日期，实际离职独立；被考勤或名册引用的合同不可删除 |
 | `documents.py` / `document_numbers.py` | `/transport-receipts*` 上传、搜索数据、下载、ZIP、改月、归档和受控删除；按巴黎上传日分配 `YYYYMMDD-0001`，删除不回收编号 |
 | `esign.py` / `signature_flow.py` / `signature_placement.py` | PDF 转换、当前直接负责人解析、双签顺序和签名定位；`/fiches/pdf`、`/send-fiche`、`/esign/documents/{token}` |
 | `attendance_signatures.py` / `signature_attempts.py` / `server_signing_readiness.py` | React 预检/发送、幂等回执、配置就绪检查；`/attendance/signature-preview`、`/signature-send` |
@@ -122,7 +122,7 @@
 
 2026-10-23 账号姓名：创建表单移除手工账号标识，改为必填 Prénoms/Nom；账号姓名直接保存在 users，无需自动创建正式员工档案。关联名册的结构化姓名优先，旧记录不自动拆分。模块兼容 flat/package 导入及旧数据库缺列读取；发布时需同步仍可访问的保留 API。存储核对与范围见 [账号姓名说明](account-names.md)。
 
-当前生产版本：`account-names-20261023T150121Z` / `b6ca83d5e046`，已发布员工登记、账号姓名及本轮回归修复。此前段落中的本地整理状态为历史记录；最新验证和协调回退见 [发布记录](releases/account-names-20261023.md)。
+当前生产版本：`responsable-access-20261027T181526Z` / `a6b9bc8a43e4`，前后端与保留 API 已同步发布负责人考勤修复、合同补录及初始密码通知。此前段落中的版本和本地状态为历史记录；最新验证和协调回退见 [发布记录](releases/responsable-access-20261027.md)。
 
 前端随后独立更新为 `admin-workspace-ui-20261023T151905Z` / `63ef6c3935f2`，Admin 导航集中分组并显示区域标识；API 保持上述版本。静态目录、核对与独立界面回退见 [Admin 分组发布记录](releases/admin-workspace-ui-20261023.md)。
 

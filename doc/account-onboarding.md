@@ -1,4 +1,4 @@
-# 初始密码与建号通知（本地开发，未上线）
+# 初始密码与建号通知（2026-10-27 已上线）
 
 - Admin / SuperAdmin 建号仍要求分填名、姓和有效邮箱。`POST /create-user` 新增严格布尔字段 `generate_password`，默认 false 保留手动设置。
 - true 时不提交 `new_password`；后端用 `secrets` 生成恰好 8 个 A–Z / 0–9 字符，至少包含一位字母和一位数字。手动设置沿用至少 8 字符，并检查 bcrypt 的 72 字节上限。
@@ -12,4 +12,4 @@
 
 发布需同步 React API 与保留 API 的 main、account_lifecycle、account_onboarding、leave_requests 模块，并在新前端前完成增列迁移；不能只发布前端。沿用现有 SMTP 环境配置与 `PRESENCE_APP_URL`，无需生成新密钥。
 
-本轮仅做 Python 语法、前端 lint 与生产构建检查；未运行自动化功能测试、未创建真实账号、未发送邮件。实际收件与邮件服务器配置需在指定测试收件人授权后验证。
+已完成随机格式、输入校验、事务提交后单次投递、邮件失败保留账号及 TLS 顺序等自动化测试（SMTP mock），纳入后端全量 428 项与前端 49 项回归。线上 SMTP 配置已核对；本次发布没有创建真实账号、发送邮件或验证真实收件箱。版本与回退见 [发布记录](releases/responsable-access-20261027.md)。

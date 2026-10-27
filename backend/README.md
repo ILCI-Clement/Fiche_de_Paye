@@ -14,11 +14,11 @@ React 入口复用 `main.app`，注册考勤、签署、月度 Profile、员工�
 
 本地启动使用 `scripts/start_local_rebuild.ps1`，真实数据副本及凭据位于被忽略的 `.local-test/rebuild/`。本地禁止创建虚构账户和普通通知邮件；限时正式签署测试由独立策略控制。不要把本地入口、配置、数据库或密钥部署到服务器。
 
-本地新增随机初始密码与建号邮件开发，尚未上线。发布必须同步两套 API 的相关模块并先执行账户增列迁移，详见 [建号通知](../doc/account-onboarding.md)。首次登录仅提醒修改，不限制访问；邮件失败不回滚账号、不自动重发。
+2026-10-27 已上线随机初始密码与建号邮件，两套 API 已同步账户增列迁移，详见 [建号通知](../doc/account-onboarding.md)。首次登录仅提醒修改，不限制访问；邮件失败不回滚账号、不自动重发。
 
 代码定位见 [模块索引](../doc/modules.md)。
 
-本地待发布的负责人考勤修复：新版 `/attendance/*` 仅返回负责人可操作的表；保存时用完整配置版本加锁，原样保留不可操作的历史表，避免旧条目阻塞页面或被漏删。缺合同的响应带 `X-Attendance-Requirement: contract`，前端显示补录窗口。`POST /attendance/contracts/{username}` 仅允许有效 Admin 或该员工的直接 Responsable 新建覆盖所选月份的缺失合同，复用重叠校验和名册同步；已有合同仍按原管理权限执行。启动迁移新增 `contract_setup_events` 审计表，审计失败整笔回滚。部署需同时更新前后端并备份，尚未发布线上。
+2026-10-27 已上线负责人考勤修复：新版 `/attendance/*` 仅返回负责人可操作的表；保存时用完整配置版本加锁，原样保留不可操作的历史表，避免旧条目阻塞页面或被漏删。缺合同的响应带 `X-Attendance-Requirement: contract`，前端显示补录窗口。`POST /attendance/contracts/{username}` 仅允许有效 Admin 或该员工的直接 Responsable 新建覆盖所选月份的缺失合同，复用重叠校验和名册同步；已有合同仍按原管理权限执行。新增 `contract_setup_events` 审计表，审计失败整笔回滚。前后端、两套 API 已同步并备份，见 [发布记录](../doc/releases/responsable-access-20261027.md)。
 
 旧 Streamlit 界面已从当前源码树分离，备案包与恢复方法见 [`archive/streamlit`](../archive/streamlit/README.md)。当前 Python 安装入口为根目录 `requirements.txt`（含 backend 依赖），不再依赖 Streamlit；保留 API 的 flat 导入和当前权限防护继续维护。线上现存 `presence-interface` 服务及旧部署目录未在这次本地整理中变更，后续发布不得直接将旧服务指向已精简的当前目录。
 
@@ -29,15 +29,14 @@ NIR 关闭或密钥无效时拒绝导出。接口与映射见 [名册说明](../
 
 ## 当前版本与回退
 
-- 前端：`ux-polish-ui-20261023T174314Z` / `4ce4a8710f49`；[界面整理发布与回退](../doc/releases/ux-polish-ui-20261023.md)。前端备份为 `/var/backups/presence-react/ux-polish-ui-20261023T174314Z`。
-- React API：`account-names-20261023T150121Z` / `b6ca83d5e046`；保留 API 的 flat 模块已同步更新。`/var/www/presence-react/current` 仍指向此 API 版本；Nginx 静态目录独立指向上述前端版本的 `frontend/dist`。
-- 完整备份：`/var/backups/presence-react/account-names-20261023T150121Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
-- [发布内容、验证与回退](../doc/releases/account-names-20261023.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
+- 前后端：`responsable-access-20261027T181526Z` / `a6b9bc8a43e4`；保留 API 的 flat 模块已同步更新。`/var/www/presence-react/current` 与 Nginx 静态目录均指向此版本。
+- 完整备份：`/var/backups/presence-react/responsable-access-20261027T181526Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
+- [发布内容、验证与回退](../doc/releases/responsable-access-20261027.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
 
-协调回退（先按上述发布记录依次回退本次及 Admin 分组两个独立前端，满足配置保护检查后再执行）：
+协调回退（确认当前仍为本版本后执行，保留新增列及发布后的业务写入）：
 
 ```sh
-sudo /var/backups/presence-react/account-names-20261023T150121Z/rollback.sh
+sudo /var/backups/presence-react/responsable-access-20261027T181526Z/rollback.sh
 ```
 
 脚本恢复上一版前后端及服务配置，保留新增数据库列和发布后的业务写入；不会自动恢复旧数据库。上一版已有账号保护、登录冷却及签署回存。单独 `rollback-ui.sh` 仅用于界面排障，旧建号界面不含新必填姓名字段，不能作为完整功能回退。
