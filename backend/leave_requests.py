@@ -78,6 +78,7 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
             manager = store.user(user['manager_username']) if user.get('manager_username') else None
         return {'username': actor['username'], 'name': display_name(user),
                 'role_tags': sorted(roles(actor)),
+                'initial_password_pending': bool(actor.get('initial_password_pending', False)),
                 'approver_name': display_name(manager) if manager else 'Administration',
                 'can_review': bool({'Admin', 'Responsable'} & roles(actor))}
 

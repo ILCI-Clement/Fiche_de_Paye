@@ -1,6 +1,6 @@
 export const workspacePages = {
   attendance: {
-    title: 'Création de fiches',
+    title: 'Fiches de temps',
     description: 'Retrouvez vos fiches par mois et préparez les exports ou la signature. Dans le calendrier, cliquez ou glissez sur les demi-journées pour sélectionner ; partez d’une case sélectionnée pour désélectionner, puis choisissez un statut et appliquez. Le bouton en bas à droite enregistre vos modifications.',
   },
   documents: {

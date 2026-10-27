@@ -6,7 +6,13 @@ if (-not (Test-Path -LiteralPath (Join-Path $taskState 'runtime.json'))) {
 }
 function Test-LocalPort([int]$Port) {
     # Probe only the requested loopback port; system-wide TCP inventory may be restricted.
-    & (Join-Path $taskRoot '.venv\Scripts\python.exe') -c 'import socket,sys; s=socket.socket(); s.settimeout(.5); status=s.connect_ex(("127.0.0.1",int(sys.argv[1]))); s.close(); sys.exit(0 if status==0 else 1)' $Port
+    @'
+import socket, sys
+with socket.socket() as connection:
+    connection.settimeout(.5)
+    status = connection.connect_ex(('127.0.0.1', int(sys.argv[1])))
+sys.exit(0 if status == 0 else 1)
+'@ | & (Join-Path $taskRoot '.venv\Scripts\python.exe') - $Port
     return $LASTEXITCODE -eq 0
 }
 if (-not (Test-LocalPort 3307)) {

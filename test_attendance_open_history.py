@@ -24,7 +24,7 @@ class AttendanceOpenHistoryTests(unittest.TestCase):
         self.config = {'mois': 10, 'annee': 2026, 'employes_data': [copy.deepcopy(self.saved)]}
         self.contracts = []
         self.access = Mock(return_value=True)
-        self.save = Mock(side_effect=lambda _owner, config, _actor, _revision:
+        self.save = Mock(side_effect=lambda _owner, config, _actor, _revision, **_options:
                          {'config': config, 'revision': config_revision(config)})
         self.db = MagicMock()
         cursor = self.db.cursor.return_value.__enter__.return_value

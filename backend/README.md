@@ -14,7 +14,11 @@ React 入口复用 `main.app`，注册考勤、签署、月度 Profile、员工�
 
 本地启动使用 `scripts/start_local_rebuild.ps1`，真实数据副本及凭据位于被忽略的 `.local-test/rebuild/`。本地禁止创建虚构账户和普通通知邮件；限时正式签署测试由独立策略控制。不要把本地入口、配置、数据库或密钥部署到服务器。
 
+本地新增随机初始密码与建号邮件开发，尚未上线。发布必须同步两套 API 的相关模块并先执行账户增列迁移，详见 [建号通知](../doc/account-onboarding.md)。首次登录仅提醒修改，不限制访问；邮件失败不回滚账号、不自动重发。
+
 代码定位见 [模块索引](../doc/modules.md)。
+
+本地待发布的负责人考勤修复：新版 `/attendance/*` 仅返回负责人可操作的表；保存时用完整配置版本加锁，原样保留不可操作的历史表，避免旧条目阻塞页面或被漏删。缺合同的响应带 `X-Attendance-Requirement: contract`，前端显示补录窗口。`POST /attendance/contracts/{username}` 仅允许有效 Admin 或该员工的直接 Responsable 新建覆盖所选月份的缺失合同，复用重叠校验和名册同步；已有合同仍按原管理权限执行。启动迁移新增 `contract_setup_events` 审计表，审计失败整笔回滚。部署需同时更新前后端并备份，尚未发布线上。
 
 旧 Streamlit 界面已从当前源码树分离，备案包与恢复方法见 [`archive/streamlit`](../archive/streamlit/README.md)。当前 Python 安装入口为根目录 `requirements.txt`（含 backend 依赖），不再依赖 Streamlit；保留 API 的 flat 导入和当前权限防护继续维护。线上现存 `presence-interface` 服务及旧部署目录未在这次本地整理中变更，后续发布不得直接将旧服务指向已精简的当前目录。
 

@@ -1,7 +1,10 @@
 import { request } from '../api'
 import type { Cell, Config, Day, SavedConfig, Workspace } from './types'
+import type { ContractInput } from '../admin/api'
 
 export const attendanceApi = {
+  completeContract: (token: string, username: string, month: number, year: number, contract: ContractInput) =>
+    request(`/attendance/contracts/${encodeURIComponent(username)}`, token, { method: 'POST', body: JSON.stringify({ ...contract, month, year }) }),
   workspace: (token: string, signal?: AbortSignal) => request<Workspace>('/attendance/workspace', token, { signal }),
   save: (token: string, config: Config, revision: string, deletedIds: string[] = []) => request<SavedConfig>('/attendance/save', token, { method: 'POST', body: JSON.stringify({ config, revision, deleted_ids: deletedIds }) }),
   open: (token: string, username: string, month: number, year: number, revision: string) => request<SavedConfig & { active_id: string }>(`/attendance/open/${encodeURIComponent(username)}`, token,

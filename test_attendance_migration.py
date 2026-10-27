@@ -64,7 +64,15 @@ class AttendanceMigrationTests(unittest.TestCase):
     def test_manager_cannot_export_outside_team(self):
         self.actor['role_tags'] = ['Responsable']
         self.access.return_value = False
-        self.assertEqual(self.export(['one']).status_code, 403)
+        # Hidden records are absent from the scoped workspace, including direct ID lookups.
+        self.assertEqual(self.export(['one']).status_code, 404)
+
+    def test_unversioned_writer_cannot_replace_a_scoped_manager_workspace(self):
+        self.actor['role_tags'] = ['Responsable']
+        response = self.client.post('/attendance/save', json={
+            'config': {'employes_data': []}, 'revision': '0' * 64})
+        self.assertEqual(response.status_code, 503)
+        self.save.assert_not_called()
 
     def test_calendar_preserves_unknown_legacy_fields(self):
         original = copy.deepcopy(self.config)

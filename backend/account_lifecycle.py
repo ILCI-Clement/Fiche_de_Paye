@@ -41,6 +41,8 @@ def _add_account_columns(cursor):
         cursor.execute('ALTER TABLE users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1')
     if 'session_version' not in columns:
         cursor.execute('ALTER TABLE users ADD COLUMN session_version INT NOT NULL DEFAULT 0')
+    if 'initial_password_pending' not in columns:
+        cursor.execute('ALTER TABLE users ADD COLUMN initial_password_pending TINYINT(1) NOT NULL DEFAULT 0')
     if 'login_deleted_at' not in columns:
         cursor.execute('ALTER TABLE users ADD COLUMN login_deleted_at DATETIME NULL DEFAULT NULL')
     cursor.execute('''CREATE TABLE IF NOT EXISTS account_status_events (

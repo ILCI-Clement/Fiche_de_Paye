@@ -38,7 +38,7 @@ export function ContractEditor({ token, username, busy, run, canDelete = false, 
   </>
 }
 
-function ContractForm({ current, busy, disabled, save }: { current?: Contract; busy: boolean; disabled: boolean; save: (data: ContractInput) => Promise<boolean> }) {
+export function ContractForm({ current, busy, disabled, save }: { current?: Contract; busy: boolean; disabled: boolean; save: (data: ContractInput) => Promise<boolean> }) {
   const [kind, setKind] = useState(current?.employee_type || 'salarie')
   const [start, setStart] = useState(current?.start_date || '')
   const [end, setEnd] = useState(current?.end_date || '')

@@ -28,6 +28,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
 
 if __package__:
+    from .account_onboarding import credentials_for_account, send_welcome_email
     from .account_names import AccountNames, ensure_account_names_schema
     from .login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
                               ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
@@ -38,6 +39,7 @@ if __package__:
                               ensure_role_audit_schema, is_admin, is_super_admin, record_role_change,
                               reserve_deleted_account_name, username_is_reserved)
 else:
+    from account_onboarding import credentials_for_account, send_welcome_email
     from account_names import AccountNames, ensure_account_names_schema
     from login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
                              ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
@@ -371,7 +373,8 @@ def load_user(cursor: pymysql.cursors.Cursor, username: str, *, person_names=Non
     cursor.execute(
         """
         SELECT username, email, password_hash, is_admin, role, role_tags, employee_type, manager_username,
-               contract_start_date, contract_end_date, is_cdi, created_at, is_active, session_version, login_deleted_at
+               contract_start_date, contract_end_date, is_cdi, created_at, is_active, session_version, login_deleted_at,
+               initial_password_pending
         FROM users WHERE username = %s
         """,
         (username,),
@@ -449,6 +452,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "role_tags": user["role_tags"],
         "is_admin": is_admin(user),
         "is_active": bool(user.get("is_active", True)),
+        "initial_password_pending": bool(user.get('initial_password_pending', False)),
         "login_deleted_at": user.get("login_deleted_at"),
         "employee_type": user.get("employee_type") or "salarie",
         "manager_id": user.get("manager_username"),
@@ -805,6 +809,14 @@ def require_target_access(cursor: pymysql.cursors.Cursor, actor: dict[str, Any],
     raise HTTPException(status_code=403, detail="Cet utilisateur ne fait pas partie de votre périmètre.")
 
 
+def send_account_welcome_email(email: str, name: str, password: str, generated: bool) -> bool:
+    if getattr(app.state, 'local_snapshot', False):
+        return False
+    return send_welcome_email(email=email, name=name, password=password, generated=generated,
+                              app_url=STREAMLIT_APP_URL, server=SMTP_SERVER, port=SMTP_PORT,
+                              sender=SMTP_USER, smtp_password=SMTP_PASSWORD)
+
+
 def send_password_reset_email(email: str, token: str) -> bool:
     reset_url = f"{STREAMLIT_APP_URL}/?token={token}"
     message = MIMEMultipart()
@@ -1114,12 +1126,16 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
     # E-mail is the user-facing login. A stable opaque ID keeps namesakes and
     # subsequent name changes separate from ownership and historical records.
     username = str(payload.get("new_username", "")).strip() or ('u_' + secrets.token_hex(12))
-    email = str(payload.get("new_mail", "")).strip()
-    password = str(payload.get("new_password", ""))
+    try:
+        credentials = credentials_for_account(payload)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    email = credentials.email
+    password = credentials.password.get_secret_value()
     tags = requested_role_tags(payload)
     employee_type = str(payload.get("employee_type") or "salarie")
-    if not username or not email or len(password) < 8:
-        raise HTTPException(status_code=400, detail="Nom, e-mail et mot de passe de 8 caractères minimum sont obligatoires.")
+    if not username:
+        raise HTTPException(status_code=400, detail="L’identifiant du compte est obligatoire.")
     if employee_type not in VALID_EMPLOYEE_TYPES:
         raise HTTPException(status_code=400, detail="Type de personnel invalide.")
     if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"] and tags != ["Employe"]:
@@ -1133,6 +1149,9 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
                 raise HTTPException(status_code=403, detail="Vous ne pouvez pas attribuer ces droits.")
             if username_is_reserved(cursor, username):
                 raise HTTPException(status_code=409, detail="Ce nom de compte est réservé et ne peut pas être réutilisé.")
+            cursor.execute('SELECT username FROM users WHERE LOWER(TRIM(email))=LOWER(%s) LIMIT 1', (email,))
+            if cursor.fetchone():
+                raise HTTPException(400, 'Cette adresse e-mail est déjà utilisée.')
             group_ids = validate_group_ids(cursor, list(payload.get("group_ids") or []))
             managed_group_ids = validate_group_ids(cursor, list(payload.get("managed_group_ids") or []))
             manager_username = payload.get("manager_id")
@@ -1153,18 +1172,17 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
 
             cursor.execute(
                 """
-                INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username, first_name, last_name)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username, first_name, last_name, initial_password_pending)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type, manager_username,
-                 names.first_name, names.last_name),
+                 names.first_name, names.last_name, credentials.generated),
             )
             cursor.execute("UPDATE users SET role_tags = %s WHERE username = %s", (json.dumps(tags), username))
             replace_memberships(cursor, username, "member", group_ids)
             replace_memberships(cursor, username, "manager", managed_group_ids if "Responsable" in tags else [])
             record_role_change(cursor, actor['username'], username, [], tags, action='created')
         connection.commit()
-        return {"status": "success", "message": "Compte créé."}
     except pymysql.err.IntegrityError:
         connection.rollback()
         raise HTTPException(status_code=400, detail="Ce nom ou cet e-mail est déjà utilisé.") from None
@@ -1173,6 +1191,14 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
         raise
     finally:
         connection.close()
+
+    # Account creation is committed once before SMTP. A mail failure must not
+    # report creation failure or invite the administrator to create it again.
+    try:
+        email_sent = send_account_welcome_email(email, names.full_name, password, credentials.generated)
+    except Exception:
+        email_sent = False  # Do not echo SMTP errors or plaintext credentials.
+    return {'status': 'success', 'message': 'Compte créé.', 'welcome_email_sent': email_sent}
 
 
 def admin_job_titles(cursor: pymysql.cursors.Cursor, actor: dict[str, Any],
@@ -1689,6 +1715,7 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
             params: list[Any] = []
             target_username = username
             target_email = str(user["email"])
+            next_session_version = user.get('session_version', 0)
             if payload.new_username and payload.new_username != username:
                 existing_name = load_user(cursor, payload.new_username)
                 same_identity = bool(existing_name and existing_name['username'] == user['username'])
@@ -1713,6 +1740,11 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                         "UPDATE users SET remember_token_hash = NULL, remember_token_expires = NULL WHERE username = %s",
                         (target_username,),
                     )
+                    if user.get('initial_password_pending'):
+                        next_session_version += 1
+                        cursor.execute('''UPDATE users SET initial_password_pending=0, session_version=%s,
+                            reset_token=NULL, reset_token_expires=%s WHERE username=%s''',
+                                       (next_session_version, datetime.now() - timedelta(seconds=1), target_username))
                 if target_username != username:
                     cursor.execute("UPDATE Presence SET user_id = %s WHERE user_id = %s", (target_username, username))
                     cursor.execute("UPDATE user_group_memberships SET username = %s WHERE username = %s", (target_username, username))
@@ -1760,7 +1792,7 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
             "status": "success",
             "message": "Profil mis à jour.",
             "username": target_username,
-            "auth_token": create_session_token(target_username, user.get("session_version", 0)),
+            "auth_token": create_session_token(target_username, next_session_version),
         }
     except pymysql.err.IntegrityError:
         raise HTTPException(status_code=400, detail="Ce nom ou cet e-mail est déjà utilisé.") from None
@@ -1808,7 +1840,9 @@ def reset_password(payload: dict[str, Any]) -> dict[str, str]:
                 raise HTTPException(status_code=400, detail="Token invalide ou expiré.")
             cursor.execute(
                 "UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expires = %s, "
-                "remember_token_hash = NULL, remember_token_expires = NULL WHERE username = %s",
+                "remember_token_hash = NULL, remember_token_expires = NULL, "
+                "session_version = session_version + IF(initial_password_pending=1,1,0), "
+                "initial_password_pending=0 WHERE username = %s",
                 (hash_password(new_password), datetime.now() - timedelta(seconds=1), user["username"]),
             )
         connection.commit()
@@ -1845,7 +1879,7 @@ def save_config(user_id: str, data: dict[str, Any], actor: dict[str, Any] = Depe
     return {"status": "success"}
 
 
-def save_config_checked(user_id, data, actor, expected_revision=None, *, confirmed_deletions=None):
+def save_config_checked(user_id, data, actor, expected_revision=None, *, confirmed_deletions=None, preserve_hidden=False):
     if __package__:
         from .attendance_revision import config_revision, require_revision
     else:
@@ -1861,11 +1895,22 @@ def save_config_checked(user_id, data, actor, expected_revision=None, *, confirm
             if isinstance(old_config, str):
                 old_config = json.loads(old_config)
             require_revision(old_config, expected_revision)
-            validate_manager_save(cursor, actor, old_config, data, load_user, user_can_manage,
+            scoped = preserve_hidden and not is_admin(actor)
+            previous, hidden = attendance_scope(cursor, actor, old_config, load_user, user_can_manage) if scoped else (old_config, [])
+            if not isinstance(data.get('employes_data', []), list) or any(
+                    not isinstance(sheet, dict) for sheet in data.get('employes_data', [])):
+                raise HTTPException(400, 'La liste des fiches est invalide.')
+            validate_manager_save(cursor, actor, previous, data, load_user, user_can_manage,
                                   workspace_owner=user_id, confirmed_deletions=confirmed_deletions)
             serialize_fiche_config(data)
-            link_fiche_records_to_users(cursor, data)
+            # Scoped React sheets already carry verified account IDs. Never run
+            # legacy name/e-mail relinking against protected historical records.
+            if not scoped:
+                link_fiche_records_to_users(cursor, data)
             sync_contract_dates_from_config(cursor, data)
+            if scoped:
+                data_visible = json.loads(serialize_fiche_config(data)).get('employes_data', [])
+                data = preserve_hidden_sheets(old_config, data, hidden)
             serialized = serialize_fiche_config(data)
             cursor.execute(
                 """
@@ -1876,7 +1921,13 @@ def save_config_checked(user_id, data, actor, expected_revision=None, *, confirm
             )
         connection.commit()
         canonical = json.loads(serialized)
-        return {"status": "success", "config": canonical, "revision": config_revision(canonical)}
+        response = canonical
+        if scoped:
+            # Membership may change on the next request; this response uses the
+            # same locked actor and scope that validated this transaction.
+            response = {**canonical, 'employes_data': data_visible}
+        return {"status": "success", "config": response, "revision": config_revision(canonical),
+                **({'hidden_sheet_count': len(hidden)} if preserve_hidden else {})}
     except Exception:
         connection.rollback()
         raise
@@ -1893,7 +1944,7 @@ if __package__:
     from .personnel_store import rename_personnel_account_link
     from .team_directory import register_team_directory
     from .contract_history import register_contract_history
-    from .attendance_permissions import validate_manager_save
+    from .attendance_permissions import attendance_scope, preserve_hidden_sheets, validate_manager_save
     from .documents import register_document_routes
     from .esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
 else:
@@ -1904,7 +1955,7 @@ else:
     from personnel_store import rename_personnel_account_link
     from contract_history import register_contract_history
     from team_directory import register_team_directory
-    from attendance_permissions import validate_manager_save
+    from attendance_permissions import attendance_scope, preserve_hidden_sheets, validate_manager_save
     from documents import register_document_routes
     from esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
 

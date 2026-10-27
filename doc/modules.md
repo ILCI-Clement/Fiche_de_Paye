@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | React 前端 | `frontend/src/main.tsx` → `App.tsx` → `AppWorkspace.tsx` | 本地 5173 |
 | 线上 API | `backend/rebuild_server.py`，复用 `backend/main.py` | `presence-react-api`，8015 |
-| 独立本地 API | `backend/local_rebuild.py` | 8013，独立 MySQL 3307 |
+| 独立本地 API | `backend/local_rebuild.py` | 8013，独立 MySQL 3307；另有 [Responsable 合成测试账号](responsable-qa-account.md)，仅本地 5174 / 8014 与独立 QA 数据库 |
 | 保留 API | `backend/main.py` 的 flat 导入布局 | API 8001；仍保留会话和权限保护 |
 | 旧界面备案 | `archive/streamlit/source.zip`、Git 标签 `archive/streamlit-20261023` | 独立解压查阅；线上旧服务另行维护 |
 
@@ -22,7 +22,7 @@
 | --- | --- |
 | 导航、页面加载、主题 | `AppWorkspace.tsx`；`workspacePages.ts` 管理标题/悬停说明；`workspaceToolbar.ts`、`components/WorkspaceToolbar.tsx` 管理当前页工具栏；`ThemeModeProvider.tsx`、`theme.ts`、`index.css` 管理深浅主题和布局 |
 | 草稿保护 | `draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx`；`components/DraftStatus.tsx` 在右下角显示紧凑悬浮状态，考勤与保存按钮合并；不占页面布局，离开确认保持；已打开页面保留状态，隐藏页不挂载工具栏 |
-| 考勤 | `attendance/AttendancePage.tsx`；`AttendanceToolbar.tsx` / `PeriodToolbar.tsx` 顶栏；`FicheEditor.tsx` 编辑；`FicheExportMenu.tsx` 导出菜单 |
+| 考勤 | `attendance/AttendancePage.tsx`；`AttendanceToolbar.tsx` / `PeriodToolbar.tsx` 顶栏；`FicheEditor.tsx` 编辑；`FicheExportMenu.tsx` 导出菜单；`AttendanceContractDialog.tsx` 复用 `admin/ContractEditor.tsx` 的表单补录缺失合同 |
 | 日历 | `attendance/AttendanceCalendar.tsx`、`useCalendarSelection.ts`、`calendarStatus.ts`；半天拖选、批量应用及状态颜色 |
 | 签署与批量结果 | `attendance/SignaturePreview.tsx`、`components/BatchExportResult.tsx`；下载和签署独立，异常提交不自动重发 |
 | 已签文件 | `attendance/SignedFichesPanel.tsx`、`signedFichesApi.ts`；考勤顶部 Signatures 页签与个人 Profile 月度列表；每页 20 项、共用 DocumentPreview、管理员月度 ZIP；正式版仅显示正式文件，本地保留生产/SPECIMEN 切换 |
@@ -56,12 +56,13 @@
 | `login_guard.py` | 密码连续失败 5 次冷却 10 分钟；未满 5 次距上次失败满 10 分钟重置。users 行锁与 UTC 持久计数/时间，用户名/邮箱共用状态，HTTP 429 + Retry-After；成功清零。已上线 |
 | `account_lifecycle.py` / `account_purge.py` | 停用/恢复、删除登录、状态历史；永久删除前检查业务依赖，禁止级联清理他人资料 |
 | `account_names.py` / `person_names.py` | 建号必填姓/名、users 仅增列迁移；统一显示优先关联名册的结构化姓/名，再用账号姓/名、旧名册全名、邮箱前缀。不猜测旧姓名，不读 NIR 等隐私字段 |
+| `account_onboarding.py` | 建号邮箱校验、后端安全随机 8 位大写字母＋数字、初始密码邮件（TLS）；仅在建号提交后尝试一次，返回发送结果、不保存或返回原密码。`account_lifecycle.py` 增列 `initial_password_pending`，`/leave/session` 返回建议改密标志；前端 `CreateAccount.tsx` 选择随机/手动，`AppWorkspace.tsx` 提醒修改但不限制访问。开发说明见 [建号通知](account-onboarding.md)，尚未上线 |
 | `personnel_register.py` / `personnel_rules.py` / `personnel_store.py` | 员工名册路由、校验、存储及审计；`/personnel-register*`、`/account-personnel/{username}`、`/choices`、`/link` |
 | `personnel_sensitive.py` | 独立 keyring、AES-256-GCM、员工 ID 绑定和短时查看保护 |
 | `personnel_export.py` | 按 `template/Exemple-de-modele-de-registre-unique-du-personnel.xlsx` 生成 Excel；复用名册筛选、全部分页、每段任职一行；`POST /personnel-register/export.xlsx` 仅有效管理员并要求敏感导出确认，包含 NIR 明文且先提交逐人审计，不在服务器保存文件 |
-| `attendance_api.py` / `attendance_revision.py` | `/attendance/workspace`、`/save`、`/open/{username}`、`/calendar/{id}`、`/export`；事务内校验配置版本 |
-| `attendance_permissions.py` | 保存字段与历史 ID 核对；Admin 归档，SuperAdmin 明确确认后才可删除 |
-| `contract_history.py` / `personnel_contract_sync.py` | 合同期间、重叠校验、归档/恢复；`/users/{username}/contracts*`；关联名册按稳定 ID 同步入职与合同预计结束日期，实际离职独立（已上线）；被考勤或名册引用的合同不可删除 |
+| `attendance_api.py` / `attendance_revision.py` | `/attendance/workspace`、`/save`、`/open/{username}`、`/calendar/{id}`、`/export`；事务内校验完整配置版本；本地负责人隔离历史表与合同补录见 [修复说明](responsable-attendance-fix.md) |
+| `attendance_permissions.py` | 保存字段与历史 ID 核对；`attendance_scope` 隔离不可操作历史表，`preserve_hidden_sheets` 在完整版本锁内原样合并；Admin 归档，SuperAdmin 明确确认后才可删除 |
+| `contract_history.py` / `personnel_contract_sync.py` | 合同期间、重叠校验、归档/恢复；`/users/{username}/contracts*`；本地新增 `POST /attendance/contracts/{username}` 允许 Admin 或直接负责人补录缺少的当月合同并写入 `contract_setup_events`；关联名册按稳定 ID 同步入职与合同预计结束日期，实际离职独立（已上线）；被考勤或名册引用的合同不可删除 |
 | `documents.py` / `document_numbers.py` | `/transport-receipts*` 上传、搜索数据、下载、ZIP、改月、归档和受控删除；按巴黎上传日分配 `YYYYMMDD-0001`，删除不回收编号 |
 | `esign.py` / `signature_flow.py` / `signature_placement.py` | PDF 转换、当前直接负责人解析、双签顺序和签名定位；`/fiches/pdf`、`/send-fiche`、`/esign/documents/{token}` |
 | `attendance_signatures.py` / `signature_attempts.py` / `server_signing_readiness.py` | React 预检/发送、幂等回执、配置就绪检查；`/attendance/signature-preview`、`/signature-send` |
@@ -126,3 +127,11 @@
 前端随后独立更新为 `admin-workspace-ui-20261023T151905Z` / `63ef6c3935f2`，Admin 导航集中分组并显示区域标识；API 保持上述版本。静态目录、核对与独立界面回退见 [Admin 分组发布记录](releases/admin-workspace-ui-20261023.md)。
 
 最新前端为 `ux-polish-ui-20261023T174314Z` / `4ce4a8710f49`，发布紧凑草稿提示、日历选择同行提示、签署窗口精简、模板式名册页签、详情悬浮窗口和简化登录文案；API 保持账号姓名版本。核对范围、静态目录和逐层回退见 [界面整理发布记录](releases/ux-polish-ui-20261023.md)。
+
+## Responsable 流程验证（2026-10-26）
+
+`test_responsable_workflow_mysql.py` 使用本机 3307、连接级 MySQL TEMPORARY 表、合成人员与真实 JWT/数据库角色校验，串联建号、名册关联、合同、负责人创建工时表、半天修改、保存与重新打开；SMTP 替换为测试 mock，不修改永久业务表。需显式设置 `PRESENCE_MYSQL_TEMP_TEST=1`。与负责人权限、历史月份、版本保护、名册关联及登记回归合计 63 项，在本地源码与最近发布 API 提交 `b6ca83d5e046` 对应源码均通过；前端纯逻辑测试 46 项通过。未登录线上 Robin 账号核验实际数据，也未进行浏览器端完整验收或真实签署/邮件发送。
+
+已复现的业务边界：登记名册不自动建号；关联账号后，仅填入职日期且未设 CDI/合同预计结束日期，不一定生成考勤合同，团队可见仍可能因当月无有效合同返回 409。完整关联任职日期可同步创建合同，也可由 Admin 在 Administration 维护。考勤工作区目前仍按操作者账号保存，Admin 和负责人不会自动共享同一份草稿；若保存的工作区包含已调出管理范围的人员，读取会明确返回 409 并保留原数据，不会静默删除历史。这些限制已在新增测试中固定记录，不能将本轮通过等同于线上个案已修复。
+
+2026-10-27 线上只读个案排查：使用当前部署源码的账户读取/权限函数与考勤路由，在独立进程中连接只读事务，禁用保存回调，未导入主应用或执行启动迁移。确认管理权限正常时，旧工作区缺少 `account_username` 的记录仍会在 `require_employee` 中判为不可访问，继而由 workspace 全量一致性检查返回 409、阻止整个编辑页加载；目标账号没有 `personnel_contracts` 记录时，新建另返回缺少当月合同的 409。线上日志存在对应 workspace 409；没有写入生产资料、重启服务或发布。新增 MySQL 临时表测试固定“名单可见＋历史未关联表＋目标无合同”组合，与权限/历史回归共 18 项通过，属于故障复现而非修复完成。

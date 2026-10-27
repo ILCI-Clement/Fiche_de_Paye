@@ -9,6 +9,7 @@ export interface Session {
   role_tags: string[]
   approver_name: string
   can_review: boolean
+  initial_password_pending?: boolean
 }
 export interface LeaveInput {
   start_date: string

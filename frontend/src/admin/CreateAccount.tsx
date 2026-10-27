@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from '@mui/material'
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Switch, TextField, Typography } from '@mui/material'
 import { useDraftGuard } from '../draftGuard'
-import { request } from '../api'
+import { ApiError, request } from '../api'
 import { OrganizationFields } from './OrganizationFields'
 import type { AdminUser, OrganizationInput, RunAction } from './api'
 import type { Group } from '../team/api'
@@ -14,37 +14,56 @@ export function CreateAccount({ token, users, groups, allowSuperAdmin, enabled, 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [generatePassword, setGeneratePassword] = useState(false)
+  const [created, setCreated] = useState<{ emailSent: boolean } | null>(null)
   const [organization, setOrganization] = useState(initial)
-  const close = useDraftGuard(!!firstName || !!lastName || !!email || !!password || !!confirmation || JSON.stringify(organization) !== JSON.stringify(initial()), busy, 'Nouveau compte')
+  const close = useDraftGuard(!created && (!!firstName || !!lastName || !!email || !!password || !!confirmation || generatePassword || JSON.stringify(organization) !== JSON.stringify(initial())), busy, 'Nouveau compte')
   const disabled = busy || !enabled
   async function create() {
-    if (disabled || password !== confirmation || password.length < 8) return
+    if (disabled || created || !email.trim() || (!generatePassword && (password !== confirmation || password.length < 8))) return
     const first_name = firstName.trim().replace(/\s+/g, ' ')
     const last_name = lastName.trim().replace(/\s+/g, ' ')
     if (!first_name || !last_name || `${first_name} ${last_name}`.length > 200) { setNameError('Les prénoms et le nom sont obligatoires (200 caractères maximum au total).'); return }
     setNameError('')
-    const ok = await run(() => request('/create-user', token, { method: 'POST', body: JSON.stringify({ first_name, last_name, new_mail: email.trim(), new_password: password, ...organization }) }), 'Compte créé.')
-    if (ok) onClose()
+    await run(async () => {
+      try {
+        const result = await request<{ welcome_email_sent?: boolean }>('/create-user', token, { method: 'POST', body: JSON.stringify({ first_name, last_name, new_mail: email.trim(), generate_password: generatePassword, ...(generatePassword ? {} : { new_password: password }), ...organization }) }, { timeout: 90000 })
+        setCreated({ emailSent: result.welcome_email_sent === true }); setPassword(''); setConfirmation('')
+        return result
+      } catch (failure) {
+        if (failure instanceof ApiError && failure.status === 0) throw new Error('Réponse non reçue. Vérifiez la liste des comptes avant de réessayer pour éviter un doublon.')
+        throw failure
+      }
+    }, 'Compte créé.')
   }
-  return <Dialog open fullWidth maxWidth="md" aria-labelledby="create-account-title" onClose={() => { if (!busy) close(onClose) }}>
+  return <Dialog open fullWidth maxWidth="md" aria-labelledby="create-account-title" onClose={() => { if (!busy) { if (created) onClose(); else close(onClose) } }}>
     <Box component="form" onSubmit={e => { e.preventDefault(); void create() }}>
     <DialogTitle id="create-account-title">Créer un compte</DialogTitle>
     <DialogContent>
+    {created ? <Alert severity={created.emailSent ? 'success' : 'warning'}>
+      {created.emailSent ? `Compte créé. L’e-mail contenant le mot de passe initial a été transmis pour envoi à ${email.trim()}.`
+        : 'Compte créé, mais l’envoi de l’e-mail n’a pas été confirmé. Ne recréez pas le compte : vérifiez la configuration d’envoi, puis utilisez « Mot de passe oublié ? » pour définir un nouveau mot de passe.'}
+    </Alert> : <>
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     {nameError && <Alert severity="error" sx={{ mb: 2 }}>{nameError}</Alert>}
     {!enabled && <Alert severity="info" sx={{ mb: 2 }}>Le formulaire est disponible, mais la création de comptes est désactivée ou indisponible dans cet environnement.</Alert>}
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, pt: 1 }}>
       <TextField label="Prénoms" autoComplete="given-name" required value={firstName} disabled={disabled} onChange={e => setFirstName(e.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
       <TextField label="Nom" autoComplete="family-name" required value={lastName} disabled={disabled} onChange={e => setLastName(e.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
-      <TextField label="E-mail du nouveau compte" type="email" required value={email} disabled={disabled} onChange={e => setEmail(e.target.value)} sx={{ gridColumn: '1 / -1' }} />
-      <TextField label="Mot de passe initial" type="password" autoComplete="new-password" required value={password} disabled={disabled} onChange={e => setPassword(e.target.value)} slotProps={{ htmlInput: { minLength: 8 } }} />
-      <TextField label="Confirmer le mot de passe initial" type="password" autoComplete="new-password" required value={confirmation} disabled={disabled} error={!!confirmation && password !== confirmation} onChange={e => setConfirmation(e.target.value)} />
+      <TextField label="E-mail du nouveau compte" type="email" required value={email} disabled={disabled} onChange={e => setEmail(e.target.value)} helperText="Le mot de passe initial sera envoyé à cette adresse." slotProps={{ htmlInput: { maxLength: 254 } }} sx={{ gridColumn: '1 / -1' }} />
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <FormControlLabel control={<Switch checked={generatePassword} disabled={disabled} onChange={event => { setGeneratePassword(event.target.checked); setPassword(''); setConfirmation('') }} />} label="Générer un mot de passe temporaire" />
+        {generatePassword && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>8 caractères : lettres majuscules et chiffres. Modification conseillée après connexion.</Typography>}
+      </Box>
+      {!generatePassword && <><TextField label="Mot de passe initial" type="password" autoComplete="new-password" required value={password} disabled={disabled} onChange={e => setPassword(e.target.value)} slotProps={{ htmlInput: { minLength: 8, maxLength: 72 } }} />
+      <TextField label="Confirmer le mot de passe initial" type="password" autoComplete="new-password" required value={confirmation} disabled={disabled} error={!!confirmation && password !== confirmation} onChange={e => setConfirmation(e.target.value)} /></>}
       <OrganizationFields value={organization} onChange={setOrganization} users={users} groups={groups} disabled={disabled} allowSuperAdmin={allowSuperAdmin} />
     </Box>
+    </>}
     </DialogContent>
     <DialogActions sx={{ px: 3, pb: 3 }}>
-      <Button disabled={busy} onClick={() => close(onClose)}>Annuler</Button>
-      <Button type="submit" variant="contained" disabled={disabled || !firstName.trim() || !lastName.trim() || password !== confirmation || !organization.role_tags.length}>{busy ? 'Création…' : 'Créer le compte'}</Button>
+      <Button disabled={busy} onClick={() => { if (created) onClose(); else close(onClose) }}>{created ? 'Fermer' : 'Annuler'}</Button>
+      {!created && <Button type="submit" variant="contained" disabled={disabled || !firstName.trim() || !lastName.trim() || !email.trim() || (!generatePassword && (password !== confirmation || password.length < 8)) || !organization.role_tags.length}>{busy ? 'Création…' : 'Créer le compte'}</Button>}
     </DialogActions>
     </Box>
   </Dialog>

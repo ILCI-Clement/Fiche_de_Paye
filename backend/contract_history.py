@@ -1,5 +1,6 @@
 """Administrator-maintained, non-overlapping personnel contracts."""
 from datetime import date
+from calendar import monthrange
 import json
 from typing import Literal
 from fastapi import Depends, HTTPException
@@ -19,6 +20,12 @@ class ContractInput(BaseModel):
     start_date: date
     end_date: date | None = None
     is_cdi: bool = False
+
+
+class AttendanceContractInput(ContractInput):
+    model_config = ConfigDict(extra='forbid')
+    month: int = Field(ge=1, le=12)
+    year: int = Field(ge=2000, le=2100)
 
 
 class ContractArchiveInput(BaseModel):
@@ -125,6 +132,11 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
                     FROM users u WHERE u.contract_start_date IS NOT NULL
                     AND (u.is_cdi OR u.contract_end_date >= u.contract_start_date)
                     AND NOT EXISTS (SELECT 1 FROM personnel_contracts c WHERE c.username=u.username)''')
+                cur.execute('''CREATE TABLE IF NOT EXISTS contract_setup_events (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    contract_id BIGINT NOT NULL, employee_username VARCHAR(255) NOT NULL,
+                    actor_username VARCHAR(255) NOT NULL, fiche_month INT NOT NULL, fiche_year INT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
             db.commit()
         finally:
             db.close()
@@ -141,7 +153,7 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
         finally:
             db.close()
 
-    def save(username, payload, contract_id, actor):
+    def save(username, payload, contract_id, actor, *, attendance_period=None):
         if payload.is_cdi and payload.employee_type == 'stagiaire':
             raise HTTPException(400, 'Un stage doit avoir une date de fin.')
         end = None if payload.is_cdi else payload.end_date
@@ -149,14 +161,36 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
             raise HTTPException(400, 'La date de fin est obligatoire hors CDI.')
         if end and end < payload.start_date:
             raise HTTPException(400, 'La fin ne peut pas précéder le début.')
+        if attendance_period:
+            month, year = attendance_period
+            first, last = date(year, month, 1), date(year, month, monthrange(year, month)[1])
+            if payload.start_date > last or (end is not None and end < first):
+                raise HTTPException(400, 'Le contrat doit couvrir le mois sélectionné.')
         db = connect()
         try:
             with db.cursor() as cur:
-                current_actor = locked_admin(cur, actor)
+                if attendance_period:
+                    current_actor = checked_resource_actor(cur, actor, load_account, lock=True)
+                    target = load_account(cur, username)
+                    if not target or not target.get('is_active', True) or target.get('login_deleted_at'):
+                        raise HTTPException(404, 'Compte actif introuvable.')
+                    if not is_admin(current_actor) and not (
+                            'Responsable' in current_actor['role_tags']
+                            and 'Employe' in target['role_tags'] and not is_admin(target)
+                            and target.get('manager_username') == current_actor['username']
+                            and target['username'] != current_actor['username']):
+                        raise HTTPException(403, 'Seul un Admin ou le responsable direct peut compléter ce contrat.')
+                else:
+                    current_actor = locked_admin(cur, actor)
                 # Serialize edits per person to prevent two concurrent overlapping inserts.
                 cur.execute('SELECT username FROM users WHERE username=%s FOR UPDATE', (username,))
                 if not cur.fetchone():
                     raise HTTPException(404, 'Personne introuvable.')
+                if attendance_period:
+                    cur.execute('''SELECT id FROM personnel_contracts WHERE username=%s AND is_archived=0
+                        AND start_date<=%s AND (end_date IS NULL OR end_date>=%s)''', (username, last, first))
+                    if cur.fetchone():
+                        raise HTTPException(409, 'Un contrat couvre déjà ce mois. Actualisez puis ouvrez la fiche.')
                 archived = False
                 if contract_id is not None:
                     cur.execute('SELECT id,is_archived FROM personnel_contracts WHERE id=%s AND username=%s FOR UPDATE', (contract_id, username))
@@ -180,6 +214,10 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
                 # Keep existing dashboard fields consistent with the contract active today.
                 sync_current_contract(cur, username)
                 sync_account_contracts(cur, username, current_actor['username'])
+                if attendance_period:
+                    cur.execute('''INSERT INTO contract_setup_events
+                        (contract_id,employee_username,actor_username,fiche_month,fiche_year)
+                        VALUES (%s,%s,%s,%s,%s)''', (contract_id, username, current_actor['username'], month, year))
             db.commit()
             return {'status':'success','contract_id':contract_id}
         except Exception:
@@ -191,6 +229,11 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
     @app.post('/users/{username}/contracts')
     def create_contract(username: str, payload: ContractInput, actor=Depends(require_roles('Admin'))):
         return save(username,payload,None,actor)
+
+    @app.post('/attendance/contracts/{username}')
+    def complete_attendance_contract(username: str, payload: AttendanceContractInput, actor=Depends(get_current_user)):
+        # Creation only: existing contract modification/archive/delete stays Admin-only.
+        return save(username, payload, None, actor, attendance_period=(payload.month, payload.year))
 
     @app.patch('/users/{username}/contracts/{contract_id}')
     def update_contract(username: str, contract_id: int, payload: ContractInput, actor=Depends(require_roles('Admin'))):

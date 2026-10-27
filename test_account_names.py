@@ -46,7 +46,7 @@ class AccountCreationNameTests(unittest.TestCase):
     @staticmethod
     def payload(**changes):
         return {'first_name': '  Élodie  Anne ', 'last_name': 'Durand',
-                'new_mail': 'synthetic-new@example.invalid', 'new_password': 'synthetic-unit-only',
+                'new_mail': 'synthetic-new@example.com', 'new_password': 'synthetic-unit-only',
                 'role_tags': ['Employe'], 'manager_id': 'admin', **changes}
 
     def test_create_persists_separate_names_with_opaque_id_and_keeps_old_accounts(self):
@@ -58,7 +58,7 @@ class AccountCreationNameTests(unittest.TestCase):
         self.assertRegex(key, r'^u_[0-9a-f]{24}$')
         self.assertEqual(row['first_name'], 'Élodie Anne')
         self.assertEqual(row['last_name'], 'Durand')
-        self.assertEqual(row['email'], 'synthetic-new@example.invalid')
+        self.assertEqual(row['email'], 'synthetic-new@example.com')
         self.assertEqual(row['password_hash'], 'synthetic-hash')
         self.assertEqual(set(self.fixture.users) & before, before)
 

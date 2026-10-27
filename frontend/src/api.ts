@@ -3,7 +3,8 @@ import type { Filter, LeaveDetail, LeaveInput, LeaveList, LeaveRequest, Scope, S
 export class ApiError extends Error {
   status: number
   retryAfterSeconds?: number
-  constructor(message: string, status: number, retryAfterSeconds?: number) { super(message); this.status = status; this.retryAfterSeconds = retryAfterSeconds }
+  requirement?: string
+  constructor(message: string, status: number, retryAfterSeconds?: number, requirement?: string) { super(message); this.status = status; this.retryAfterSeconds = retryAfterSeconds; this.requirement = requirement }
 }
 
 export async function request<T>(path: string, token: string | null, init?: RequestInit, options?: { blob?: boolean; timeout?: number }): Promise<T> {
@@ -32,7 +33,8 @@ export async function request<T>(path: string, token: string | null, init?: Requ
       ? detail.map((item: { msg: string }) => item.msg.replace(/^Value error, /, '')).join(' ')
       : 'Une erreur est survenue. Veuillez réessayer.'
     const retryAfter = Number(response.headers.get('Retry-After'))
-    throw new ApiError(message, response.status, response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined)
+    throw new ApiError(message, response.status, response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+      response.headers.get('X-Attendance-Requirement') || undefined)
   }
   if (body === null) throw new ApiError('Réponse du serveur invalide.', response.status)
   return body as T

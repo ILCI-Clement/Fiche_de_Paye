@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Session } from '../types'
 import { attendanceApi, downloadFile } from './api'
 import { accountSheetPeriods, attendancePersonName, ficheLabel, withAttendanceLabels } from './types'
-import type { Cell, Config, Fiche, SavedConfig, Workspace } from './types'
+import type { Account, Cell, Config, Fiche, SavedConfig, Workspace } from './types'
 import { FicheEditor } from './FicheEditor'
 import { AttendanceCalendar } from './AttendanceCalendar'
 import { SignaturePreview } from './SignaturePreview'
@@ -26,6 +26,7 @@ import type { ExportResult } from '../components/BatchExportResult'
 import { periodLabel } from '../documents/api'
 import { personDisplayName } from '../personDisplayName'
 import { DraftStatus } from '../components/DraftStatus'
+import { AttendanceContractDialog } from './AttendanceContractDialog'
 
 interface EditorState { dirty: boolean; busy: boolean }
 
@@ -56,6 +57,8 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [hiddenCount, setHiddenCount] = useState(workspace.hidden_sheet_count || 0)
+  const [missingContract, setMissingContract] = useState<Account | null>(null)
   const [pendingCalendar, setPendingCalendar] = useState(false)
   const protectSelection = useDraftGuard(pendingCalendar, busy, 'Sélection du calendrier à appliquer')
   const operation = useRef(false)
@@ -85,6 +88,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   }
   function ficheDisplayLabel(fiche: Fiche) { return ficheLabel(fiche, personNameFor(fiche)) }
   function syncLabels(saved: SavedConfig) {
+    if (typeof saved.hidden_sheet_count === 'number') setHiddenCount(saved.hidden_sheet_count)
     if (saved.person_labels) client.setQueryData<Workspace>(['attendance-workspace', session.username], previous => previous ? withAttendanceLabels(previous, saved) : previous)
   }
   function setPeriod(m: number, y: number) { protectSelection(() => { setMonth(m); setYear(y); setDeleteConfirm(null) }) }
@@ -136,19 +140,34 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
       setConfig(next.config); setDirty(false); setVersion(v => v + 1); setMessage('Présences enregistrées.')
     })
   }
+  async function openAccount(username: string) {
+    if (dirty) await persist()
+    const result = await attendanceApi.open(token, username, month, year, revision.current)
+    revision.current = result.revision; syncLabels(result)
+    setConfig(result.config); setDirty(false); setArchived(false); setActive(a => ({ ...a, [period]: result.active_id })); setMessage('Fiche ouverte.'); setVersion(v => v + 1)
+  }
   return <Box className="workspace attendance-workspace" sx={{ '&.workspace': { maxWidth: 'none', px: { xs: 1.5, sm: 2 }, pt: 1.5 }, '& .fiche-panel, & .batch-panel': { p: { xs: 1.5, sm: 2 }, mb: 2 } }}>
     <AttendanceToolbar month={month} year={year} busy={busy} account={account} accounts={workspace.accounts} view={view} onView={value => protectSelection(() => setView(value))} onPeriod={setPeriod} onAccount={value => protectSelection(() => {
       setAccount(value); setError('')
       const existing = visible.find(fiche => fiche.account_username === value)
       if (existing) setActive(previous => ({ ...previous, [period]: String(existing.id) }))
     })} archived={archived} onArchiveFilter={value => protectSelection(() => { setArchived(value); setSelected({}) })} onOpen={() => protectSelection(() => void perform(async () => {
-          if (dirty) await persist()
-          const result = await attendanceApi.open(token, account, month, year, revision.current)
-          revision.current = result.revision; syncLabels(result)
-          setConfig(result.config); setDirty(false); setArchived(false); setActive(a => ({ ...a, [period]: result.active_id })); setMessage('Fiche ouverte.'); setVersion(v => v + 1)
+          try { await openAccount(account) }
+          catch (failure) {
+            if (failure instanceof ApiError && failure.requirement === 'contract' && chosenAccount) setMissingContract(chosenAccount)
+            else throw failure
+          }
         }))} />
+    {missingContract && <AttendanceContractDialog token={token} account={missingContract} month={month} year={year}
+      canEdit={isAdmin(session) || (session.role_tags.includes('Responsable') && missingContract.manager_username === session.username)}
+      onClose={() => setMissingContract(null)} onSaved={async () => {
+        await perform(async () => { await openAccount(missingContract.username); setMissingContract(null) }, true)
+      }} />}
     {view === 'signed' && <><SignedFichesPanel key={period} token={token} viewer={session.username} month={month} year={year} /><DraftStatus /></>}
     <Box hidden={view !== 'editing'}>
+    {hiddenCount > 0 && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+      {hiddenCount} fiche(s) historique(s) conservée(s) hors de cette vue. Un Admin peut vérifier leur association.
+    </Typography>}
     {chosenAccount && !accountInMonth && <Alert severity="info" sx={{ mb: 2 }}>
       <Typography variant="body2">{personDisplayName(chosenAccount)} : aucune fiche {archived ? 'archivée ' : ''}enregistrée pour {periodLabel(month, year)}.{visible.length > 0 ? ' Les onglets ci-dessous correspondent aux autres personnes de ce mois.' : ''}</Typography>
       {savedPeriods.length > 0 && <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: .5, mt: .5 }}>

@@ -71,7 +71,7 @@ export function SignaturePreview({ token, ids, month, year, onClose, personLabel
   </DialogTitle><DialogContent>
     {preview.isPending ? <CircularProgress /> : preview.error ? <Alert severity="error">{preview.error.message}</Alert> : preview.data && <>
       <Alert severity={live || !preview.data.can_send || !preview.data.automatic_archive ? 'warning' : 'info'} sx={{ mb: 1.5, py: .5, '& .MuiAlert-message': { fontSize: 13 } }}>
-        {preview.data.reason}{!preview.data.automatic_archive && ' PDF signé à récupérer dans ClawShow (archivage automatique non configuré).'}
+        {preview.data.reason}{preview.data.can_send && !preview.data.automatic_archive && ' PDF signé à récupérer dans ClawShow (archivage automatique non configuré).'}
       </Alert>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{total} fiche(s) · {validCount} prête(s) · {total - validCount} à corriger</Typography>
       {busy && <><LinearProgress variant="determinate" value={total ? processed / total * 100 : 0} /><Typography role="status" variant="body2" sx={{ my: 1 }}>{currentName} · Préparation du PDF et création de la demande ClawShow… {seconds} s · {processed}/{total} fiche(s) traitée(s). Gardez cette fenêtre ouverte.</Typography></>}
@@ -91,7 +91,7 @@ export function SignaturePreview({ token, ids, month, year, onClose, personLabel
         {outcomes[item.id]?.ok && live && <Typography variant="body2" sx={{ mt: 1 }}>Consultez l’e-mail de signature envoyé au salarié. Le responsable recevra son invitation après la première signature.</Typography>}
         {outcomes[item.id]?.ok && !live && !signerActions(outcomes[item.id]).length && <Typography variant="body2" sx={{ mt: 1 }}>ClawShow n’a pas renvoyé de page de signature identifiable. Conservez la référence pour vérifier la demande.</Typography>}
       </Paper>)}
-      <FormControlLabel sx={{ mt: .25, '& .MuiFormControlLabel-label': { fontSize: 13 } }} control={<Checkbox size="small" checked={confirmed} disabled={busy || started || !preview.data.can_send} onChange={e => setConfirmed(e.target.checked)} />} label={live ? 'Je confirme les documents, les destinataires et l’envoi réel (quota Production).' : 'J’ai vérifié les destinataires et les envois précédents pour éviter les doublons.'} />
+      <FormControlLabel sx={{ mt: .25, '& .MuiFormControlLabel-label': { fontSize: 13 } }} control={<Checkbox size="small" checked={confirmed} disabled={busy || started || !preview.data.can_send} onChange={e => setConfirmed(e.target.checked)} />} label={!preview.data.can_send ? 'Envoi désactivé dans cet environnement.' : live ? 'Je confirme les documents, les destinataires et l’envoi réel (quota Production).' : 'J’ai vérifié les destinataires et les envois précédents pour éviter les doublons.'} />
     </>}
   </DialogContent><DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
     {started && !busy && <Button onClick={() => downloadFile({ filename: `bilan-signatures-${year}-${String(month).padStart(2, '0')}.json`, blob: new Blob([JSON.stringify({ month, year, created, not_sent: notSent, to_verify: uncertain, items: preview.data?.items.map(item => ({ id: item.id, name: item.name, status: outcomes[item.id]?.ok ? 'created' : outcomes[item.id]?.uncertain ? 'to_verify' : outcomes[item.id] ? 'not_sent' : 'not_processed', document_id: outcomes[item.id]?.document_id || null, message: outcomes[item.id]?.message || '' })) }, null, 2)], { type: 'application/json' }) })}>Télécharger le bilan</Button>}

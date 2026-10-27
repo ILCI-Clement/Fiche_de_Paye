@@ -363,7 +363,7 @@ class MigrationCursor:
     def fetchone(self): return {'value': 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE'}
     def fetchall(self):
         if self.last == 'SHOW COLUMNS FROM users':
-            names = ['username', 'is_active', 'session_version', 'login_deleted_at'] if self.existing else ['username']
+            names = ['username', 'is_active', 'session_version', 'login_deleted_at', 'initial_password_pending'] if self.existing else ['username']
             return [{'Field': name} for name in names]
         return [{'Field': 'action'}]
 

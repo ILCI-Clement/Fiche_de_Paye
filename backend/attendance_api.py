@@ -18,6 +18,7 @@ from fiche_exports import generate_fiche_file, validate_fiche
 from fiche_serialization import deserialize_dates, serialize_dates
 from planning import default_planning
 from .attendance_revision import config_revision
+from .attendance_permissions import attendance_scope
 from .role_policy import is_admin, is_super_admin
 from .person_names import load_person_names, person_display_name
 
@@ -59,13 +60,14 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
         cursor.execute('SELECT form_content FROM Presence WHERE user_id=%s', (actor['username'],))
         row = cursor.fetchone()
         if not row:
-            return {'mois': date.today().month, 'annee': date.today().year, 'employes_data': []}, config_revision({})
+            return {'mois': date.today().month, 'annee': date.today().year, 'employes_data': []}, config_revision({}), 0
         try:
             value = row['form_content']
             config = value if isinstance(value, dict) else json.loads(value)
             if not isinstance(config, dict) or not isinstance(config.get('employes_data', []), list):
                 raise ValueError()
-            return config, config_revision(config)
+            visible, hidden = attendance_scope(cursor, actor, config, load_user, can_manage)
+            return visible, config_revision(config), len(hidden)
         except (TypeError, ValueError):
             raise HTTPException(422, 'Configuration enregistrée invalide. Contactez un administrateur.') from None
 
@@ -76,8 +78,12 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
         if save_checked:
             if deleted_ids:
                 return save_checked(actor['username'], serialize_dates(config), actor, revision,
-                                    confirmed_deletions=deleted_ids)
-            return save_checked(actor['username'], serialize_dates(config), actor, revision)
+                                    confirmed_deletions=deleted_ids, preserve_hidden=True)
+            return save_checked(actor['username'], serialize_dates(config), actor, revision, preserve_hidden=True)
+        if not is_admin(actor):
+            # The legacy writer cannot atomically merge a scoped submission with
+            # hidden history. Never allow a fallback to replace the full snapshot.
+            raise HTTPException(503, 'La sauvegarde sécurisée des fiches est indisponible. Contactez un Admin.')
         save_config(actor['username'], serialize_dates(config), actor)
         return {'config': serialize_dates(config), 'revision': config_revision(config)}
 
@@ -111,7 +117,7 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
         db = get_db_connection()
         try:
             with db.cursor() as cursor:
-                config, revision = read_snapshot(cursor, actor)
+                config, revision, hidden_count = read_snapshot(cursor, actor)
                 cursor.execute('SELECT username FROM users ORDER BY username')
                 users = [load_user(cursor, row['username']) for row in cursor.fetchall()]
                 names = load_person_names(cursor)
@@ -129,18 +135,9 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                             'manager_username': user.get('manager_username'), 'manager_email': manager['email'] if manager else '',
                             'manager_display_name': person_display_name(manager, names) if manager else 'Aucun responsable',
                             'contracts': cursor.fetchall()})
-                # Reject unauthorized legacy records without exposing them in the new UI.
-                visible = []
-                for employee in config.get('employes_data', []):
-                    try:
-                        require_employee(cursor, actor, employee)
-                        visible.append(employee)
-                    except HTTPException:
-                        pass
-                if 'Admin' not in actor['role_tags'] and len(visible) != len(config.get('employes_data', [])):
-                    # Never save a filtered configuration, which would silently delete hidden history.
-                    raise HTTPException(409, 'Cette configuration contient des fiches hors de votre équipe. Un Admin doit la vérifier avant modification.')
+                visible = config.get('employes_data', [])
                 return {'config': config, 'revision': revision, 'accounts': catalog,
+                        'hidden_sheet_count': hidden_count,
                         'person_labels': {str(employee['id']): person_display_name(
                             accounts.get(str(employee.get('account_username') or '')) or
                             {'email': employee.get('email_employe')}, names)
@@ -159,7 +156,7 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                 account = load_user(cursor, username)
                 if not account or not can_manage(cursor, actor, account):
                     raise HTTPException(403, 'Cette personne ne vous est pas accessible.')
-                config, revision = read_snapshot(cursor, actor)
+                config, revision, _ = read_snapshot(cursor, actor)
                 check_client_revision(revision, payload.revision)
                 cursor.execute('SELECT * FROM personnel_contracts WHERE username=%s ORDER BY start_date,id', (username,))
                 contracts = matching_contracts(cursor.fetchall(), payload.month, payload.year)
@@ -177,7 +174,8 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                     elif saved_period:
                         raise HTTPException(409, 'Cette fiche est archivée. Un administrateur peut la restaurer depuis les archives.')
                     else:
-                        raise HTTPException(409, 'Aucun contrat actif ne couvre ce mois. Vérifiez les dates du contrat dans Administration avant de créer une nouvelle fiche. Les fiches déjà enregistrées pour les autres mois sont conservées.')
+                        raise HTTPException(409, 'Aucun contrat actif ne couvre ce mois. Renseignez un contrat couvrant le mois sélectionné avant de créer la fiche.',
+                                            headers={'X-Attendance-Requirement': 'contract'})
                 manager = load_user(cursor, account['manager_username']) if account.get('manager_username') else None
                 for contract in contracts:
                     existing = next((e for e in records if e.get('account_username') == username and e.get('contract_id') == contract['id']
@@ -237,7 +235,7 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
         db = get_db_connection()
         try:
             with db.cursor() as cursor:
-                config, revision = read_snapshot(cursor, actor)
+                config, revision, _ = read_snapshot(cursor, actor)
                 check_client_revision(revision, payload.revision)
                 employee = selected(config, sheet_id)
                 require_employee(cursor, actor, employee)

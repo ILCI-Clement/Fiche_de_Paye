@@ -3,7 +3,7 @@ import { brand } from './brand'
 import { canManageTeam, displayRoles, isAdmin } from './rolePolicy'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Avatar, Box, Button, Chip, Drawer, IconButton, Tooltip, Typography } from '@mui/material'
+import { Avatar, Box, Button, Chip, Drawer, IconButton, Snackbar, Tooltip, Typography } from '@mui/material'
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded'
 import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined'
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined'
@@ -57,6 +57,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
   const guard = useWorkspaceGuard()!
   useDraftGuard(attendanceState.dirty, attendanceState.busy, 'Fiches de présence')
   const [drawer, setDrawer] = useState(false)
+  const [passwordReminder, setPasswordReminder] = useState(true)
   const mainColumn = useRef<HTMLDivElement>(null)
   const header = useRef<HTMLElement>(null)
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null)
@@ -85,7 +86,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
     <Box className="brand"><Box className="brand-mark">{brand.mark}</Box><Box><Typography sx={{ fontWeight: 750, fontSize: 21 }}>{brand.name}</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 11, letterSpacing: 2 }}>{brand.organization} · PORTAIL RH</Typography></Box></Box>
     <Typography className="nav-heading">RESSOURCES HUMAINES</Typography>
     {attendanceAllowed && <Button className={`nav-item ${page === 'dashboard' ? 'active' : ''}`} startIcon={<DashboardOutlined />} onClick={() => navigate('dashboard')}>Tableau de bord</Button>}
-    {attendanceAllowed && <Button className={`nav-item ${page === 'attendance' ? 'active' : ''}`} startIcon={<CalendarMonthRounded />} onClick={() => navigate('attendance')}>Création de Fiches</Button>}
+    {attendanceAllowed && <Button className={`nav-item ${page === 'attendance' ? 'active' : ''}`} startIcon={<CalendarMonthRounded />} onClick={() => navigate('attendance')}>Fiches de temps</Button>}
     <Button className={`nav-item ${page === 'leave' ? 'active' : ''}`} startIcon={<EventAvailableOutlined />} onClick={() => navigate('leave')}>Congés payés</Button>
     <Button className={`nav-item ${page === 'documents' ? 'active' : ''}`} startIcon={<FolderOutlined />} onClick={() => navigate('documents')}>Documents</Button>
     <Button className={`nav-item ${page === 'team' ? 'active' : ''}`} startIcon={<GroupsOutlined />} onClick={() => navigate('team')}>Mon équipe</Button>
@@ -123,6 +124,12 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
       {visited.dashboard && <WorkspacePageSlot active={page === 'dashboard'} target={toolbarTarget} inlineTarget={inlineToolbarTarget}><DashboardPage token={token} session={session} /></WorkspacePageSlot>}
       {visited.profile && <WorkspacePageSlot active={page === 'profile'} target={toolbarTarget} inlineTarget={inlineToolbarTarget}><ProfilePage token={token} session={session} onSession={onSession} /></WorkspacePageSlot>}
       {personnelAllowed && visited.personnel && <WorkspacePageSlot active={page === 'personnel'} target={toolbarTarget} inlineTarget={inlineToolbarTarget}><PersonnelPage token={token} session={session} /></WorkspacePageSlot>}
+
+      <Snackbar open={!!session.initial_password_pending && passwordReminder} autoHideDuration={10000}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} sx={{ bottom: 'calc(88px + env(safe-area-inset-bottom))' }}
+        onClose={(_, reason) => { if (reason !== 'clickaway') setPasswordReminder(false) }}
+        message="Mot de passe temporaire : pensez à le modifier."
+        action={<Button color="inherit" size="small" onClick={() => guard.request(() => { go('profile'); setPasswordReminder(false) })}>Modifier</Button>} />
 
     </Box>
 

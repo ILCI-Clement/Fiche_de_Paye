@@ -218,7 +218,7 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
                 role TEXT DEFAULT 'Employe',role_tags TEXT,employee_type TEXT DEFAULT 'salarie',
                 manager_username TEXT,contract_start_date TEXT,contract_end_date TEXT,is_cdi INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,is_active INTEGER DEFAULT 1,
-                session_version INTEGER DEFAULT 0,login_deleted_at TEXT);
+                session_version INTEGER DEFAULT 0,login_deleted_at TEXT,initial_password_pending INTEGER DEFAULT 0);
                 CREATE TABLE personnel_register(employee_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 full_name TEXT,nationality TEXT DEFAULT '',sex TEXT DEFAULT '',address TEXT DEFAULT '',
                 birth_date TEXT,job_title TEXT DEFAULT '',qualification TEXT DEFAULT '',personnel_type TEXT DEFAULT '',

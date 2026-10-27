@@ -1,4 +1,5 @@
 """Limit managers to attendance changes within their team."""
+import copy
 from fastapi import HTTPException
 from datetime import date
 from calendar import monthrange
@@ -10,6 +11,40 @@ else:
     from destructive_audit import append_deletion_event, append_archive_event
 
 ATTENDANCE_FIELDS = {'vacances', 'absences', 'arret', 'calendar_overrides', 'planning_detail', 'nb_jours', 'nb_heures_jour'}
+
+
+def attendance_scope(cursor, actor, config, load_user, can_manage):
+    """Project editable sheets without returning inaccessible historical content."""
+    if is_admin(actor):
+        return copy.deepcopy(config), []
+    allowed, hidden, access = [], [], {}
+    for sheet in config.get('employes_data', []):
+        username = str(sheet.get('account_username') or '') if isinstance(sheet, dict) else ''
+        if username not in access:
+            target = load_user(cursor, username) if username else None
+            access[username] = bool(target and can_manage(cursor, actor, target))
+        (allowed if access[username] else hidden).append(copy.deepcopy(sheet))
+    return {**copy.deepcopy(config), 'employes_data': allowed}, hidden
+
+
+def preserve_hidden_sheets(previous, incoming, hidden):
+    """Merge a validated visible submission into the locked complete snapshot."""
+    protected = {str(sheet['id']) for sheet in hidden if isinstance(sheet, dict) and sheet.get('id') is not None}
+    rows = incoming.get('employes_data', [])
+    if any(str(sheet.get('id')) in protected for sheet in rows):
+        raise HTTPException(403, 'Les fiches hors de votre périmètre ne peuvent pas être modifiées.')
+    replacements = {str(sheet['id']): sheet for sheet in rows}
+    merged = []
+    # Hidden values are compared by content: scope returns independent copies.
+    # Ordered traversal keeps the stored history in place and appends only new IDs.
+    for sheet in previous.get('employes_data', []):
+        identity = str(sheet.get('id')) if isinstance(sheet, dict) else None
+        if sheet in hidden:
+            merged.append(copy.deepcopy(sheet))
+        elif identity in replacements:
+            merged.append(replacements.pop(identity))
+    merged.extend(sheet for sheet in rows if str(sheet['id']) in replacements)
+    return {**copy.deepcopy(previous), **incoming, 'employes_data': merged}
 
 
 def validate_manager_save(cursor, actor, previous, incoming, load_user, can_manage, *, workspace_owner=None, confirmed_deletions=None):
