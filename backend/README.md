@@ -18,7 +18,7 @@ React 入口复用 `main.app`，注册考勤、签署、月度 Profile、员工�
 
 代码定位见 [模块索引](../doc/modules.md)。
 
-2026-10-27 已上线负责人考勤修复：新版 `/attendance/*` 仅返回负责人可操作的表；保存时用完整配置版本加锁，原样保留不可操作的历史表，避免旧条目阻塞页面或被漏删。缺合同的响应带 `X-Attendance-Requirement: contract`，前端显示补录窗口。`POST /attendance/contracts/{username}` 仅允许有效 Admin 或该员工的直接 Responsable 新建覆盖所选月份的缺失合同，复用重叠校验和名册同步；已有合同仍按原管理权限执行。新增 `contract_setup_events` 审计表，审计失败整笔回滚。前后端、两套 API 已同步并备份，见 [发布记录](../doc/releases/signature-scope-20261028.md)。
+2026-10-27 已上线负责人考勤修复：新版 `/attendance/*` 仅返回负责人可操作的表；保存时用完整配置版本加锁，原样保留不可操作的历史表，避免旧条目阻塞页面或被漏删。缺合同的响应带 `X-Attendance-Requirement: contract`，前端显示补录窗口。`POST /attendance/contracts/{username}` 仅允许有效 Admin 或该员工的直接 Responsable 新建覆盖所选月份的缺失合同，复用重叠校验和名册同步；已有合同仍按原管理权限执行。新增 `contract_setup_events` 审计表，审计失败整笔回滚。前后端、两套 API 已同步并备份，见 [发布记录](../doc/releases/responsable-access-20261027.md)。
 
 旧 Streamlit 界面已从当前源码树分离，备案包与恢复方法见 [`archive/streamlit`](../archive/streamlit/README.md)。当前 Python 安装入口为根目录 `requirements.txt`（含 backend 依赖），不再依赖 Streamlit；保留 API 的 flat 导入和当前权限防护继续维护。线上现存 `presence-interface` 服务及旧部署目录未在这次本地整理中变更，后续发布不得直接将旧服务指向已精简的当前目录。
 
@@ -29,19 +29,21 @@ NIR 关闭或密钥无效时拒绝导出。接口与映射见 [名册说明](../
 
 ## 当前版本与回退
 
-- 前后端：`scope-access-20261028T093201Z` / `08e005a04d67`；保留 API 的 flat 模块已同步更新。`/var/www/presence-react/current` 与 Nginx 静态目录均指向此版本。
-- 完整备份：`/var/backups/presence-react/scope-access-20261028T093201Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
+- 前后端：`contact-access-20261028T095545Z` / `f0609e84168b`；保留 API 的 flat 模块已同步更新。`/var/www/presence-react/current` 与 Nginx 静态目录均指向此版本。
+- 完整备份：`/var/backups/presence-react/contact-access-20261028T095545Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
 - [发布内容、验证与回退](../doc/releases/signature-scope-20261028.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
 
 协调回退（确认当前仍为本版本后执行，保留新增列及发布后的业务写入）：
 
 ```sh
-sudo /var/backups/presence-react/scope-access-20261028T093201Z/rollback.sh
+sudo /var/backups/presence-react/contact-access-20261028T095545Z/rollback.sh
 ```
 
 脚本恢复上一版前后端及服务配置，保留新增数据库列和发布后的业务写入；不会自动恢复旧数据库。上一版已有账号保护、登录冷却及签署回存。单独 `rollback-ui.sh` 仅用于界面排障，旧建号界面不含新必填姓名字段，不能作为完整功能回退。
 
 旧发布记录见 [历史时间线](../doc/releases/20261014-20261021.md) 和各版本发布记录。
+
+2026-10-28 已上线：`GET /account` 为认证本人设置提供公开账号资料；关联旧工时表的签署预览/发送按账号身份读取当前邮箱，仅修正本次请求副本，不修改原表、合同或已签 PDF。参见 [发布记录](../doc/releases/account-contact-20261028.md)。
 
 ## 生产配置
 
@@ -132,4 +134,4 @@ npm --prefix frontend run lint -- src test
 npm --prefix frontend run build
 ```
 
-本地 MySQL 3307 和私有 runtime 配置存在时，设置进程变量 `PRESENCE_MYSQL_TEMP_TEST=1` 可启用连接级 TEMPORARY 表测试；不创建持久测试员工，不写真实业务表。最新发布验证为后端 406 项、前端 46 项通过，详见账号姓名发布记录。
+本地 MySQL 3307 和私有 runtime 配置存在时，设置进程变量 `PRESENCE_MYSQL_TEMP_TEST=1` 可启用连接级 TEMPORARY 表测试；不创建持久测试员工，不写真实业务表。最新发布验证为后端 442 项、前端 52 项通过，详见本人设置与签署联系信息发布记录。
