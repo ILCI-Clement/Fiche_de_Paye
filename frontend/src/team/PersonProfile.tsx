@@ -1,73 +1,65 @@
 import { personDisplayName } from '../personDisplayName'
-import { useState } from 'react'
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { useCallback, useState } from 'react'
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
+import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded'
 import { useQuery } from '@tanstack/react-query'
 import { request } from '../api'
 import { DepartmentBadges } from '../components/DepartmentBadge'
 import { AccountPersonnelSection } from '../profile/AccountPersonnelSection'
-import { SignedFichesPanel } from '../attendance/SignedFichesPanel'
+import { DocumentPreview } from '../documents/DocumentPreview'
+import { periodLabel } from '../documents/api'
+import { signedFichesApi } from '../attendance/signedFichesApi'
+import { ProfileMonth } from './ProfileMonth'
+import type { MonthlyProfile } from './ProfileMonth'
 
-interface MonthlyProfile {
-  month: number; attendance_sheets: number; documents: number; archived_documents: number;
-  leaves: { id: number; start_date: string; end_date: string; start_slot: string; end_slot: string; status: string }[];
-  signature_requests: { document_id: string; mode: string; created_at: string; status: string; archive_id?: string }[];
-}
 interface Profile {
   username: string; name: string; display_name?: string; full_name?: string | null; manager_name?: string; groups: string[]; manager: string | null; year: number; months: MonthlyProfile[];
   legacy_unbound_sheets: number; attendance_incomplete: boolean; signatures_available: boolean;
   can_view_personnel_data?: boolean;
 }
-const monthName = (month: number) => new Intl.DateTimeFormat('fr-FR', { month: 'long' }).format(new Date(2026, month - 1, 1))
-const statusLabels: Record<string, string> = { pending: 'En attente', approved: 'Approuvé', rejected: 'Refusé', withdrawn: 'Retiré' }
-const slotLabels: Record<string, string> = { full: 'journée', morning: 'matin', afternoon: 'après-midi' }
+
+function ProfileSignedPreview({ token, archiveId, filename, onClose }: { token: string; archiveId: string; filename: string; onClose: () => void }) {
+  const loadFile = useCallback((signal: AbortSignal) => signedFichesApi.file(token, archiveId, signal), [token, archiveId])
+  return <DocumentPreview token={token} receipt={{ id: 0, original_filename: filename }} loadFile={loadFile} onClose={onClose} />
+}
 
 export function PersonProfile({ username, token, viewer, onClose }: { username: string; token: string; viewer: string; onClose: () => void }) {
-  const [year, setYear] = useState(() => new Date().getFullYear())
-  const [month, setMonth] = useState(() => new Date().getMonth() + 1)
+  const [today] = useState(() => new Date())
+  const [year, setYear] = useState(() => today.getFullYear())
+  const [month, setMonth] = useState(() => today.getMonth() + 1)
+  const [preview, setPreview] = useState<{ id: string; month: number } | null>(null)
   const profile = useQuery({ queryKey: ['person-profile', viewer, username, year], queryFn: ({ signal }) => request<Profile>(`/person-profiles/${encodeURIComponent(username)}?year=${year}`, token, { signal }), retry: false })
   const data = profile.data
   const detail = data?.months.find(item => item.month === month)
-  return <Dialog open fullWidth maxWidth="lg" onClose={onClose} aria-labelledby="person-profile-title">
-    <DialogTitle id="person-profile-title">Profil · {personDisplayName(data ? { full_name: data.full_name, display_name: data.display_name || data.name } : null)}</DialogTitle>
-    <DialogContent dividers>
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
-        <TextField select label="Année" value={year} onChange={event => setYear(Number(event.target.value))} sx={{ width: 120 }}>
+  const name = personDisplayName(data ? { full_name: data.full_name, display_name: data.display_name || data.name } : null)
+  return <Dialog open fullWidth maxWidth="md" onClose={onClose} aria-labelledby="person-profile-title"
+    slotProps={{ paper: { sx: { height: 'min(560px, calc(100dvh - 48px))' } } }}>
+    <DialogTitle id="person-profile-title">Profil · {name}</DialogTitle>
+    <DialogContent dividers sx={{ minWidth: 0 }}>
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
+        <TextField select size="small" label="Année" value={year} onChange={event => { setYear(Number(event.target.value)); setPreview(null) }} sx={{ width: 120 }}>
           {Array.from({ length: 101 }, (_, i) => 2000 + i).reverse().map(value => <MenuItem key={value} value={value}>{value}</MenuItem>)}
         </TextField>
+        <TextField select size="small" label="Mois" value={month} onChange={event => { setMonth(Number(event.target.value)); setPreview(null) }} sx={{ width: 150 }}>
+          {Array.from({ length: 12 }, (_, index) => <MenuItem key={index + 1} value={index + 1} sx={{ textTransform: 'capitalize' }}>{new Intl.DateTimeFormat('fr-FR', { month: 'long' }).format(new Date(2026, index, 1))}</MenuItem>)}
+        </TextField>
+        <Tooltip title="Les détails concernent le mois sélectionné. Les anciens envois sans suivi restent à vérifier dans ClawShow ; l’absence de reçu ne prouve pas l’absence d’envoi.">
+          <IconButton size="small" aria-label="À propos du profil mensuel"><HelpOutlineRounded sx={{ fontSize: 17 }} /></IconButton>
+        </Tooltip>
         {data && <><DepartmentBadges names={data.groups} /><Typography variant="body2" color="text.secondary">Responsable direct : {data.manager ? personDisplayName({ display_name: data.manager_name }) : 'Non renseigné'}</Typography></>}
-        <Button disabled={profile.isFetching} sx={{ ml: 'auto' }} onClick={() => void profile.refetch()}>Actualiser</Button>
+        <Button size="small" disabled={profile.isFetching} sx={{ ml: 'auto' }} onClick={() => void profile.refetch()}>Actualiser</Button>
       </Box>
       {profile.isPending ? <CircularProgress size={28} /> : profile.error ? <Alert severity="error">{profile.error.message}</Alert> : data && <>
         {data.can_view_personnel_data && <AccountPersonnelSection token={token} username={username} viewer={viewer} />}
-        <Alert severity="info" sx={{ mb: 2 }}>Les signatures avec retour configuré sont suivies jusqu’à l’archivage du PDF final. Les anciens envois restent à vérifier dans ClawShow ; l’absence de reçu ne prouve pas l’absence d’envoi.</Alert>
         {!!data.legacy_unbound_sheets && <Alert severity="warning" sx={{ mb: 2 }}>{data.legacy_unbound_sheets} ancienne(s) fiche(s) sans rattachement mensuel : non réparties entre les mois.</Alert>}
         {data.attendance_incomplete && <Alert severity="warning" sx={{ mb: 2 }}>Certaines anciennes configurations ne peuvent pas être lues. Le relevé des présences peut être incomplet.</Alert>}
         {!data.signatures_available && <Alert severity="warning" sx={{ mb: 2 }}>Historique des envois indisponible : aucun statut de signature ne peut être déduit.</Alert>}
-        <TableContainer><Table size="small" aria-label={`Synthèse mensuelle ${year}`}><TableHead><TableRow>
-          {['Mois', 'Présences', 'Documents', 'Signatures', 'Congés'].map(label => <TableCell key={label}>{label}</TableCell>)}
-        </TableRow></TableHead><TableBody>{data.months.map(item => <TableRow key={item.month} selected={item.month === month}>
-          <TableCell><Button aria-pressed={item.month === month} onClick={() => setMonth(item.month)}>{monthName(item.month)}</Button></TableCell>
-          <TableCell>{item.attendance_sheets ? `${item.attendance_sheets} fiche(s) enregistrée(s)` : 'Aucune fiche liée'}</TableCell>
-          <TableCell>{item.documents} · {item.documents - item.archived_documents} à traiter / {item.archived_documents} archivé(s)</TableCell>
-          <TableCell>{item.signature_requests.length ? `${item.signature_requests.length} demande(s) · ${item.signature_requests.filter(request => request.status === 'ready' && request.mode === 'production').length} PDF signé(s) archivé(s)` : data.signatures_available ? 'Aucun envoi traçable' : 'Indisponible'}</TableCell>
-          <TableCell>{item.leaves.filter(leave => leave.status === 'pending').length} en attente · {item.leaves.filter(leave => leave.status === 'approved').length} approuvé(s)</TableCell>
-        </TableRow>)}</TableBody></Table></TableContainer>
-        {detail && <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
-          <Typography variant="h6">Détail · {monthName(month)} {year}</Typography>
-          <Typography variant="body2" sx={{ mt: 1 }}>{detail.attendance_sheets} fiche(s) liée(s) · {detail.documents} document(s), dont {detail.archived_documents} archivé(s).</Typography>
-          <Typography sx={{ mt: 2, mb: 1, fontWeight: 500 }}>Demandes de congé touchant ce mois</Typography>
-          {!detail.leaves.length && <Typography variant="body2" color="text.secondary">Aucune demande enregistrée.</Typography>}
-          {detail.leaves.map(leave => <Box key={leave.id} sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography variant="body2">{new Date(`${leave.start_date}T12:00:00`).toLocaleDateString('fr-FR')} ({slotLabels[leave.start_slot]}) → {new Date(`${leave.end_date}T12:00:00`).toLocaleDateString('fr-FR')} ({slotLabels[leave.end_slot]})</Typography>
-            <Chip size="small" label={statusLabels[leave.status] || leave.status} variant="outlined" />
-          </Box>)}
-          <Typography sx={{ mt: 2, mb: 1, fontWeight: 500 }}>Envois pour signature</Typography>
-          {!detail.signature_requests.length && <Typography variant="body2" color="text.secondary">Aucun reçu d’envoi lié à ce mois. Consultez ClawShow pour les demandes antérieures.</Typography>}
-          {detail.signature_requests.filter(item => !item.archive_id).map((item, index) => <Typography key={`${item.document_id}-${index}`} variant="body2" sx={{ overflowWrap: 'anywhere', mb: 1 }}>{item.document_id} · {item.mode} · {item.created_at} UTC · Envoi enregistré ; retour non configuré, signature finale à vérifier dans ClawShow.</Typography>)}
-          <SignedFichesPanel key={`${year}-${month}-${username}`} token={token} viewer={viewer} username={username} month={month} year={year} />
-        </Paper>}
+        <Box component="section" aria-label={`Détails · ${periodLabel(month, year)}`} sx={{ minWidth: 0 }}>
+          {detail ? <ProfileMonth key={`${year}-${month}`} item={detail} year={year} current={year === today.getFullYear() && month === today.getMonth() + 1} signaturesAvailable={data.signatures_available} onPreview={(id, selectedMonth) => setPreview({ id, month: selectedMonth })} /> : <Typography color="text.secondary">Aucune donnée disponible pour ce mois.</Typography>}
+        </Box>
       </>}
     </DialogContent>
     <DialogActions><Button onClick={onClose}>Fermer</Button></DialogActions>
+    {preview && <ProfileSignedPreview token={token} archiveId={preview.id} filename={`${name} · ${periodLabel(preview.month, year)} · signé.pdf`} onClose={() => setPreview(null)} />}
   </Dialog>
 }
