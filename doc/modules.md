@@ -92,6 +92,8 @@
 
 ## 数据与权限约束
 
+2026-10-28 账号设置与旧表签署修复：`GET /account` 只返回已认证本人公开账号资料，`profile/ProfilePage.tsx` 不再依赖 `/list-users` 的团队范围；纯 Responsable 无名册资料也能访问设置。`signature_flow.resolve_manager(employee_username=...)` 按旧表稳定关联账号鉴权并读取当前邮箱，拒绝改用其他邮箱身份；`attendance_signatures.py` 仅在本次预览/发送副本中补齐员工和负责人联系信息，保留其他字段及历史存储。预检先显示授权确认的收件人，再显示表单校验错误；未通过校验不提供可发送指纹。发送重新读取并核对指纹，邮箱、负责人或内容变化必须重新确认。不改合同日期，不自动创建名册，不触发实际发送。
+
 - `users` 保存账户/角色/会话版本及独立的 `first_name`、`last_name`；新建账号前后端都必填姓/名，界面通过邮箱登录，未指定旧式用户名时后端生成稳定的随机账号标识。姓名格式为“名 + 空格 + 姓”，不按姓名建立身份关联。`personnel_register*` 独立保存员工资料、任职期间与审计。一对一关联使用唯一 `linked_username`，不从账号自动生成正式员工档案。
 - `Presence.form_content` 保存绑定月份、合同快照和日历。历史表不因当前合同变化丢失；新建须有有效合同，已归档记录须先恢复。
 - `personnel_contracts` 是考勤合同历史，员工名册通过稳定的 `account_contract_id` 同步入职与预计结束日期；`actual_exit_date` 独立维护，状态与 Excel Sortie 列使用实际离职。旧 `exit_date` 原值保留、不自动推断实际离职。

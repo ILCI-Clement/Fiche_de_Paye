@@ -1269,6 +1269,12 @@ def list_users(actor: dict[str, Any] = Depends(get_current_user)) -> dict[str, A
         connection.close()
 
 
+@app.get('/account')
+def get_account(actor: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    """Own settings do not depend on the team directory or personnel register."""
+    return public_user(actor)
+
+
 @app.get("/dashboard")
 def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Responsable"))) -> dict[str, Any]:
     """Return the operational to-do view for administrators and managers."""

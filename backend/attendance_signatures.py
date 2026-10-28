@@ -30,12 +30,21 @@ class SignatureSubmit(BaseModel):
 
 def register_signature_preflight(app, *, get_current_user, get_db_connection, load_user,
                                  require_target_access, get_config, readiness, sender, attempts, recipient_policy=None):
-    def inspect(employee, month, year, actor):
+    def prepare_signers(employee, actor):
+        # Work only on the new request copy; keep historical sheets/PDFs intact.
+        employee = copy.deepcopy(employee)
+        manager = resolve_manager(str(employee.get('email_employe') or ''), actor, get_db_connection,
+                                  load_user, require_target_access, include_identity=True,
+                                  employee_username=employee.get('account_username'))
+        employee.update(email_employe=manager['employee_email'], email_responsable=manager['email'],
+                        responsable=manager['name'])
+        return employee, manager
+
+    def inspect(employee, manager, month, year):
         restored = deserialize_dates(copy.deepcopy(employee))
         validate_fiche(restored, require_email=True,
                        require_first_name=employee.get('type') == 'Stagiaire', check_exceptions=True)
         email = str(employee.get('email_employe') or '')
-        manager = resolve_manager(email, actor, get_db_connection, load_user, require_target_access)
         if recipient_policy:
             recipient_policy(email, manager['email'])
         name = manager.get('employee_name') or person_display_name({'email': email})
@@ -62,7 +71,10 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
             name = person_display_name({'email': employee.get('email_employe')})
             result = {'id': sheet_id, 'name': name, 'employee_email': str(employee.get('email_employe') or ''), 'manager_name': '', 'manager_email': '', 'error': ''}
             try:
-                result.update(inspect(employee, payload.month, payload.year, actor))
+                employee, manager = prepare_signers(employee, actor)
+                result.update(name=manager['employee_name'], employee_email=manager['employee_email'],
+                              manager_name=manager['name'], manager_email=manager['email'])
+                result.update(inspect(employee, manager, payload.month, payload.year))
             except (HTTPException, ValueError, TypeError, KeyError) as error:
                 result['error'] = str(error.detail) if isinstance(error, HTTPException) else str(error)
             results.append(result)
@@ -82,17 +94,11 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
         if not employee:
             raise HTTPException(400, 'La fiche ne fait pas partie du mois affiché.')
         try:
-            details = inspect(employee, payload.month, payload.year, actor)
+            employee, manager = prepare_signers(employee, actor)
+            details = inspect(employee, manager, payload.month, payload.year)
             if details['fingerprint'] != payload.fingerprint:
                 raise HTTPException(409, 'La fiche ou son responsable a changé. Actualisez la préparation.')
-            db = get_db_connection()
-            try:
-                with db.cursor() as cursor:
-                    cursor.execute('SELECT username FROM users WHERE LOWER(email)=LOWER(%s)', (details['employee_email'],))
-                    subjects = cursor.fetchall()
-                subject_username = subjects[0]['username'] if len(subjects) == 1 else None
-            finally:
-                db.close()
+            subject_username = manager['employee_username']
             existing = attempts.begin(actor['username'], payload.request_id, payload.fingerprint)
             if existing is not None:
                 return existing

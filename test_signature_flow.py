@@ -59,6 +59,36 @@ class SignatureFlowTests(unittest.TestCase):
         self.assertEqual(result['manager_username'], 'boss')
         self.assertNotIn('manager_username', self.resolve())
 
+    def test_linked_account_controls_recipient_and_cannot_fall_back_to_another_email(self):
+        db=MagicMock(); cursor=db.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value=[{'username':'employee'}]
+        employee={'username':'employee','manager_username':'boss','email':'current@example.com'}
+        access=MagicMock(return_value=employee)
+        manager={'username':'boss','email':'boss@example.com','role_tags':['Responsable']}
+        result=resolve_manager('someone-else@example.com', {'username':'actor'}, lambda:db,
+            lambda *args:manager, access, employee_username='employee', include_identity=True)
+        self.assertEqual(result['employee_email'],'current@example.com')
+        access.assert_called_once_with(cursor, {'username':'actor'}, 'employee', edit=False)
+        self.assertEqual(cursor.execute.call_args.args[1], ('current@example.com',))
+        cursor.fetchall.return_value=[{'username':'other-person'}]
+        with self.assertRaises(HTTPException) as error:
+            resolve_manager('someone-else@example.com', {'username':'actor'}, lambda:db,
+                lambda *args:manager, access, employee_username='employee')
+        self.assertEqual(error.exception.status_code,409)
+        employee['email']=''
+        with self.assertRaises(HTTPException) as error:
+            resolve_manager('someone-else@example.com', {'username':'actor'}, lambda:db,
+                lambda *args:manager, access, employee_username='employee')
+        self.assertEqual(error.exception.status_code,400)
+
+    def test_linked_account_scope_is_checked_before_any_mailbox_lookup(self):
+        db=MagicMock(); cursor=db.cursor.return_value.__enter__.return_value
+        def forbidden(*args, **kwargs): raise HTTPException(403,'Outside team')
+        with self.assertRaises(HTTPException) as error:
+            resolve_manager('valid@example.com', {}, lambda:db, MagicMock(), forbidden, employee_username='outside')
+        self.assertEqual(error.exception.status_code,403)
+        cursor.execute.assert_not_called()
+
     def test_signer_order_and_roles_follow_provider_example(self):
         signers=signing_people('Employee','employee@example.com','Boss','boss@example.com')
         self.assertEqual([(s['order'],s['role']) for s in signers],[(1,'SIGNER'),(2,'SIGNER')])

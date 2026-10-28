@@ -17,15 +17,23 @@ def signer_display_name(name, email):
     return value
 
 
-def resolve_manager(recipient_email, actor, connect, load_user, access, *, include_identity=False):
+def resolve_manager(recipient_email, actor, connect, load_user, access, *, include_identity=False, employee_username=None):
     db = connect()
     try:
         with db.cursor() as cursor:
+            employee = access(cursor, actor, employee_username, edit=False) if employee_username else None
+            if employee is not None:
+                recipient_email = str(employee.get('email') or '').strip()
+                if not recipient_email:
+                    raise HTTPException(400, 'Renseignez l’adresse e-mail du compte salarié dans Administration.')
             cursor.execute('SELECT username FROM users WHERE LOWER(email)=LOWER(%s)', (str(recipient_email).strip(),))
             matches = cursor.fetchall()
             if len(matches) != 1:
                 raise HTTPException(400, 'Le salarié doit être associé à un compte unique enregistré.')
-            employee = access(cursor, actor, matches[0]['username'], edit=False)
+            if employee is not None and matches[0]['username'] != employee['username']:
+                raise HTTPException(409, 'Le compte ou son adresse e-mail a changé. Actualisez la préparation.')
+            if employee is None:
+                employee = access(cursor, actor, matches[0]['username'], edit=False)
             if not employee.get('is_active', True):
                 raise HTTPException(400, 'Le compte du salarié est désactivé.')
             manager_username = employee.get('manager_username')
@@ -40,6 +48,7 @@ def resolve_manager(recipient_email, actor, connect, load_user, access, *, inclu
                     'email': manager['email'].strip(),
                     'employee_name': signer_display_name(person_display_name(employee), recipient_email)}
             if include_identity:
+                result['employee_email'] = str(recipient_email).strip()
                 result['employee_username'] = employee['username']
                 result['manager_username'] = manager['username']
             return result

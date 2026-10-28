@@ -11,8 +11,8 @@ import { AccountPersonnelSection } from './AccountPersonnelSection'
 export function ProfilePage({ token, session, onSession }: { token: string; session: Session; onSession: (token: string) => void }) {
   const [tab, setTab] = useState(0)
   const tabsId = useId()
-  const profile = useQuery({ queryKey: ['own-profile', session.username], queryFn: ({ signal }) => request<{ users: { username: string; email: string }[] }>('/list-users', token, { signal }), retry: false })
-  const current = profile.data?.users.find(p => p.username === session.username)
+  const profile = useQuery({ queryKey: ['own-profile', session.username], queryFn: ({ signal }) => request<{ username: string; email: string }>('/account', token, { signal }), retry: false })
+  const current = profile.data
   return <Box className="workspace">
     {profile.isPending ? <CircularProgress /> : profile.error ? <Alert severity="error">{profile.error.message}<Button onClick={() => void profile.refetch()}>Réessayer</Button></Alert> : current ? <>
       <Tabs value={tab} onChange={(_, value: number) => setTab(value)} variant="scrollable" scrollButtons="auto" aria-label="Rubriques du profil" sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>

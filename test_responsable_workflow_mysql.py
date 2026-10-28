@@ -9,6 +9,8 @@ import json
 import os
 import secrets
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from fastapi import FastAPI
@@ -19,6 +21,8 @@ import test_personnel_sensitive_mysql as fixture
 from backend import main
 from backend.attendance_api import register_attendance_routes
 from backend.attendance_revision import config_revision
+from backend.attendance_signatures import register_signature_preflight
+from backend.signature_attempts import SignatureAttempts
 from backend.contract_history import register_contract_history
 from backend.personnel_register import register_personnel_routes
 from test_support.personnel_fixtures import registration_payload
@@ -83,6 +87,7 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
         app = FastAPI()
         app.add_api_route('/create-user', main.create_user, methods=['POST'])
         app.add_api_route('/list-users', main.list_users, methods=['GET'])
+        app.add_api_route('/account', main.get_account, methods=['GET'])
         app.add_api_route('/groups', main.list_groups, methods=['GET'])
         app.add_api_route('/groups/{group_id}', main.update_group, methods=['PUT'])
         app.add_api_route('/users/{target_username}/organization', main.update_user_organization, methods=['PUT'])
@@ -106,6 +111,58 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
 
     def workspace(self):
         return self.request('GET', '/attendance/workspace', actor='fixture-manager').json()
+
+    def test_own_settings_for_pure_manager_do_not_depend_on_directory_or_register(self):
+        directory = self.request('GET', '/list-users', actor='fixture-manager').json()['users']
+        self.assertNotIn('fixture-manager', [u['username'] for u in directory])
+        for actor in ('fixture-manager', 'fixture-employee', 'fixture-admin'):
+            data = self.request('GET', '/account?username=someone-else', actor=actor).json()
+            self.assertEqual(data['username'], actor)
+            self.assertTrue(data['email'])
+            self.assertNotIn('password_hash', data)
+        self.assertEqual(self.client.get('/account').status_code, 401)
+        with self.proxy.cursor() as cursor:
+            cursor.execute("UPDATE users SET is_active=0 WHERE username='fixture-manager'")
+        self.request('GET', '/account', actor='fixture-manager', status=401)
+
+    def test_pure_manager_signs_linked_legacy_sheet_without_register_or_new_contract(self):
+        sheet = {'id': 'legacy-blank-contact', 'account_username': 'fixture-employee',
+                 'nom': 'Historical fixture', 'ddc': '2026-01-01', 'fdc': '2026-12-31',
+                 'responsable': 'Old manager', 'email_employe': '', 'legacy_marker': 'preserve'}
+        stored = json.dumps({'employes_data': [sheet]})
+        with self.proxy.cursor() as cursor:
+            cursor.execute("UPDATE users SET email='synthetic-employee@example.com' WHERE username='fixture-employee'")
+            cursor.execute('INSERT INTO Presence(user_id,form_content) VALUES(%s,%s)', ('fixture-manager', stored))
+            cursor.execute("SELECT email FROM users WHERE username='fixture-employee'"); email = cursor.fetchone()['email']
+            cursor.execute("SELECT email FROM users WHERE username='fixture-manager'"); boss_email = cursor.fetchone()['email']
+            for table in ('personnel_register', 'personnel_contracts'):
+                cursor.execute('SELECT COUNT(*) AS total FROM ' + table)
+                self.assertEqual(cursor.fetchone()['total'], 0)
+        root = self.stack.enter_context(tempfile.TemporaryDirectory())
+        sender = Mock(return_value={'document_id': 'synthetic-signed-request'})
+        register_signature_preflight(self.client.app, get_current_user=main.get_current_user,
+            get_db_connection=lambda: self.proxy, load_user=main.load_user, require_target_access=main.require_target_access,
+            get_config=main.get_config, readiness=lambda: {'can_send': True, 'mode': 'sandbox-only'}, sender=sender,
+            attempts=SignatureAttempts(Path(root) / 'attempts.sqlite3'))
+        payload = {'ids': [sheet['id']], 'month': 10, 'year': 2026}
+        item = self.request('POST', '/attendance/signature-preview', actor='fixture-manager', json=payload).json()['items'][0]
+        self.assertEqual(item['error'], '')
+        self.assertEqual(item['employee_email'], email)
+        self.assertEqual(item['manager_email'], boss_email)
+        with patch('backend.attendance_signatures.generate_fiche_file', return_value={'data': b'fixture', 'filename': 'fixture.xlsx'}) as generate:
+            self.request('POST', '/attendance/signature-send', actor='fixture-manager', json={
+                'id': sheet['id'], 'month': 10, 'year': 2026, 'fingerprint': item['fingerprint'], 'request_id': 'synthetic-contact-0001'})
+        self.assertEqual(sender.call_args.args[0].recipient_email, email)
+        self.assertEqual(generate.call_args.args[0]['email_responsable'], boss_email)
+        with self.proxy.cursor() as cursor:
+            cursor.execute('SELECT form_content FROM Presence WHERE user_id=%s', ('fixture-manager',))
+            self.assertEqual(cursor.fetchone()['form_content'], stored)
+        # Linked identity is authoritative: a different email in the old sheet cannot switch recipients.
+        with self.proxy.cursor() as cursor:
+            cursor.execute("UPDATE users SET is_active=0 WHERE username='fixture-employee'")
+        blocked = self.request('POST', '/attendance/signature-preview', actor='fixture-manager', json=payload).json()['items'][0]
+        self.assertTrue(blocked['error'])
+        self.assertEqual(sender.call_count, 1)
 
     def open_sheet(self, username, month=10, status=200):
         return self.request('POST', f'/attendance/open/{username}', actor='fixture-manager', status=status,

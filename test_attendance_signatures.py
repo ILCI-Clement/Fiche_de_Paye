@@ -21,7 +21,9 @@ class AttendanceSignatureTests(unittest.TestCase):
         self.ready = {'can_send': True, 'reason': 'mock sandbox'}
         self.sender = Mock(return_value={'document_id': 'mock-id', 'message': 'Employee then manager'})
         self.policy = Mock()
-        self.resolver = patch('backend.attendance_signatures.resolve_manager', return_value={'name': 'Unit manager', 'email': 'manager@example.com'}).start()
+        self.resolver = patch('backend.attendance_signatures.resolve_manager', return_value={
+            'name': 'Unit manager', 'email': 'manager@example.com', 'employee_email': 'fixture@example.com',
+            'employee_name': 'Unit fixture', 'employee_username': 'fixture', 'manager_username': 'boss'}).start()
         self.addCleanup(patch.stopall)
         self.generator = patch('backend.attendance_signatures.generate_fiche_file', return_value={'data': b'original', 'filename': 'fixture.xlsx'}).start()
         app = FastAPI()
@@ -91,7 +93,7 @@ class AttendanceSignatureTests(unittest.TestCase):
 
     def test_changed_manager_is_rejected(self):
         payload = self.payload()
-        self.resolver.return_value = {'name': 'Changed manager', 'email': 'changed@example.test'}
+        self.resolver.return_value = {**self.resolver.return_value, 'name': 'Changed manager', 'email': 'changed@example.test'}
         self.assertEqual(self.send(payload).status_code, 409)
         self.sender.assert_not_called()
 
@@ -118,8 +120,34 @@ class AttendanceSignatureTests(unittest.TestCase):
         self.assertEqual(self.preview().status_code, 400)
 
     def test_invalid_row_is_reported_individually(self):
-        self.config['employes_data'][0]['email_employe'] = ''
-        self.assertTrue(self.preview().json()['items'][0]['error'])
+        self.config['employes_data'][0]['ddc'] = ''
+        item = self.preview().json()['items'][0]
+        self.assertTrue(item['error'])
+        self.assertEqual(item['manager_email'], 'manager@example.com')
+        self.assertNotIn('fingerprint', item)
+
+    def test_blank_or_stale_contact_is_resolved_on_copy_for_preview_and_generated_file(self):
+        for email in ('', 'previous@example.invalid'):
+            with self.subTest(email=email):
+                self.config['employes_data'][0].update(account_username='fixture', email_employe=email,
+                                                     email_responsable='previous-boss@example.invalid')
+                before = copy.deepcopy(self.config)
+                item = self.preview().json()['items'][0]
+                self.assertEqual(item['error'], '')
+                self.assertEqual(item['employee_email'], 'fixture@example.com')
+                self.assertEqual(self.config, before)
+                payload = self.payload(); payload['request_id'] = 'unit-' + ('blank' if not email else 'stale') + '-0000000001'
+                self.assertEqual(self.send(payload).status_code, 200)
+                generated = self.generator.call_args.args[0]
+                self.assertEqual(generated['email_employe'], 'fixture@example.com')
+                self.assertEqual(generated['email_responsable'], 'manager@example.com')
+                self.assertEqual(self.config, before)
+
+    def test_changed_account_email_requires_fresh_preview(self):
+        payload = self.payload()
+        self.resolver.return_value = {**self.resolver.return_value, 'employee_email': 'new@example.com'}
+        self.assertEqual(self.send(payload).status_code, 409)
+        self.sender.assert_not_called()
 
     def test_duplicate_selection_is_deduplicated(self):
         self.assertEqual(len(self.preview(['sheet', 'sheet']).json()['items']), 1)
