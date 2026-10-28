@@ -1,4 +1,4 @@
-# 资料就绪与待办中心（本地待发布）
+# 资料就绪与待办中心（2026-10-28 已上线）
 
 Admin / SuperAdmin 和 Responsable 登录后默认进入 Tableau de bord；普通员工仍进入请假页面，不获得待办或资料汇总接口权限。
 
@@ -25,6 +25,6 @@ Admin / SuperAdmin 和 Responsable 登录后默认进入 Tableau de bord；普�
 
 ## 验证与发布注意
 
-456 项后端回归（已开启真实 MySQL 临时表测试）、52 项前端回归通过，TypeScript、lint、生产构建通过。测试见 `test_work_center.py`（隔离 SQL、角色与权限）、`test_work_center_mysql.py`（真实 MySQL 临时表混合排序回归）和原有签署文件测试。本地 5174 / 8014 使用合成账号与合成待办验证月份/员工定位、请假详情和签署页跳转；390px 及桌面无横向溢出。实际 QA 接口核对 Admin / Responsable / Standard 三类角色，读取前后业务行数不变。没有发送真实邮件或签署。
+470 项后端回归（已开启真实 MySQL 临时表测试）、54 项前端回归通过，TypeScript、lint、生产构建通过。测试见 `test_work_center.py`（隔离 SQL、角色与权限）、`test_work_center_mysql.py`（真实 MySQL 临时表混合排序回归）和原有签署文件测试。本地 5174 / 8014 使用合成账号与合成待办验证月份/员工定位、请假详情和签署页跳转；390px 及桌面无横向溢出。实际 QA 接口核对 Admin / Responsable / Standard 三类角色，读取前后业务行数不变。没有发送真实邮件或签署。
 
 发布时前后端需一起更新，并同步仍可访问的 flat API：新增 `work_center.py`、修改的 `main.py` 与 `signed_fiche_store.py`；保留既有文件和数据，按 backend/README.md 先比对服务器差异并备份。当前尚未上线。

@@ -26,7 +26,7 @@
 | 日历 | `attendance/AttendanceCalendar.tsx`、`useCalendarSelection.ts`、`calendarStatus.ts`；半天拖选、批量应用及状态颜色 |
 | 签署与批量结果 | `attendance/SignaturePreview.tsx`、`components/BatchExportResult.tsx`；下载和签署独立，异常提交不自动重发 |
 | 已签文件 | `attendance/SignedFichesPanel.tsx`、`signedFichesApi.ts`；考勤顶部 Signatures 页签与个人 Profile 月度列表；每页 20 项、共用 DocumentPreview、管理员月度 ZIP；正式版仅显示正式文件，本地保留生产/SPECIMEN 切换 |
-| Documents | `documents/DocumentsPage.tsx` 每页 20 条、跨页勾选；`DocumentsToolbar.tsx`；`DocumentUpload.tsx` 上传弹窗；`DocumentRow.tsx` 紧凑横条及操作；`documentSearch.ts` 搜索；`DocumentPreview.tsx` / `PdfPreview.tsx` 私有预览。`CategoryManager.tsx` 管理类型，`DocumentTypeFields.tsx` 共享选择，`DocumentClassification.tsx` 管理员更正已有分类，`DocumentTypeBadge.tsx` 统一圆角描边和彩色填充，`documentCategory.ts` 兼容历史显示；自定义类型本地待发布，见 [说明](document-categories.md) |
+| Documents | `documents/DocumentsPage.tsx` 每页 20 条、跨页勾选；`DocumentsToolbar.tsx`；`DocumentUpload.tsx` 上传弹窗；`DocumentRow.tsx` 紧凑横条及操作；`documentSearch.ts` 搜索；`DocumentPreview.tsx` / `PdfPreview.tsx` 私有预览。`CategoryManager.tsx` 管理类型，`DocumentTypeFields.tsx` 共享选择，`DocumentClassification.tsx` 管理员更正已有分类，`DocumentTypeBadge.tsx` 统一圆角描边和彩色填充，`documentCategory.ts` 兼容历史显示；自定义类型2026-10-28 已上线，见 [说明](document-categories.md) |
 | 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`personnelValidation.ts` 共用字段标签及校验；`EmploymentFields.tsx` 集中合同与三类特殊身份表单；`RegistrationContract.tsx` 显式合同预填；`PersonnelInformation.tsx` 共用名册/个人资料展示及 EmploymentSummary；`SensitiveNumber.tsx` 受控短时查看；`PersonnelExport.tsx` Excel 导出确认 |
 | Administration | `admin/AdminPage.tsx`；`UserEditor.tsx`、`OrganizationFields.tsx`、`ContractEditor.tsx`、`GroupEditor.tsx`；`CreateAccount.tsx` 建号弹窗；`AccountAccess.tsx` 登录状态；`AdvancedMaintenance.tsx` 资源维护 |
 | 人员选择和姓名 | `personDisplayName.ts`；`admin/AccountOption.tsx` / `accountOptionLayout.ts` 分列显示；`components/DepartmentBadge.tsx` / `departmentColor.ts` 部门标签和颜色 |
@@ -47,9 +47,9 @@
 
 ## 后端定位
 
-本地待发布：`document_categories.py` 管理 `/document-categories*` 的已登录读取、实时 Admin 管理；稳定代码复用原发票字段，兼容标准类型及旧记录；`documents.py` 在上传时校验类型，提供分类更正、变更审计与并发保护。启动幂等新增分类及审计两张表，见 [Documents 分类说明](document-categories.md)。
+2026-10-28 已上线：`document_categories.py` 管理 `/document-categories*` 的已登录读取、实时 Admin 管理；稳定代码复用原发票字段，兼容标准类型及旧记录；`documents.py` 在上传时校验类型，提供分类更正、变更审计与并发保护。启动幂等新增分类及审计两张表，见 [Documents 分类说明](document-categories.md)。
 
-本地待发布：`dashboard/WorkCenterPanel.tsx` 汇总权限范围内的请假、签署、PDF 回收与资料待办；`useWorkCenter.ts` / `workCenterApi.ts` 复用查询，`ReadinessStatus.tsx` / `AccountReadiness.tsx` 在首页、团队和账号页显示就绪状态。`workspaceNavigation.ts` 经草稿保护定位目标记录；管理账号默认首页改为 Dashboard。后端 `work_center.py` 注册只读 `GET /dashboard/work-center`，复用实时角色、考勤可管理范围、直属请假审批与签署历史隔离；名册完整度仅 Admin 可见，不作为考勤前置条件。`signed_fiche_store.py` 使用精确二进制 ID 关联以兼容混合排序规则。范围、测试与发布注意见 [待办中心说明](work-center.md)。
+2026-10-28 已上线：`dashboard/WorkCenterPanel.tsx` 汇总权限范围内的请假、签署、PDF 回收与资料待办；`useWorkCenter.ts` / `workCenterApi.ts` 复用查询，`ReadinessStatus.tsx` / `AccountReadiness.tsx` 在首页、团队和账号页显示就绪状态。`workspaceNavigation.ts` 经草稿保护定位目标记录；管理账号默认首页改为 Dashboard。后端 `work_center.py` 注册只读 `GET /dashboard/work-center`，复用实时角色、考勤可管理范围、直属请假审批与签署历史隔离；名册完整度仅 Admin 可见，不作为考勤前置条件。`signed_fiche_store.py` 使用精确二进制 ID 关联以兼容混合排序规则。范围、测试与发布注意见 [待办中心说明](work-center.md)。
 
 路径均相对于 `backend/`。路由模块通过注册函数接收认证、数据库和授权依赖，不反向导入 `main.py`。
 

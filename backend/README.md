@@ -29,7 +29,7 @@ NIR 关闭或密钥无效时拒绝导出。接口与映射见 [名册说明](../
 
 ## 当前版本与回退
 
-本地待发布：Documents 自定义类型由 `document_categories.py` 管理，`documents.py` 接入上传校验及管理员更正分类。启动幂等新增分类与分类审计两张表，不改旧发票和文件。前后端及保留 flat API 必须同步；无需新增环境变量，发布前备份数据库包含新表。接口、权限和测试见 [分类说明](../doc/document-categories.md)。
+2026-10-28 已上线：Documents 自定义类型由 `document_categories.py` 管理，`documents.py` 接入上传校验及管理员更正分类。启动幂等新增分类与分类审计两张表，不改旧发票和文件。前后端及保留 flat API 必须同步；无需新增环境变量，发布前备份数据库包含新表。接口、权限和测试见 [分类说明](../doc/document-categories.md)。
 
 - 前端：`profile-month-ui-20261028T115926Z` / `3ce60e6eac9f`，Nginx 静态目录指向该版本的 `frontend/dist`；[界面备份、验证和回退](../doc/releases/profile-month-ui-20261028.md)。
 - API：`contact-access-20261028T095545Z` / `f0609e84168b`，React API 与 flat 模块保持该版本。`/var/www/presence-react/current` 仍指向此 API 版本，本次未重启后端。

@@ -1,4 +1,4 @@
-# Documents 自定义类型（本地待发布）
+# Documents 自定义类型（2026-10-28 已上线）
 
 每份文件使用一个类型。Admin / SuperAdmin 在 Documents 顶部点击 **Gérer les types**，可以新增、改名、停用或恢复自定义类型。普通员工和 Responsable 只能选择有效类型，不能维护类型或更正文件分类；既有文件查看、代上传、归档及删除权限保持原规则。
 
