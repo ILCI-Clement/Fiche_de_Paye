@@ -30,7 +30,7 @@
 | 员工名册 | `personnel/PersonnelPage.tsx`、`PersonnelToolbar.tsx`；`PersonnelEditor.tsx` / `PersonnelDetail.tsx`、`EmploymentEditor.tsx`、`PersonnelHistory.tsx`；`personnelValidation.ts` 共用字段标签及校验；`EmploymentFields.tsx` 集中合同与三类特殊身份表单；`RegistrationContract.tsx` 显式合同预填；`PersonnelInformation.tsx` 共用名册/个人资料展示及 EmploymentSummary；`SensitiveNumber.tsx` 受控短时查看；`PersonnelExport.tsx` Excel 导出确认 |
 | Administration | `admin/AdminPage.tsx`；`UserEditor.tsx`、`OrganizationFields.tsx`、`ContractEditor.tsx`、`GroupEditor.tsx`；`CreateAccount.tsx` 建号弹窗；`AccountAccess.tsx` 登录状态；`AdvancedMaintenance.tsx` 资源维护 |
 | 人员选择和姓名 | `personDisplayName.ts`；`admin/AccountOption.tsx` / `accountOptionLayout.ts` 分列显示；`components/DepartmentBadge.tsx` / `departmentColor.ts` 部门标签和颜色 |
-| Mon équipe / 月度 Profile | `team/TeamPage.tsx`、`OrganizationCards.tsx`、`PersonProfile.tsx`；顶部年份/月下拉选择，`ProfileMonth.tsx` 仅展示所选月份，上半部为四项汇总、下半部为文档归档明细、请假日期/状态及签署记录；年度 API 数据供月份切换复用。已签文件复用 `DocumentPreview` 按需预览/下载，仍由后端鉴权。弹窗固定高度、内部纵向滚动，页面说明移入提示；此界面修改本地待发布 |
+| Mon équipe / 月度 Profile | `team/TeamPage.tsx`、`OrganizationCards.tsx`、`PersonProfile.tsx`；顶部年份/月下拉选择，`ProfileMonth.tsx` 仅展示所选月份，上半部为四项汇总、下半部为文档归档明细、请假日期/状态及签署记录；年度 API 数据供月份切换复用。已签文件复用 `DocumentPreview` 按需预览/下载，仍由后端鉴权。弹窗固定高度、内部纵向滚动，页面说明移入提示；此界面已于 2026-10-28 发布，见 [发布记录](releases/profile-month-ui-20261028.md) |
 | 个人设置 / 名册关联 | `profile/ProfilePage.tsx` 的账号/员工资料页签；`AccountPersonnelSection.tsx` 复用关联卡与编辑窗口；`accountPersonnelApi.ts` 请求 |
 | 仪表板 / 请假 | `dashboard/DashboardPage.tsx`、`PersonnelDistribution.tsx`、`InterviewEditor.tsx`；`LeaveWorkspace.tsx` 和 `components/Leave*` |
 | 共用请求、日期、登录 | `api.ts`、`download.ts`、`components/FrenchDateField.tsx` / `components/CalendarMonthHeader.tsx`、`authSession.ts`、`components/PasswordRecovery.tsx`、`capabilities.ts` |
@@ -128,7 +128,7 @@
 
 2026-10-23 账号姓名：创建表单移除手工账号标识，改为必填 Prénoms/Nom；账号姓名直接保存在 users，无需自动创建正式员工档案。关联名册的结构化姓名优先，旧记录不自动拆分。模块兼容 flat/package 导入及旧数据库缺列读取；发布时需同步仍可访问的保留 API。存储核对与范围见 [账号姓名说明](account-names.md)。
 
-当前生产版本：`contact-access-20261028T095545Z` / `f0609e84168b`，前后端与保留 API 已同步修复本人设置读取及关联旧工时表的签署邮箱；上一版签署历史隔离继续保留。此前版本为历史记录；验证与回退见 [发布记录](releases/account-contact-20261028.md)。
+当前生产前端：`profile-month-ui-20261028T115926Z` / `3ce60e6eac9f`，Profile 使用月份下拉与单月详情；API 保持 `contact-access-20261028T095545Z` / `f0609e84168b`，保留本人设置读取及旧工时表当前签署邮箱修复。静态目录与 API current 指针分别维护，见 [本次界面发布记录](releases/profile-month-ui-20261028.md) 和 [API 发布记录](releases/account-contact-20261028.md)。
 
 前端随后独立更新为 `admin-workspace-ui-20261023T151905Z` / `63ef6c3935f2`，Admin 导航集中分组并显示区域标识；API 保持上述版本。静态目录、核对与独立界面回退见 [Admin 分组发布记录](releases/admin-workspace-ui-20261023.md)。
 
