@@ -42,9 +42,8 @@ export function Login({ onLogin }: { onLogin: (token: string) => void }) {
     onSuccess: data => { storeRememberedToken(data.remember_token); setPassword(''); setCooldown(null); onLogin(data.auth_token) } })
   return <Box className="login-layout">
     <Box className="login-intro">
-      <Box className="brand-mark">{brand.mark}</Box>
-      <Typography variant="overline" sx={{ color: 'var(--sidebar-muted)', letterSpacing: 3, mt: 5 }}>{brand.title}</Typography>
-      <Typography component="h1" sx={{ fontSize: { xs: 30, md: 38 }, fontWeight: 600, lineHeight: 1.2, my: 2 }}>{brand.name}</Typography>
+      <Box className="brand-mark" role="img" aria-label={brand.title}>{brand.mark}</Box>
+      <Typography variant="overline" sx={{ color: 'var(--sidebar-muted)', letterSpacing: 3, mt: 3, mb: 2 }}>{brand.organization}</Typography>
       <Typography sx={{ color: 'var(--sidebar-muted)', maxWidth: 390, lineHeight: 1.7 }}>Accédez à vos informations et documents RH.</Typography>
       <Box sx={{ mt: 'auto', pt: 5, color: 'var(--sidebar-muted)', fontSize: 13 }}>Personnel · Contrats · Documents · Congés</Box>
     </Box>

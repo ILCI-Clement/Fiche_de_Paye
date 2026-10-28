@@ -65,8 +65,8 @@ def generate_personnel_excel(rows):
     sheet.print_title_rows = '1:7'
     sheet.print_title_cols = 'A:B'
     sheet.print_area = f'A1:R{len(rows) + 7}'
-    workbook.properties.creator = 'ILCI · Espace RH'
-    workbook.properties.lastModifiedBy = 'ILCI · Espace RH'
+    workbook.properties.creator = 'ILCI · RH'
+    workbook.properties.lastModifiedBy = 'ILCI · RH'
     output = BytesIO()
     workbook.save(output)
     workbook.close()

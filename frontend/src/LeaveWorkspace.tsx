@@ -52,7 +52,7 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
         <WorkspaceToolbar>
           {session.can_review && <Tabs value={scope} onChange={(_, value: Scope) => navigate(value)} aria-label="Périmètre des demandes de congé" variant="scrollable" scrollButtons="auto" sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, px: 1.5, fontSize: 13 } }}><Tab value="mine" label="Mes demandes" /><Tab value="team" label={isAdmin(session) ? 'Toutes les demandes' : 'Mon équipe'} /></Tabs>}
           <Tooltip title="Actualiser les demandes"><span><IconButton aria-label="Actualiser les demandes" disabled={list.isFetching} onClick={() => { void list.refetch(); if (session.can_review) void reviews.refetch() }}><RefreshRounded fontSize="small" /></IconButton></span></Tooltip>
-          <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>Nouvelle demande</Button>
+          <Button className="workspace-primary-action" size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>Nouvelle demande</Button>
         </WorkspaceToolbar>
         <Box className="stats-grid">
           {[{ label: 'En attente', value: list.data?.counts.pending, icon: <AccessTimeRounded />, color: 'warning' as const },

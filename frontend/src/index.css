@@ -6,7 +6,6 @@ body { margin: 0; min-width: 320px; }
 .sidebar > * { flex-shrink: 0; }
 .brand { display: flex; align-items: center; gap: 12px; margin: 0 8px 28px; }
 .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border-radius: 8px; background: var(--accent); color: var(--accent-contrast); font-size: 20px; font-weight: 800; }
-.nav-heading.MuiTypography-root { font-size: 10px; letter-spacing: 1.8px; color: var(--sidebar-muted); margin: 0 14px 12px; }
 .nav-item.MuiButton-root { color: var(--sidebar-text); padding: 11px 14px; margin-bottom: 5px; justify-content: flex-start; border-radius: 9px; width: 100%; gap: 6px; font-size: 13px; }
 .nav-item.MuiButton-root.active { background: var(--nav-active); color: var(--sidebar-text); }
 .nav-item.MuiButton-root:hover { background: var(--nav-hover); }
@@ -29,6 +28,9 @@ body { margin: 0; min-width: 320px; }
 .workspace-action-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; width: 100%; min-width: 0; }
 .workspace-action-bar--inline { width: auto; flex-wrap: nowrap; }
 .workspace-action-bar .MuiButton-root { min-height: 40px; font-weight: 500; padding-inline: 12px; }
+.workspace-action-bar .workspace-primary-action.MuiButton-root { width: 208px; max-width: 100%; height: 40px; flex-shrink: 0; margin-left: auto; padding: 8px 16px; font-size: 13px; line-height: 1.4; white-space: nowrap; }
+.workspace-action-bar .workspace-primary-action .MuiButton-startIcon { margin-left: 0; margin-right: 8px; }
+.workspace-action-bar .workspace-primary-action .MuiButton-startIcon > svg { font-size: 20px; }
 .workspace-action-bar .MuiIconButton-root { width: 40px; height: 40px; flex-shrink: 0; }
 .workspace-action-bar .MuiInputBase-root { min-height: 40px; }
 .workspace-action-bar .MuiInputBase-input { font-size: 13px; }

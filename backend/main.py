@@ -51,7 +51,7 @@ else:
                              reserve_deleted_account_name, username_is_reserved)
 
 
-app = FastAPI(title="ILCI · Espace RH API")
+app = FastAPI(title="ILCI · RH API")
 VALID_EMPLOYEE_TYPES = {"salarie", "stagiaire"}
 SESSION_DURATION_SECONDS = 8 * 60 * 60
 REMEMBER_SESSION_DURATION_DAYS = 30
@@ -832,7 +832,7 @@ def send_password_reset_email(email: str, token: str) -> bool:
         MIMEText(
             f"""<h3>Demande de réinitialisation de mot de passe</h3>
             <p>Bonjour,</p>
-            <p>Une demande de réinitialisation a été effectuée pour votre compte ILCI · Espace RH.</p>
+            <p>Une demande de réinitialisation a été effectuée pour votre compte ILCI · RH.</p>
             <p><a href=\"{reset_url}\">Réinitialiser mon mot de passe</a></p>
             <p>Ce lien est valable pendant 15 minutes.</p>""",
             "html",

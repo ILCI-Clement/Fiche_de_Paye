@@ -57,6 +57,15 @@ export function PersonnelTable({ employees, token, active, resetKey, onOpen }: {
     ],
   }
   const visible = columns[sheet].filter(column => sizes[column.min || 'xs'])
+  const nameWidth = sm ? 180 : 128
+  const actionWidth = sm ? 44 : 36
+  const fixedWidth = nameWidth + actionWidth + visible.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 0), 0)
+  const totalWeight = visible.reduce((sum, column) => sum + (typeof column.width === 'string' ? parseFloat(column.width) : 0), 0)
+  const columnWidth = (column: Column) => {
+    if (typeof column.width === 'number') return column.width
+    const share = parseFloat(column.width) / totalWeight
+    return `calc(${share * 100}% - ${share * fixedWidth}px)`
+  }
   const groups: { label: string; count: number }[] = []
   for (const column of visible) {
     const last = groups.at(-1)
@@ -73,19 +82,19 @@ export function PersonnelTable({ employees, token, active, resetKey, onOpen }: {
       <Table stickyHeader size="small" aria-label="Registre du personnel" sx={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0,
         '& .MuiTableCell-root': { overflow: 'hidden', borderRight: 1, borderRightColor: 'divider', lineHeight: 1.4 },
         '& .MuiTableCell-root:last-child': { borderRight: 0 },
-        '& .MuiTableCell-head': { bgcolor: 'background.paper', whiteSpace: 'normal', overflowWrap: 'anywhere' },
+        '& .MuiTableCell-head': { bgcolor: 'background.paper', whiteSpace: 'nowrap', textOverflow: 'ellipsis' },
         '& .registry-group .MuiTableCell-root': { top: 0, height: 36, py: .5, fontSize: 12 },
         '& .registry-columns .MuiTableCell-root': { top: 36, height: 46, py: .75, fontSize: 12 },
         '& .MuiTableBody-root .MuiTableRow-root:nth-of-type(even)': { bgcolor: 'action.hover' },
       }}>
-        <colgroup><col />{visible.map(column => <col key={column.id} style={{ width: column.width }} />)}<col style={{ width: sm ? 44 : 36 }} /></colgroup>
+        <colgroup><col style={{ width: nameWidth }} />{visible.map(column => <col key={column.id} style={{ width: columnWidth(column) }} />)}<col style={{ width: actionWidth }} /></colgroup>
         <TableHead>
           <TableRow className="registry-group">
             <TableCell rowSpan={2} scope="col">Nom et prénoms</TableCell>
             {groups.map(group => <TableCell key={group.label} colSpan={group.count} scope="colgroup" align="center"><Tooltip title={group.label}><Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{group.label}</Box></Tooltip></TableCell>)}
             <TableCell rowSpan={2} scope="col" aria-label="Fiche complète" />
           </TableRow>
-          <TableRow className="registry-columns">{visible.map(column => <TableCell key={column.id} scope="col" align={sheet === 'special' && column.group === 'Jeunes travailleurs' ? 'center' : 'left'}>{column.label}</TableCell>)}</TableRow>
+          <TableRow className="registry-columns">{visible.map(column => <TableCell key={column.id} scope="col" title={column.label} align={sheet === 'special' && column.group === 'Jeunes travailleurs' ? 'center' : 'left'}>{column.label}</TableCell>)}</TableRow>
         </TableHead>
         <TableBody>{employees.map(employee => <TableRow key={employee.employee_id} hover>
           <TableCell component="th" scope="row">

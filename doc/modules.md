@@ -1,6 +1,6 @@
-# ILCI · Espace RH 模块索引
+# ILCI · RH 模块索引
 
-产品显示名称统一为 ILCI · Espace RH，React 共用 `frontend/src/brand.ts`；图标为 RH，网页标题与图标在 `frontend/index.html` 和 `frontend/public/favicon.svg`。技术服务名、数据库表、环境变量与本地会话键沿用原标识，避免影响部署和已有登录。随 2026-10-23 已签归档版本上线。
+产品显示名称统一为 ILCI · RH，React 共用 `frontend/src/brand.ts`；图标为 RH，网页标题与图标在 `frontend/index.html` 和 `frontend/public/favicon.svg`。技术服务名、数据库表、环境变量与本地会话键沿用原标识，避免影响部署和已有登录。随 2026-10-23 已签归档版本上线。
 
 ## 入口与环境
 

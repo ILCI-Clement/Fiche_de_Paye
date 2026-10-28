@@ -92,8 +92,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
     guard.request(() => { setWorkRequest({ ...destination, sequence: ++workSequence.current }); go(destination.page) })
   }
   const nav = <>
-    <Box className="brand"><Box className="brand-mark">{brand.mark}</Box><Box><Typography sx={{ fontWeight: 750, fontSize: 21 }}>{brand.name}</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 11, letterSpacing: 2 }}>{brand.organization} · PORTAIL RH</Typography></Box></Box>
-    <Typography className="nav-heading">RESSOURCES HUMAINES</Typography>
+    <Box className="brand"><Box className="brand-mark" role="img" aria-label={brand.title}>{brand.mark}</Box><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 11, letterSpacing: 2 }}>{brand.organization} · PORTAIL RH</Typography></Box>
     {attendanceAllowed && <Button className={`nav-item ${page === 'dashboard' ? 'active' : ''}`} startIcon={<DashboardOutlined />} onClick={() => navigate('dashboard')}>Tableau de bord</Button>}
     {attendanceAllowed && <Button className={`nav-item ${page === 'attendance' ? 'active' : ''}`} startIcon={<CalendarMonthRounded />} onClick={() => navigate('attendance')}>Fiches de temps</Button>}
     <Button className={`nav-item ${page === 'leave' ? 'active' : ''}`} startIcon={<EventAvailableOutlined />} onClick={() => navigate('leave')}>Congés payés</Button>

@@ -51,7 +51,7 @@ function ProfileForm({ token, username, email, onSession, active }: { active: bo
     finally { lock.current = false; setBusy(false) }
   }
   return <Paper id={formId} component="form" sx={{ p: { xs: 2, md: 3 }, width: '100%' }} onSubmit={e => { e.preventDefault(); if (guard) guard.request(() => void save(), undefined, 'Paramètres du compte'); else void save() }}>
-    {active && <WorkspaceToolbar><Button type="submit" form={formId} variant="contained" startIcon={<SaveOutlined />} disabled={busy || !name.trim() || !mail.trim()}>Enregistrer les modifications</Button></WorkspaceToolbar>}
+    {active && <WorkspaceToolbar><Button className="workspace-primary-action" type="submit" form={formId} variant="contained" startIcon={<SaveOutlined />} disabled={busy || !name.trim() || !mail.trim()}>Enregistrer</Button></WorkspaceToolbar>}
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
       <TextField label="Identifiant technique du compte" helperText="Identifiant de connexion ; le nom affiché utilise les prénoms et le nom du compte ou du registre associé." autoComplete="username" required value={name} disabled={busy} onChange={e => setName(e.target.value)} />
       <TextField label="Adresse e-mail" type="email" autoComplete="email" required value={mail} disabled={busy} onChange={e => setMail(e.target.value)} />

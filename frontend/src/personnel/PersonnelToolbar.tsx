@@ -27,7 +27,6 @@ export function PersonnelToolbar({ filters, search, total, busy, hasData, onSear
   return <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: .75, width: '100%', minWidth: 0,
     '& .MuiIconButton-root': { width: 40, height: 40 }, '& .MuiButton-root': { minHeight: 40, fontWeight: 500 },
   }}>
-    <Button variant="contained" size="small" startIcon={<PersonAddOutlined fontSize="small" />} onClick={onRegister} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>Enregistrer un salarié</Button>
     <Tooltip title="Exporter toutes les personnes correspondant aux filtres, toutes pages incluses"><span><Button size="small" startIcon={<DownloadOutlined fontSize="small" />} disabled={busy || !hasData || total === 0} onClick={onExport} sx={{ whiteSpace: 'nowrap' }}>Exporter Excel</Button></span></Tooltip>
     <Box component="form" onSubmit={event => { event.preventDefault(); onSearch() }} sx={{ flex: '1 1 200px', minWidth: 170, maxWidth: { xs: 'none', md: 340 } }}>
       <TextField placeholder="Nom, compte ou n°…" value={search} onChange={event => onSearchChange(event.target.value)} fullWidth
@@ -49,6 +48,7 @@ export function PersonnelToolbar({ filters, search, total, busy, hasData, onSear
         '& .MuiTablePagination-input': { mx: .5 }, '& .MuiTablePagination-displayedRows': { m: 0, fontSize: 12, fontVariantNumeric: 'tabular-nums' },
         '& .MuiTablePagination-actions': { ml: .5 },
       }} />
+    <Button className="workspace-primary-action" variant="contained" size="small" startIcon={<PersonAddOutlined fontSize="small" />} onClick={onRegister} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>Enregistrer un salarié</Button>
     <Popover id={filterId} open={!!anchor} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
       <Box role="dialog" aria-label="Filtres du registre" sx={{ p: 2, width: 300, maxWidth: 'calc(100vw - 32px)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}><Typography sx={{ flex: 1, fontWeight: 500 }}>Filtres du registre</Typography><IconButton size="small" aria-label="Fermer les filtres" onClick={() => setAnchor(null)}><CloseRounded fontSize="small" /></IconButton></Box>

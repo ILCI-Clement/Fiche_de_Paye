@@ -61,16 +61,16 @@ def send_welcome_email(*, email, name, password, generated, app_url, server, por
             return False
         message = MIMEMultipart('alternative')
         message['From'], message['To'] = sender, email
-        message['Subject'] = 'Votre compte ILCI · Espace RH'
+        message['Subject'] = 'Votre compte ILCI · RH'
         reminder = ('Ce mot de passe temporaire est à modifier dans Paramètres après votre connexion.'
                     if generated else 'Vous pouvez modifier ce mot de passe dans Paramètres.')
         message.attach(MIMEText(
-            f'Bonjour {name},\n\nVotre compte Espace RH a été créé.\n'
+            f'Bonjour {name},\n\nVotre compte RH a été créé.\n'
             f'Connexion : {app_url}\nAdresse e-mail : {email}\nMot de passe initial : {password}\n\n'
             f'{reminder}\nNe partagez pas ce message.\n', 'plain', 'utf-8'))
         message.attach(MIMEText(
-            f'<p>Bonjour {escape(name)},</p><p>Votre compte Espace RH a été créé.</p>'
-            f'<p><a href="{escape(app_url, quote=True)}">Se connecter à Espace RH</a></p>'
+            f'<p>Bonjour {escape(name)},</p><p>Votre compte RH a été créé.</p>'
+            f'<p><a href="{escape(app_url, quote=True)}">Se connecter à RH</a></p>'
             f'<p>Adresse e-mail : {escape(email)}<br>Mot de passe initial : <strong>{escape(password)}</strong></p>'
             f'<p>{escape(reminder)}</p><p>Ne partagez pas ce message.</p>', 'html', 'utf-8'))
         context = ssl.create_default_context()

@@ -21,7 +21,7 @@ export function AttendanceToolbar({ month, year, busy, account, accounts, onPeri
     } }}>
       <MenuItem value="">Sélectionner une personne</MenuItem>{accounts.map(item => <MenuItem key={item.username} value={item.username} aria-label={accountOptionLabel(item)} sx={{ py: 1, minHeight: 60 }}><AccountOption account={item} /></MenuItem>)}
     </TextField>
-    <Button variant="contained" disabled={!account || busy} onClick={onOpen} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>Ouvrir / créer sa fiche</Button>
+    <Button className="workspace-primary-action" variant="contained" disabled={!account || busy} onClick={onOpen} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>Ouvrir / créer sa fiche</Button>
     </>}
   </WorkspaceToolbar>
 }

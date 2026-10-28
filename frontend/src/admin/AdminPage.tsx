@@ -61,8 +61,8 @@ function AdminWorkspace({ token, session }: { token: string; session: Session })
           <ListSubheader><AccountOptionHeader /></ListSubheader>
           {choices.map(person => <MenuItem key={person.username} value={person.username}><AccountOption person={person} /></MenuItem>)}
         </TextField>
-        <Button variant="outlined" startIcon={<PersonAddOutlined />} disabled={busy || !users.data || !groups.data || !!users.error || !!groups.error} onClick={() => { setError(''); setCreating(true) }}>Créer un compte</Button>
         <Tooltip title="Actualiser"><span><IconButton aria-label="Actualiser" disabled={busy} onClick={() => { guard?.request(() => { void users.refetch(); void groups.refetch() }) }}><RefreshRounded /></IconButton></span></Tooltip>
+        <Button className="workspace-primary-action" variant="outlined" startIcon={<PersonAddOutlined />} disabled={busy || !users.data || !groups.data || !!users.error || !!groups.error} onClick={() => { setError(''); setCreating(true) }}>Créer un compte</Button>
       </Box>
     </WorkspaceToolbar>
     {!capabilities.canCreateAccounts && <Alert severity="info" sx={{ mb: 2 }}>La création de nouveaux comptes est désactivée ou indisponible dans cet environnement. Les comptes existants peuvent être gérés.</Alert>}
