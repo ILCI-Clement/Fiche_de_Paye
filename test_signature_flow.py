@@ -45,13 +45,19 @@ class SignatureFlowTests(unittest.TestCase):
     def test_blank_name_uses_mailbox_label(self):
         self.assertEqual(signing_people('', 'christophe@example.com', '', 'william@example.com')[1]['name'],'william')
 
-    def resolve(self, manager_id='boss', email='boss@example.com', access=None):
+    def resolve(self, manager_id='boss', email='boss@example.com', access=None, include_identity=False):
         db=MagicMock(); cursor=db.cursor.return_value.__enter__.return_value
         cursor.fetchall.return_value=[{'username':'employee'}]
         manager={'username':'boss','email':email,'role_tags':['Admin']}
         employee={'username':'employee','manager_username':manager_id}
         return resolve_manager('employee@example.com', {'username':'manager'}, lambda:db,
-            lambda *args:manager, access or (lambda *args,**kwargs:employee))
+            lambda *args:manager, access or (lambda *args,**kwargs:employee), include_identity=include_identity)
+
+    def test_archive_identity_is_the_actual_manager_not_the_sender(self):
+        result = self.resolve(include_identity=True)
+        self.assertEqual(result['employee_username'], 'employee')
+        self.assertEqual(result['manager_username'], 'boss')
+        self.assertNotIn('manager_username', self.resolve())
 
     def test_signer_order_and_roles_follow_provider_example(self):
         signers=signing_people('Employee','employee@example.com','Boss','boss@example.com')

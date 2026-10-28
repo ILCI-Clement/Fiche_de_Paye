@@ -4,6 +4,10 @@ import re
 import secrets
 import uuid
 from contextlib import contextmanager
+if __package__:
+    from .role_policy import is_admin
+else:
+    from role_policy import is_admin
 
 from fastapi import HTTPException
 
@@ -15,6 +19,7 @@ def ensure_signed_fiche_schema(cursor):
         namespace VARCHAR(128) NOT NULL,
         document_id VARCHAR(128) NULL UNIQUE,
         employee_username VARCHAR(255) NOT NULL,
+        manager_username VARCHAR(255) NULL,
         sender_username VARCHAR(255) NOT NULL,
         employee_name VARCHAR(255) NOT NULL,
         fiche_month INT NOT NULL, fiche_year INT NOT NULL,
@@ -32,6 +37,10 @@ def ensure_signed_fiche_schema(cursor):
         KEY signed_fiche_employee (employee_username),
         KEY signed_fiche_pending (status, next_attempt_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4''')
+    # Unknown historical signers must not be inferred from today's organization.
+    cursor.execute('SHOW COLUMNS FROM signed_fiche_documents LIKE %s', ('manager_username',))
+    if not cursor.fetchone():
+        cursor.execute('ALTER TABLE signed_fiche_documents ADD COLUMN manager_username VARCHAR(255) NULL')
     cursor.execute('''CREATE TABLE IF NOT EXISTS signed_fiche_events (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         archive_id CHAR(32) NOT NULL,
@@ -44,8 +53,23 @@ def ensure_signed_fiche_schema(cursor):
 
 def rename_signed_fiche_owner(cursor, old, new):
     # Same transaction as the account rename; original signer names stay historical.
-    for column in ('employee_username', 'sender_username'):
+    for column in ('employee_username', 'sender_username', 'manager_username'):
         cursor.execute(f'UPDATE signed_fiche_documents SET {column}=%s WHERE {column}=%s', (new, old))
+
+
+def signed_fiche_scope(actor):
+    """SQL scope shared by lists and profiles; NULL legacy signer fails closed."""
+    if is_admin(actor):
+        return '1=1', []
+    return '''(employee_username=%s OR (manager_username=%s AND %s=1
+        AND employee_username IN (SELECT username FROM users WHERE manager_username=%s)))''', [
+            actor['username'], actor['username'], int('Responsable' in actor.get('role_tags', [])), actor['username']]
+
+
+def can_view_signed_fiche(actor, row, target):
+    return (is_admin(actor) or actor['username'] == row['employee_username'] or
+            ('Responsable' in actor.get('role_tags', []) and target is not None and
+             target.get('manager_username') == actor['username'] == row.get('manager_username')))
 
 
 def event(cursor, archive_id, name, actor=None):
@@ -70,7 +94,7 @@ class SignedFicheStore:
         finally:
             db.close()
 
-    def prepare(self, *, employee, sender, name, month, year, namespace, mode):
+    def prepare(self, *, employee, sender, name, month, year, namespace, mode, manager=None):
         archive_id = uuid.uuid4().hex
         # A per-request 256-bit callback capability, carried in the POST body only.
         # Keep only its hash; never put the capability in URLs, UI or access logs.
@@ -78,9 +102,9 @@ class SignedFicheStore:
         with self.transaction() as cursor:
             cursor.execute('''INSERT INTO signed_fiche_documents
                 (id,reference_hash,namespace,employee_username,sender_username,employee_name,
-                 fiche_month,fiche_year,mode) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                 fiche_month,fiche_year,mode,manager_username) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 (archive_id, hashlib.sha256(reference.encode()).hexdigest(), namespace,
-                 employee, sender, name, month, year, mode))
+                 employee, sender, name, month, year, mode, manager))
             event(cursor, archive_id, 'prepared', sender)
         return archive_id, reference
 

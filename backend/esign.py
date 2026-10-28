@@ -322,6 +322,7 @@ def register_esign_routes(app, *, get_db_connection, require_roles, load_user,
                 if archive_service:
                     archive_request = archive_service.prepare(
                         employee=manager['employee_username'], sender=actor['username'], name=manager['employee_name'],
+                        manager=manager['manager_username'],
                         month=payload.month, year=payload.year,
                         namespace=os.getenv('CLAWSHOW_ESIGN_NAMESPACE', 'ilci'),
                         mode='sandbox-only' if os.getenv('CLAWSHOW_ESIGN_API_KEY', '').startswith('sk_test_') else 'production')

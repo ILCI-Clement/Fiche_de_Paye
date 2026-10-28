@@ -263,6 +263,7 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
         self.attempts = Mock()
         self.attempts.profile_receipts.return_value = ([], True)
         app = FastAPI()
+        self.app = app
         register_team_directory(app, get_db_connection=self.connect, get_current_user=authenticated)
         register_profile_routes(app, get_db_connection=self.connect, get_current_user=authenticated,
                                 load_user=test_backend_helpers.main.load_user, attempts=self.attempts)
@@ -345,6 +346,30 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
                 self.assertNotIn('private-envelope-marker', response.text)
                 self.assertNotIn('private-address-marker', response.text)
         self.assertEqual(self.attempts.profile_receipts.call_args.args, ('person-a', 2026))
+
+    def test_manager_profile_hides_old_and_unknown_signers_including_delivery_receipts(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('''CREATE TABLE signed_fiche_documents(id TEXT,document_id TEXT,employee_username TEXT,
+                manager_username TEXT,fiche_year INTEGER,fiche_month INTEGER,mode TEXT,status TEXT,
+                created_at TEXT,completed_at TEXT)''')
+            for identifier, manager in [('own', 'manager-id'), ('previous', 'admin-id'), ('legacy', None)]:
+                db.execute('INSERT INTO signed_fiche_documents VALUES(?,?,?,?,2026,10,?,?,?,NULL)',
+                    (identifier, identifier, 'person-a', manager, 'production', 'ready', '2026-10-23'))
+        self.app.state.signed_fiches = object()
+        def receipts(*_):
+            return ([dict(month=10, document_id=identifier, mode='production', status='accepted', created_at='2026-10-23')
+                     for identifier in ('own', 'previous', 'legacy', 'receipt-only')], True)
+        self.attempts.profile_receipts.side_effect = receipts
+        for actor, expected in [('manager-id', {'own'}), ('person-a', {'own', 'previous', 'legacy', 'receipt-only'}),
+                                ('admin-id', {'own', 'previous', 'legacy', 'receipt-only'})]:
+            self.actor['username'] = actor
+            response = self.client.get('/person-profiles/person-a?year=2026')
+            self.assertEqual(response.status_code, 200, response.text)
+            signatures = response.json()['months'][9]['signature_requests']
+            self.assertEqual({item['document_id'] for item in signatures}, expected)
+        self.actor['username'] = 'manager-id'
+        self.app.state.signed_fiches = None
+        self.assertEqual(self.client.get('/person-profiles/person-a?year=2026').json()['months'][9]['signature_requests'], [])
 
     def test_plain_employee_cannot_search_register_names_or_sensitive_details(self):
         for path in ('/personnel-register/accounts?q=Namesake', '/personnel-register/3',

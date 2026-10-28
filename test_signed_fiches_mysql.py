@@ -47,10 +47,24 @@ class SignedFicheMySQLTests(unittest.TestCase):
         with closing(pymysql.connect(host='127.0.0.1',port=3307,user='root',password=config['db_password'],database=config['database'],
                 cursorclass=pymysql.cursors.DictCursor,autocommit=False)) as db, tempfile.TemporaryDirectory() as root:
             proxy=TemporaryConnection(db)
-            with proxy.cursor() as cursor: ensure_signed_fiche_schema(cursor)
+            with proxy.cursor() as cursor:
+                ensure_signed_fiche_schema(cursor)
+                # Simulate the deployed pre-attribution schema without touching real tables.
+                cursor.execute('ALTER TABLE signed_fiche_documents DROP COLUMN manager_username')
+                cursor.execute('''INSERT INTO signed_fiche_documents
+                    (id,reference_hash,namespace,employee_username,sender_username,employee_name,fiche_month,fiche_year,mode)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    ('legacy', 'a' * 64, 'fixture', 'synthetic', 'synthetic-admin', 'Legacy fixture', 9, 2026, 'sandbox-only'))
+                ensure_signed_fiche_schema(cursor)
+                ensure_signed_fiche_schema(cursor)
+                cursor.execute("SELECT * FROM signed_fiche_documents WHERE id='legacy'")
+                legacy = cursor.fetchone()
+                self.assertIsNone(legacy['manager_username'])
+                self.assertEqual(legacy['reference_hash'], 'a' * 64)
+                self.assertEqual(legacy['employee_name'], 'Legacy fixture')
             store=SignedFicheStore(lambda:proxy)
             identifier,reference=store.prepare(employee='synthetic',sender='synthetic-admin',name='Synthetic SQL fixture',
-                month=9,year=2026,namespace='fixture',mode='sandbox-only')
+                manager='synthetic-manager',month=9,year=2026,namespace='fixture',mode='sandbox-only')
             store.accepted(identifier,'synthetic_document')
             payload=dict(reference_id=reference,provider='clawshow_esign',namespace='fixture',document_id='synthetic_document',
                 event='document.completed',all_signed=True,signed_pdf_url='https://esign.clawshow.ai/esign/synthetic_document/signed.pdf')
@@ -66,6 +80,7 @@ class SignedFicheMySQLTests(unittest.TestCase):
             service=SignedFiches(lambda:proxy,root); service.save(row,output.getvalue())
             with proxy.cursor() as cursor:
                 cursor.execute('SELECT * FROM signed_fiche_documents WHERE id=%s',(identifier,)); final=cursor.fetchone()
+            self.assertEqual(final['manager_username'],'synthetic-manager')
             self.assertEqual(final['status'],'ready'); self.assertEqual(final['sha256'],hashlib.sha256(output.getvalue()).hexdigest())
             self.assertEqual(service.read(final),output.getvalue())
             self.assertEqual(service.path(final).parent.relative_to(root).as_posix(),'2026/09')

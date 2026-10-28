@@ -56,10 +56,12 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
                 ADD role VARCHAR(30) DEFAULT 'Employe', ADD manager_username VARCHAR(255) NULL,
                 ADD created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 ADD first_name VARCHAR(100) DEFAULT 'Synthetic', ADD last_name VARCHAR(100) DEFAULT 'Fixture',
-                ADD initial_password_pending BOOLEAN DEFAULT 0''')
+                ADD initial_password_pending BOOLEAN DEFAULT 0,
+                ADD remember_token_hash CHAR(64) NULL, ADD remember_token_expires DATETIME NULL,
+                ADD reset_token VARCHAR(255) NULL, ADD reset_token_expires DATETIME NULL''')
             definitions = {
                 'Presence': 'user_id VARCHAR(255) PRIMARY KEY,form_content LONGTEXT',
-                'organization_groups': 'id INT PRIMARY KEY,name VARCHAR(100),is_active BOOLEAN DEFAULT 1',
+                'organization_groups': 'id INT PRIMARY KEY,name VARCHAR(100) UNIQUE,is_active BOOLEAN DEFAULT 1',
                 'user_group_memberships': 'username VARCHAR(255),group_id INT,relation VARCHAR(20)',
                 'account_role_events': '''id INT AUTO_INCREMENT PRIMARY KEY,target_username VARCHAR(255),
                     actor_username VARCHAR(255),action VARCHAR(32),roles_before TEXT,roles_after TEXT''',
@@ -81,6 +83,9 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
         app = FastAPI()
         app.add_api_route('/create-user', main.create_user, methods=['POST'])
         app.add_api_route('/list-users', main.list_users, methods=['GET'])
+        app.add_api_route('/groups', main.list_groups, methods=['GET'])
+        app.add_api_route('/groups/{group_id}', main.update_group, methods=['PUT'])
+        app.add_api_route('/users/{target_username}/organization', main.update_user_organization, methods=['PUT'])
         register_personnel_routes(app, get_db_connection=lambda: self.proxy,
                                  get_current_user=main.get_current_user, load_user=main.load_user)
         register_contract_history(app, lambda: self.proxy, main.require_roles,
@@ -446,6 +451,35 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
         with self.proxy.cursor() as cursor:
             cursor.execute('SELECT form_content FROM Presence WHERE user_id=%s', ('fixture-manager',))
             self.assertEqual(json.loads(cursor.fetchone()['form_content']), opened['config'])
+
+    def test_unchanged_department_save_is_idempotent_and_unknown_id_stays_404(self):
+        payload = {'name': 'Synthetic team', 'is_active': True}
+        for _ in range(2):
+            result = self.request('PUT', '/groups/1', json=payload).json()
+            self.assertEqual(result, {'id': 1, **payload})
+        self.request('PUT', '/groups/99999', status=404, json=payload)
+        self.request('PUT', '/groups/1', actor='fixture-manager', status=403, json=payload)
+        self.request('PUT', '/groups/1', status=400, json={'name': 'Other team', 'is_active': True})
+        self.request('PUT', '/groups/1', json={'name': 'Renamed team', 'is_active': False})
+        self.request('PUT', '/groups/1', json={'name': 'Renamed team', 'is_active': False})
+        with self.proxy.cursor() as cursor:
+            cursor.execute('SELECT name,is_active FROM organization_groups WHERE id=1')
+            self.assertEqual(cursor.fetchone(), {'name': 'Renamed team', 'is_active': 0})
+
+    def test_managed_departments_require_explicit_responsable_role(self):
+        username = self.create_account()
+        payload = {'role_tags': ['Employe'], 'employee_type': 'salarie', 'manager_id': 'fixture-admin',
+                   'group_ids': [1], 'managed_group_ids': [1]}
+        self.request('PUT', f'/users/{username}/organization', status=400, json=payload)
+        self.request('POST', '/create-user', status=400, json={
+            'new_username': 'invalid-managed-employee', 'new_mail': 'invalid-managed@example.com',
+            'first_name': 'Synthetic', 'last_name': 'Fixture', 'new_password': secrets.token_hex(12), **payload})
+        changed = self.request('PUT', f'/users/{username}/organization', json={**payload, 'role_tags': ['Employe', 'Responsable']})
+        self.assertEqual(changed.status_code, 200)
+        users = self.request('GET', '/list-users').json()['users']
+        target = next(person for person in users if person['username'] == username)
+        self.assertIn('Responsable', target['role_tags'])
+        self.assertEqual(target['managed_group_ids'], [1])
 
 
 if __name__ == '__main__':

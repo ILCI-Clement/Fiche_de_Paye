@@ -8,6 +8,7 @@ import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Dial
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
 import type { Group } from '../team/api'
 import { OrganizationFields } from './OrganizationFields'
+import { organizationValidation } from './organizationValidation'
 import { adminApi } from './api'
 import type { AdminUser, OrganizationInput, RunAction } from './api'
 import { ContractEditor } from './ContractEditor'
@@ -20,10 +21,26 @@ export function UserEditor({ token, user, users, groups, actor, actorRoles, busy
   const confirmChange = useDraftGuard(JSON.stringify(draft) !== baseline, busy, `Compte · ${personDisplayName(user)}`)
   const [employee, setEmployee] = useState('')
   const [roleConfirm, setRoleConfirm] = useState(false)
+  const [organizationError, setOrganizationError] = useState('')
+  function submitOrganization() {
+    const error = organizationValidation(draft)
+    setOrganizationError(error)
+    if (error) return
+    if ([...draft.role_tags].sort().join() !== [...user.role_tags].sort().join()) setRoleConfirm(true)
+    else void saveOrganization()
+  }
   async function saveOrganization() {
     if (protectedTarget) return
-    const ok = await run(() => adminApi.organization(token, user.username, draft), 'Organisation enregistrée.')
+    const validation = organizationValidation(draft)
+    setOrganizationError(validation)
+    if (validation) return
+    let failure = ''
+    const ok = await run(async () => {
+      try { return await adminApi.organization(token, user.username, draft) }
+      catch (error) { failure = error instanceof Error ? error.message : 'Enregistrement impossible.'; throw error }
+    }, 'Organisation enregistrée.')
     if (ok) { setBaseline(JSON.stringify(draft)); setRoleConfirm(false) }
+    else setOrganizationError(failure || 'Enregistrement non confirmé. Actualisez puis réessayez.')
   }
   const superAdmin = isSuperAdmin({ role_tags: actorRoles })
   const protectedTarget = isSuperAdmin(user) && !superAdmin
@@ -35,7 +52,8 @@ export function UserEditor({ token, user, users, groups, actor, actorRoles, busy
     <AccountPersonnelSection key={user.username} token={token} username={user.username} viewer={actor} disabled={busy} />
     {protectedTarget && <Alert severity="info" sx={{ mb: 2 }}>Les droits et l’accès de ce compte sont protégés : seul un Super Admin peut les modifier.</Alert>}
     <Accordion disableGutters><AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography>Fonction, départements et responsable</Typography></AccordionSummary><AccordionDetails>
-      <Box component="form" onSubmit={e => { e.preventDefault(); if ([...draft.role_tags].sort().join() !== [...user.role_tags].sort().join()) setRoleConfirm(true); else void saveOrganization() }} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+      {organizationError && !roleConfirm && <Alert severity="error" sx={{ mb: 2 }}>{organizationError}</Alert>}
+      <Box component="form" onSubmit={e => { e.preventDefault(); submitOrganization() }} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
         <OrganizationFields value={draft} onChange={setDraft} users={users} groups={groups} username={user.username} disabled={readOnly} allowSuperAdmin={superAdmin} preserveSuperAdmin={user.username === actor && isSuperAdmin(user)} preserveAdmin={user.username === actor && isAdmin(user)} />
         <Button variant="contained" type="submit" disabled={readOnly || !draft.role_tags.length}>Enregistrer l’organisation</Button>
       </Box>
@@ -51,6 +69,7 @@ export function UserEditor({ token, user, users, groups, actor, actorRoles, busy
     </AccordionDetails></Accordion>
     <AccountAccess token={token} user={user} actor={actor} actorRoles={actorRoles} busy={busy} run={run} confirmChange={confirmChange} requestError={requestError} />
     <Dialog open={roleConfirm} onClose={() => { if (!busy) setRoleConfirm(false) }}><DialogTitle>Confirmer le changement de droits</DialogTitle><DialogContent>
+      {organizationError && <Alert severity="error" sx={{ mb: 2 }}>{organizationError}</Alert>}
       <Alert severity="warning" sx={{ mb: 2 }}>Les accès de {personDisplayName(user)} seront modifiés.</Alert>
       <Typography>Actuellement : {displayRoles(user.role_tags)}</Typography>
       <Typography>Après modification : {displayRoles(draft.role_tags)}</Typography>

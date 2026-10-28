@@ -23,7 +23,7 @@ from backend.signed_fiche_store import rename_signed_fiche_owner
 SCHEMA = '''CREATE TABLE users(username TEXT PRIMARY KEY,manager_username TEXT,role_tags TEXT,
     is_active INTEGER DEFAULT 1,session_version INTEGER DEFAULT 0,login_deleted_at TEXT);
 CREATE TABLE signed_fiche_documents(id TEXT PRIMARY KEY,reference_hash TEXT UNIQUE,namespace TEXT,
-    document_id TEXT UNIQUE,employee_username TEXT,sender_username TEXT,employee_name TEXT,
+    document_id TEXT UNIQUE,employee_username TEXT,sender_username TEXT,manager_username TEXT,employee_name TEXT,
     fiche_month INTEGER,fiche_year INTEGER,mode TEXT,status TEXT DEFAULT 'pending',signed_pdf_url TEXT,
     completed_at TEXT,archived_at TEXT,sha256 TEXT,file_bytes INTEGER,download_attempts INTEGER DEFAULT 0,
     next_attempt_at TEXT,lease_until TEXT,lease_token TEXT,last_error TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -106,7 +106,7 @@ class SignedFicheTests(unittest.TestCase):
         with self.service.store.transaction() as cursor:
             cursor.execute(sql, params); return cursor.fetchall()
     def prepare(self, **changes):
-        values = dict(employee='employee',sender='admin',name='Synthetic Employee',month=9,year=2026,namespace='fixture',mode='production')
+        values = dict(employee='employee',sender='admin',manager='manager',name='Synthetic Employee',month=9,year=2026,namespace='fixture',mode='production')
         values.update(changes)
         return self.service.prepare(**values)
     def payload(self, request, **changes):
@@ -129,6 +129,47 @@ class SignedFicheTests(unittest.TestCase):
         self.assertNotIn('reference_hash', response.text)
         self.assertNotIn(request['reference'], response.text)
         self.assertIn('no-store', response.headers['cache-control'])
+
+    def test_successor_cannot_inherit_old_signature_even_if_they_sent_it(self):
+        row = self.ready(manager='former', sender='manager')
+        self.actor = self.identity('manager')
+        for query in ('', '&username=employee'):
+            data = self.client.get('/signed-fiches?year=2026&month=9' + query).json()
+            self.assertEqual(data['total'], 0)
+            self.assertEqual(data['items'], [])
+        self.assertEqual(self.client.get(f"/signed-fiches/{row['id']}/file").status_code, 403)
+        for actor in ('employee', 'admin', 'super'):
+            self.actor = self.identity(actor)
+            self.assertEqual(self.client.get('/signed-fiches?year=2026&month=9').json()['total'], 1)
+            self.assertEqual(self.client.get(f"/signed-fiches/{row['id']}/file").status_code, 200)
+
+    def test_unknown_historical_signer_is_not_inferred_from_sender(self):
+        row = self.ready(manager=None, sender='manager')
+        self.actor = self.identity('manager')
+        self.assertEqual(self.client.get('/signed-fiches?year=2026&month=9').json()['total'], 0)
+        self.assertEqual(self.client.get(f"/signed-fiches/{row['id']}/file").status_code, 403)
+        self.actor = self.identity('employee')
+        self.assertEqual(self.client.get(f"/signed-fiches/{row['id']}/file").status_code, 200)
+
+    def test_original_signer_loses_history_when_employee_changes_manager(self):
+        row = self.ready()
+        with self.service.store.transaction() as cursor:
+            cursor.execute("UPDATE users SET manager_username='former' WHERE username='employee'")
+        for actor in ('manager', 'former'):
+            self.actor = self.identity(actor)
+            self.assertEqual(self.client.get('/signed-fiches?year=2026&month=9').json()['total'], 0)
+            self.assertEqual(self.client.get(f"/signed-fiches/{row['id']}/file").status_code, 403)
+
+    def test_signer_account_rename_preserves_attribution_without_rewriting_pdf(self):
+        row = self.ready()
+        with self.service.store.transaction() as cursor:
+            rename_signed_fiche_owner(cursor, 'manager', 'renamed')
+            cursor.execute("UPDATE users SET username='renamed' WHERE username='manager'")
+            cursor.execute("UPDATE users SET manager_username='renamed' WHERE username='employee'")
+        self.actor = self.identity('renamed')
+        self.assertEqual(self.rows()[0]['manager_username'], 'renamed')
+        self.assertEqual(self.client.get('/signed-fiches?year=2026&month=9').json()['total'], 1)
+        self.assertEqual(self.client.get(f"/signed-fiches/{row['id']}/file").content, self.pdf)
 
     def test_callback_rejects_forged_identity_and_document(self):
         request = self.prepare(); self.service.store.accepted(request['id'], 'fixture_doc')

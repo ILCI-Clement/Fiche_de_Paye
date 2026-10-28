@@ -41,6 +41,7 @@ def resolve_manager(recipient_email, actor, connect, load_user, access, *, inclu
                     'employee_name': signer_display_name(person_display_name(employee), recipient_email)}
             if include_identity:
                 result['employee_username'] = employee['username']
+                result['manager_username'] = manager['username']
             return result
     finally:
         db.close()

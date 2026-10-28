@@ -77,6 +77,8 @@
 
 ## 根目录共用逻辑
 
+2026-10-28 本地待发布修正：`main.update_group` 先锁定并确认部门存在，再执行更新；MySQL 同值更新的 `rowcount=0` 不再误报 404，缺失 ID 仍返回 404。`require_responsable_for_managed_groups` 统一要求建号／组织编辑的管理部门必须配合显式 Responsable 角色；`admin/OrganizationFields.tsx` 在没有该角色时禁用管理部门并提示，移除角色时清空管理部门草稿。此修正不自动更改线上账号权限，需前后端同步发布。
+
 | 需求 | 模块 |
 | --- | --- |
 | 考勤必填校验、命名、文件生成 | `fiche_exports.py`、`fiche_serialization.py` |
@@ -102,6 +104,8 @@
 - 停用和删除登录保留业务历史；状态/角色变化撤销旧会话，用户名保留防止旧身份继承。已发出的外部签署链接须在 ClawShow 单独处理。
 - NIR 生产已显式启用，仅 Admin/SuperAdmin 可录入及受审计查看；本地继续使用合成号码。密钥独立备份，普通 DTO 不含原号/密文，查看禁止缓存。详见 [名册说明](personnel-register.md) 和 [启用记录](releases/nir-enable-20261022.md)。
 - 签署回执只代表发送被受理。新增完成回调和最终 PDF 归档仅处理配置回调后的新请求；`all_signed` 完成后后台回收，原始已签 PDF 不重写，按发送时考勤月份归档。两张 signed_fiche 表和永久目录须同时备份；旧签署不自动补发或补收。2026-10-23 已上线，真实 Sandbox 双签回存已验证；配置及安全边界见 backend/README.md。
+- 2026-10-28 本地待发布：`signature_flow.resolve_manager(include_identity=True)` 提供当次实际负责人账号，`esign.py` 在发送前写入 `signed_fiche_documents.manager_username`。`signed_fiche_store.signed_fiche_scope` / `can_view_signed_fiche` 统一列表、Profile 与文件访问：Admin/SuperAdmin 或员工本人可查完整历史；Responsable 必须同时是当前直接负责人和该次签署负责人。发送操作者不等于签署负责人。旧表只新增可空列，不根据当前组织或 sender 猜测历史归属；未知归属旧记录仅对负责人隐藏，PDF、回调凭据、员工/Admin 历史均保留。账号改名同步身份列，不改原 PDF。
+- 2026-10-28 本地待发布：`admin/organizationValidation.ts` 在组织保存确认前提示缺少直接负责人或管理部门；`UserEditor.tsx` 把接口保存错误显示于确认弹窗内部，失败保留窗口，成功关闭，避免错误被遮罩挡住。
 
 ## 维护与记录
 

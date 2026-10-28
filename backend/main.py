@@ -787,6 +787,11 @@ def validate_group_ids(cursor: pymysql.cursors.Cursor, group_ids: list[Any], *, 
     return normalized
 
 
+def require_responsable_for_managed_groups(tags: list[str], group_ids: list[int]) -> None:
+    if group_ids and 'Responsable' not in tags:
+        raise HTTPException(400, 'Choisissez la fonction Responsable pour attribuer des départements gérés.')
+
+
 def replace_memberships(cursor: pymysql.cursors.Cursor, username: str, relation: str, group_ids: list[int]) -> None:
     cursor.execute("DELETE FROM user_group_memberships WHERE username = %s AND relation = %s", (username, relation))
     if group_ids:
@@ -1106,13 +1111,19 @@ def update_group(group_id: int, payload: GroupRequest, _: dict[str, Any] = Depen
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("UPDATE organization_groups SET name = %s, is_active = %s WHERE id = %s", (name, payload.is_active, group_id))
-            if cursor.rowcount == 0:
+            # MySQL reports changed rows, so a valid unchanged PUT has rowcount 0.
+            cursor.execute('SELECT id FROM organization_groups WHERE id=%s FOR UPDATE', (group_id,))
+            if not cursor.fetchone():
                 raise HTTPException(status_code=404, detail="Groupe introuvable.")
+            cursor.execute("UPDATE organization_groups SET name = %s, is_active = %s WHERE id = %s", (name, payload.is_active, group_id))
         connection.commit()
         return {"id": group_id, "name": name, "is_active": payload.is_active}
     except pymysql.err.IntegrityError:
+        connection.rollback()
         raise HTTPException(status_code=400, detail="Ce nom de Groupe existe déjà.") from None
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
@@ -1154,6 +1165,7 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
                 raise HTTPException(400, 'Cette adresse e-mail est déjà utilisée.')
             group_ids = validate_group_ids(cursor, list(payload.get("group_ids") or []))
             managed_group_ids = validate_group_ids(cursor, list(payload.get("managed_group_ids") or []))
+            require_responsable_for_managed_groups(tags, managed_group_ids)
             manager_username = payload.get("manager_id")
             if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"]:
                 allowed = set(actor["managed_group_ids"])
@@ -1472,6 +1484,7 @@ def update_user_organization(
                     cursor,
                     list(payload.get("managed_group_ids", target["managed_group_ids"])),
                 )
+                require_responsable_for_managed_groups(tags, managed_group_ids)
                 manager_username = payload.get("manager_id", target.get("manager_username"))
                 if manager_username:
                     manager = load_user(cursor, str(manager_username))

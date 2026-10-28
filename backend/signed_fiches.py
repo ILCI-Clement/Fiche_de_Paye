@@ -20,10 +20,10 @@ from pypdf import PdfReader
 
 from document_downloads import MAX_ARCHIVE_BYTES, safe_archive_component
 if __package__:
-    from .signed_fiche_store import SignedFicheStore, ensure_signed_fiche_schema, event
+    from .signed_fiche_store import SignedFicheStore, ensure_signed_fiche_schema, event, signed_fiche_scope, can_view_signed_fiche
     from .role_policy import checked_resource_actor, is_admin
 else:
-    from signed_fiche_store import SignedFicheStore, ensure_signed_fiche_schema, event
+    from signed_fiche_store import SignedFicheStore, ensure_signed_fiche_schema, event, signed_fiche_scope, can_view_signed_fiche
     from role_policy import checked_resource_actor, is_admin
 
 MAX_SIGNED_PDF_BYTES = 25 * 1024 * 1024
@@ -215,8 +215,7 @@ def register_signed_fiche_routes(app, *, get_db_connection, get_current_user, lo
 
     def allowed(cursor, actor, row):
         target = load_user(cursor, row['employee_username'])
-        if not (is_admin(actor) or actor['username'] == row['employee_username'] or
-                ('Responsable' in actor['role_tags'] and target and target.get('manager_username') == actor['username'])):
+        if not can_view_signed_fiche(actor, row, target):
             raise HTTPException(403, 'Ce document est réservé à la personne, son responsable direct et un administrateur.')
 
     def get_row(cursor, archive_id):
@@ -256,13 +255,15 @@ def register_signed_fiche_routes(app, *, get_db_connection, get_current_user, lo
             where = 'fiche_year=%s AND fiche_month=%s AND mode=%s'
             args = [year, month, mode]
             if username is not None:
-                allowed(cursor, actor, {'employee_username': username})
+                target = load_user(cursor, username)
+                if not (is_admin(actor) or actor['username'] == username or
+                        ('Responsable' in actor['role_tags'] and target and target.get('manager_username') == actor['username'])):
+                    raise HTTPException(403, 'Accès aux signatures de cette personne refusé.')
                 where += ' AND employee_username=%s'
                 args.append(username)
-            if not is_admin(actor):
-                where += ''' AND (employee_username=%s OR employee_username IN
-                    (SELECT username FROM users WHERE manager_username=%s AND %s=1))'''
-                args += [actor['username'], actor['username'], int('Responsable' in actor['role_tags'])]
+            scope, scope_args = signed_fiche_scope(actor)
+            where += f' AND {scope}'
+            args += scope_args
             cursor.execute(f'SELECT COUNT(*) AS total FROM signed_fiche_documents WHERE {where}', args)
             total = cursor.fetchone()['total']
             page = min(page, max(1, (total + 19) // 20))

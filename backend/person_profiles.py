@@ -5,6 +5,7 @@ from datetime import date, datetime
 from fastapi import Depends, HTTPException, Query
 from .person_names import load_person_names, person_display_name
 from .role_policy import is_admin
+from .signed_fiche_store import signed_fiche_scope
 
 
 def register_profile_routes(app, *, get_db_connection, get_current_user, load_user, attempts):
@@ -18,8 +19,8 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                 target = load_user(cursor, username)
                 if not current or not current.get('is_active', True) or not target or not (
                     current['username'] == target['username']
-                    or 'Admin' in current.get('role_tags', [])
-                    or current['username'] == target.get('manager_username')
+                    or is_admin(current)
+                    or ('Responsable' in current.get('role_tags', []) and current['username'] == target.get('manager_username'))
                 ):
                     raise HTTPException(403, 'Ce profil est réservé à la personne, son responsable direct et un administrateur.')
                 names = load_person_names(cursor, [target['username'], target.get('manager_username')])
@@ -84,10 +85,15 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                         elif y == year and isinstance(m, int) and 1 <= m <= 12 and (m, key) not in seen:
                             seen.add((m, key)); months[m - 1]['attendance_sheets'] += 1
                 signatures, signatures_available = attempts.profile_receipts(target['username'], year)
+                # Delivery receipts alone cannot prove who the historical signer was.
+                restricted_signatures = not is_admin(current) and current['username'] != target['username']
+                if restricted_signatures:
+                    signatures = []
                 if getattr(app.state, 'signed_fiches', None):
-                    cursor.execute('''SELECT id,document_id,fiche_month,mode,status,created_at,completed_at
+                    scope, scope_args = signed_fiche_scope(current)
+                    cursor.execute(f'''SELECT id,document_id,fiche_month,mode,status,created_at,completed_at
                         FROM signed_fiche_documents WHERE employee_username=%s AND fiche_year=%s
-                        ORDER BY created_at,id''', (target['username'], year))
+                        AND {scope} ORDER BY created_at,id''', [target['username'], year, *scope_args])
                     archived_requests = cursor.fetchall()
                     by_document = {row['document_id']: row for row in archived_requests if row['document_id']}
                     linked = set()
