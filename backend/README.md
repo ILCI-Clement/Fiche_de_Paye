@@ -32,7 +32,7 @@ NIR 关闭或密钥无效时拒绝导出。接口与映射见 [名册说明](../
 - 前端：`profile-month-ui-20261028T115926Z` / `3ce60e6eac9f`，Nginx 静态目录指向该版本的 `frontend/dist`；[界面备份、验证和回退](../doc/releases/profile-month-ui-20261028.md)。
 - API：`contact-access-20261028T095545Z` / `f0609e84168b`，React API 与 flat 模块保持该版本。`/var/www/presence-react/current` 仍指向此 API 版本，本次未重启后端。
 - 完整备份：`/var/backups/presence-react/contact-access-20261028T095545Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
-- [发布内容、验证与回退](../doc/releases/signature-scope-20261028.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
+- [API 发布内容、验证与回退](../doc/releases/account-contact-20261028.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
 
 协调回退（确认当前仍为本版本后执行，保留新增列及发布后的业务写入）：
 
