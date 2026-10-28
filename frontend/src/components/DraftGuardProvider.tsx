@@ -33,8 +33,8 @@ export function DraftGuardProvider({ children }: { children: ReactNode }) {
   return <DraftContext.Provider value={value}>{children}
     <Dialog open={!!pending} onClose={() => setPending(null)}>
       <DialogTitle>Modifications non enregistrées</DialogTitle>
-      <DialogContent>{pending?.labels.join(' · ')}. Enregistrez vos modifications avant de continuer. Changer de module conserve les formulaires ouverts ; fermer un formulaire, changer de fiche ou quitter la session peut perdre le brouillon.</DialogContent>
-      <DialogActions><Button onClick={() => setPending(null)}>Rester</Button><Button disabled={busy} onClick={() => { const action = pending?.action; setPending(null); action?.() }}>Continuer</Button></DialogActions>
+      <DialogContent>{pending?.labels.join(' · ')}. Quitter sans enregistrer les modifications de ce formulaire ?</DialogContent>
+      <DialogActions><Button onClick={() => setPending(null)}>Rester</Button><Button disabled={busy} onClick={() => { const action = pending?.action; setPending(null); action?.() }}>Quitter sans enregistrer</Button></DialogActions>
     </Dialog>
   </DraftContext.Provider>
 }

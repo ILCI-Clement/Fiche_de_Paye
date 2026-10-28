@@ -39,7 +39,9 @@ import SettingsOutlined from '@mui/icons-material/SettingsOutlined'
 type Page = WorkspacePage
 
 function WorkspacePageSlot({ active, target, inlineTarget, children }: { active: boolean; target: HTMLElement | null; inlineTarget: HTMLElement | null; children: ReactNode }) {
-  return <WorkspaceToolbarContext value={{ active, target, inlineTarget }}><Box hidden={!active} sx={{ display: active ? 'block' : 'none', minWidth: 0 }}>{children}</Box></WorkspaceToolbarContext>
+  // Leaving a module discards its local forms and unregisters their draft guards.
+  if (!active) return null
+  return <WorkspaceToolbarContext value={{ active, target, inlineTarget }}><Box sx={{ minWidth: 0 }}>{children}</Box></WorkspaceToolbarContext>
 }
 
 export function AppWorkspace({ token, session, logout, onSession }: { token: string; session: Session; logout: () => void; onSession: (token: string) => void }) {
@@ -59,7 +61,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
   const [attendanceState, setAttendanceState] = useState({ dirty: false, busy: false })
   const onAttendanceState = useCallback((state: { dirty: boolean; busy: boolean }) => setAttendanceState(state), [])
   const guard = useWorkspaceGuard()!
-  useDraftGuard(attendanceState.dirty, attendanceState.busy, 'Fiches de présence')
+  useDraftGuard(page === 'attendance' && attendanceState.dirty, page === 'attendance' && attendanceState.busy, 'Fiches de présence')
   const [drawer, setDrawer] = useState(false)
   const [passwordReminder, setPasswordReminder] = useState(true)
   const mainColumn = useRef<HTMLDivElement>(null)
@@ -80,7 +82,10 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
   }, [])
-  function go(next: Page) { setPage(next); setVisited(v => ({ ...v, [next]: true })); setDrawer(false) }
+  function go(next: Page, destination?: WorkDestination) {
+    setWorkRequest(destination ? { ...destination, sequence: ++workSequence.current } : null)
+    setPage(next); setVisited(v => ({ ...v, [next]: true })); setDrawer(false)
+  }
   function navigate(next: Page) {
     if (next === page) { setDrawer(false); return }
     guard.request(() => go(next))
@@ -89,7 +94,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
   function openWork(destination: WorkDestination) {
     if ((destination.page === 'admin' || destination.page === 'personnel') && !personnelAllowed) return
     if ((destination.page === 'attendance' || destination.page === 'dashboard') && !attendanceAllowed) return
-    guard.request(() => { setWorkRequest({ ...destination, sequence: ++workSequence.current }); go(destination.page) })
+    guard.request(() => go(destination.page, destination))
   }
   const nav = <>
     <Box className="brand"><Box className="brand-mark" role="img" aria-label={brand.title}>{brand.mark}</Box><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 11, letterSpacing: 2 }}>{brand.organization} · PORTAIL RH</Typography></Box>

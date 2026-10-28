@@ -21,7 +21,7 @@
 | 功能 | 入口与直接依赖 |
 | --- | --- |
 | 导航、页面加载、主题 | `AppWorkspace.tsx`；`workspacePages.ts` 管理标题/悬停说明；`workspaceToolbar.ts`、`components/WorkspaceToolbar.tsx` 管理当前页工具栏；`ThemeModeProvider.tsx`、`theme.ts`、`index.css` 管理深浅主题和布局 |
-| 草稿保护 | `draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx`；`components/DraftStatus.tsx` 在右下角显示紧凑悬浮状态，考勤与保存按钮合并；不占页面布局，离开确认保持；已打开页面保留状态，隐藏页不挂载工具栏 |
+| 草稿保护 | `draftGuard.ts`、`draftRules.ts`、`components/DraftGuardProvider.tsx`、`components/DraftStatus.tsx` 管理当前页草稿提示与离开确认；`AppWorkspace.tsx` 仅挂载当前模块，确认放弃后卸载旧表单并清除草稿登记，已保存数据仍从 API/查询缓存读取，后台忙碌操作继续阻止切页 |
 | 考勤 | `attendance/AttendancePage.tsx`；`AttendanceToolbar.tsx` / `PeriodToolbar.tsx` 顶栏；`FicheEditor.tsx` 编辑；`FicheExportMenu.tsx` 导出菜单；`AttendanceContractDialog.tsx` 复用 `admin/ContractEditor.tsx` 的表单补录缺失合同 |
 | 日历 | `attendance/AttendanceCalendar.tsx`、`useCalendarSelection.ts`、`calendarStatus.ts`；半天拖选、批量应用及状态颜色 |
 | 签署与批量结果 | `attendance/SignaturePreview.tsx`、`components/BatchExportResult.tsx`；下载和签署独立，异常提交不自动重发 |
