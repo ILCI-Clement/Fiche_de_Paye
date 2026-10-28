@@ -18,7 +18,7 @@ React 入口复用 `main.app`，注册考勤、签署、月度 Profile、员工�
 
 代码定位见 [模块索引](../doc/modules.md)。
 
-2026-10-27 已上线负责人考勤修复：新版 `/attendance/*` 仅返回负责人可操作的表；保存时用完整配置版本加锁，原样保留不可操作的历史表，避免旧条目阻塞页面或被漏删。缺合同的响应带 `X-Attendance-Requirement: contract`，前端显示补录窗口。`POST /attendance/contracts/{username}` 仅允许有效 Admin 或该员工的直接 Responsable 新建覆盖所选月份的缺失合同，复用重叠校验和名册同步；已有合同仍按原管理权限执行。新增 `contract_setup_events` 审计表，审计失败整笔回滚。前后端、两套 API 已同步并备份，见 [发布记录](../doc/releases/responsable-access-20261027.md)。
+2026-10-27 已上线负责人考勤修复：新版 `/attendance/*` 仅返回负责人可操作的表；保存时用完整配置版本加锁，原样保留不可操作的历史表，避免旧条目阻塞页面或被漏删。缺合同的响应带 `X-Attendance-Requirement: contract`，前端显示补录窗口。`POST /attendance/contracts/{username}` 仅允许有效 Admin 或该员工的直接 Responsable 新建覆盖所选月份的缺失合同，复用重叠校验和名册同步；已有合同仍按原管理权限执行。新增 `contract_setup_events` 审计表，审计失败整笔回滚。前后端、两套 API 已同步并备份，见 [发布记录](../doc/releases/signature-scope-20261028.md)。
 
 旧 Streamlit 界面已从当前源码树分离，备案包与恢复方法见 [`archive/streamlit`](../archive/streamlit/README.md)。当前 Python 安装入口为根目录 `requirements.txt`（含 backend 依赖），不再依赖 Streamlit；保留 API 的 flat 导入和当前权限防护继续维护。线上现存 `presence-interface` 服务及旧部署目录未在这次本地整理中变更，后续发布不得直接将旧服务指向已精简的当前目录。
 
@@ -29,14 +29,14 @@ NIR 关闭或密钥无效时拒绝导出。接口与映射见 [名册说明](../
 
 ## 当前版本与回退
 
-- 前后端：`responsable-access-20261027T181526Z` / `a6b9bc8a43e4`；保留 API 的 flat 模块已同步更新。`/var/www/presence-react/current` 与 Nginx 静态目录均指向此版本。
-- 完整备份：`/var/backups/presence-react/responsable-access-20261027T181526Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
-- [发布内容、验证与回退](../doc/releases/responsable-access-20261027.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
+- 前后端：`scope-access-20261028T093201Z` / `08e005a04d67`；保留 API 的 flat 模块已同步更新。`/var/www/presence-react/current` 与 Nginx 静态目录均指向此版本。
+- 完整备份：`/var/backups/presence-react/scope-access-20261028T093201Z`，包含数据库、源码、配置/keyring、私有文件及签署 SQLite，仅 root 可读。
+- [发布内容、验证与回退](../doc/releases/signature-scope-20261028.md)。生产 NIR 沿用独立密钥，原有密码和角色保留。
 
 协调回退（确认当前仍为本版本后执行，保留新增列及发布后的业务写入）：
 
 ```sh
-sudo /var/backups/presence-react/responsable-access-20261027T181526Z/rollback.sh
+sudo /var/backups/presence-react/scope-access-20261028T093201Z/rollback.sh
 ```
 
 脚本恢复上一版前后端及服务配置，保留新增数据库列和发布后的业务写入；不会自动恢复旧数据库。上一版已有账号保护、登录冷却及签署回存。单独 `rollback-ui.sh` 仅用于界面排障，旧建号界面不含新必填姓名字段，不能作为完整功能回退。
@@ -98,7 +98,7 @@ NIR 原号与密文不进入普通 Profile；专用查看须先提交审计，�
 - 数据在 `signed_fiche_documents`、`signed_fiche_events`；文件路径为私有目录下 `年份/月份/随机档案ID.pdf`。随机文件名避免路径、同名及隐私问题；下载文件名含签署时员工姓名、考勤月份和唯一 ID。状态通知去重且完成后不回退；文件原子创建、不覆盖。
 - 后台每 15 秒检查持久队列，行锁及 180 秒租约协调多进程；下载失败从 30 秒起指数退避，最长每小时重试，重启后继续。仅重试文件下载，不重新发送签署邀请。Admin 可手动唤醒下载重试。完成通知先落库再返回 204，服务商失败重投不会重复建档。
 - 考勤页新增 `Fiches / Signatures` 切换；文件列表每页 20 项，眼睛预览、下载、状态和恢复下载。个人 Profile 可查看本人或授权人员的月度文件。正式版界面仅显示和导出正式文件，隐藏测试切换；本地副本保留 Production / Tests SPECIMEN 分组。
-- `GET /signed-fiches`、`/{id}/file`：仅本人、当前直接负责人（Responsable）及 Admin/SuperAdmin；权限由后端实时核对。`GET /signed-fiches/export.zip` 仅 Admin/SuperAdmin，按月导出所有已签归档 PDF，ZIP 内保持年份/月目录。最多 5 000 份及原始文件合计 100 MiB，待回收或缺失/损坏时整包拒绝，避免不完整结果。下载和导出记审计，响应禁止缓存。
+- `GET /signed-fiches`、`/{id}/file`：仅本人、Admin/SuperAdmin，或同时为当前直接负责人和当次签署负责人的 Responsable；未知历史归属不对负责人开放。权限由后端实时核对。`GET /signed-fiches/export.zip` 仅 Admin/SuperAdmin，按月导出所有已签归档 PDF，ZIP 内保持年份/月目录。最多 5 000 份及原始文件合计 100 MiB，待回收或缺失/损坏时整包拒绝，避免不完整结果。下载和导出记审计，响应禁止缓存。
 - 改名与归档人员关联在同一数据库事务更新；停用/删除登录不清除档案。永久删除账户前检查已签档案依赖，无级联删除文件入口。
 - 未配置 `PRESENCE_ESIGN_CALLBACK_URL` 时保留现有发送能力，但预检及列表明确提示不能自动回收。旧请求没有随机凭据/回调，不能自动补收；不会因此重新发送邀请。
 
