@@ -5,7 +5,7 @@ export const workspacePages = {
   },
   documents: {
     title: 'Documents et justificatifs',
-    description: 'Déposez et retrouvez vos documents par mois. Recherchez par nom, numéro ou employé, filtrez par type et consultez les archives. Une sélection peut être téléchargée en ZIP.',
+    description: 'Déposez et retrouvez vos documents par mois. Choisissez un type défini par les administrateurs, recherchez et filtrez vos fichiers ou téléchargez une sélection en ZIP. Les Admin peuvent gérer les types et corriger le classement des documents.',
   },
   leave: {
     title: 'Congés payés',
@@ -21,7 +21,7 @@ export const workspacePages = {
   },
   dashboard: {
     title: 'Tableau de bord',
-    description: 'Consultez la répartition des effectifs, les échéances contractuelles et les entretiens annuels. Les actions disponibles dépendent de vos droits.',
+    description: 'Retrouvez vos tâches : congés à valider, signatures à suivre, PDF à récupérer et dossiers à compléter. Vérifiez les contrats du mois choisi, les échéances et les entretiens dans votre périmètre autorisé.',
   },
   profile: {
     title: 'Paramètres du compte',

@@ -12,9 +12,14 @@ import { OrganizationCards } from './OrganizationCards'
 import { DepartmentBadges } from '../components/DepartmentBadge'
 import { PersonProfile } from './PersonProfile'
 import { WorkspaceToolbar } from '../components/WorkspaceToolbar'
+import { useWorkCenter } from '../dashboard/useWorkCenter'
+import { ReadinessStatus } from '../dashboard/ReadinessStatus'
 
 export function TeamPage({ token, session, onAttendance }: { token: string; session: Session; onAttendance: () => void }) {
   const privileged = canManageTeam(session)
+  const [today] = useState(() => new Date())
+  const readiness = useWorkCenter(token, session.username, today.getMonth() + 1, today.getFullYear(), privileged)
+  const dossiers = new Map(readiness.data?.people.map(person => [person.username, person]))
   const [sheet, setSheet] = useState<'team' | 'organization'>('team')
   const tabsId = useId()
   const [search, setSearch] = useState('')
@@ -31,7 +36,7 @@ export function TeamPage({ token, session, onAttendance }: { token: string; sess
   const filtered = rows.filter(row => row.cells.join(' ').toLocaleLowerCase('fr').includes(search.trim().toLocaleLowerCase('fr')))
   const pending = privileged ? people.isPending || groups.isPending : team.isPending
   const error = privileged ? people.error || groups.error : team.error
-  const refresh = () => { void directory.refetch(); if (privileged) { void people.refetch(); void groups.refetch() } else void team.refetch() }
+  const refresh = () => { void directory.refetch(); if (privileged) { void people.refetch(); void groups.refetch(); void readiness.refetch() } else void team.refetch() }
   return <Box className="workspace">
     <WorkspaceToolbar>
       <Box className="workspace-action-bar" sx={{ width: '100%' }}>
@@ -56,7 +61,7 @@ export function TeamPage({ token, session, onAttendance }: { token: string; sess
     <Box role="tabpanel" hidden={sheet !== 'team'} id={`${tabsId}-team-panel`} aria-labelledby={`${tabsId}-team-tab`}>
     <Paper sx={{ p: { xs: 1, sm: 2 } }}>
       {pending ? <CircularProgress size={24} /> : error ? <Alert severity="error">{error.message}<Button onClick={refresh}>Réessayer</Button></Alert> : !filtered.length ? <Typography color="text.secondary">{search ? 'Aucun résultat pour cette recherche.' : privileged ? 'Aucun Employé dans votre périmètre.' : 'Aucun membre dans votre département actif.'}</Typography> :
-        <TableContainer><Table size="small" aria-label={privileged ? 'Employés gérés' : 'Mon département'}><TableHead><TableRow>{(privileged ? ['Nom et prénoms', 'Type', 'Responsable', 'Groupes', 'E-mail'] : ['Nom', 'Département', 'Responsable de']).map(header => <TableCell key={header}>{header}</TableCell>)}</TableRow></TableHead><TableBody>{filtered.map(row => <TableRow key={row.id}>{row.cells.map((value, j) => <TableCell key={j} sx={{ overflowWrap: 'anywhere' }}>{privileged && j === 0 ? <Button onClick={() => setProfile(row.id)} sx={{ textAlign: 'left', justifyContent: 'start', overflowWrap: 'anywhere' }}>{value}</Button> : (privileged ? j === 3 : j === 1) ? <DepartmentBadges names={value ? value.split(', ') : []} /> : value || '—'}</TableCell>)}</TableRow>)}</TableBody></Table></TableContainer>}
+        <TableContainer><Table size="small" aria-label={privileged ? 'Employés gérés' : 'Mon département'}><TableHead><TableRow>{(privileged ? ['Nom et prénoms', 'Type', 'Responsable', 'Groupes', 'E-mail'] : ['Nom', 'Département', 'Responsable de']).map(header => <TableCell key={header}>{header}</TableCell>)}</TableRow></TableHead><TableBody>{filtered.map(row => <TableRow key={row.id}>{row.cells.map((value, j) => <TableCell key={j} sx={{ overflowWrap: 'anywhere' }}>{privileged && j === 0 ? <Box><Button onClick={() => setProfile(row.id)} sx={{ textAlign: 'left', justifyContent: 'start', overflowWrap: 'anywhere' }}>{value}</Button>{dossiers.get(row.id) && <Box><ReadinessStatus person={dossiers.get(row.id)!} /></Box>}{readiness.error && <Typography variant="caption" color="warning.main">État indisponible</Typography>}</Box> : (privileged ? j === 3 : j === 1) ? <DepartmentBadges names={value ? value.split(', ') : []} /> : value || '—'}</TableCell>)}</TableRow>)}</TableBody></Table></TableContainer>}
     </Paper>
     </Box>
     <Box role="tabpanel" hidden={sheet !== 'organization'} id={`${tabsId}-organization-panel`} aria-labelledby={`${tabsId}-organization-tab`}>

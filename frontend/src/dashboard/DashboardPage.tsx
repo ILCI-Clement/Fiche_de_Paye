@@ -14,6 +14,7 @@ import { InterviewEditor } from './InterviewEditor'
 import { PersonnelDistribution } from './PersonnelDistribution'
 import { useQueryClient } from '@tanstack/react-query'
 import { WorkspaceToolbar } from '../components/WorkspaceToolbar'
+import { WorkCenterPanel } from './WorkCenterPanel'
 
 export function DashboardPage({ token, session }: { token: string; session: Session }) {
   const capabilities = useCapabilities()
@@ -41,8 +42,9 @@ export function DashboardPage({ token, session }: { token: string; session: Sess
     '& .MuiAccordionSummary-root, & .MuiAccordionSummary-root.Mui-expanded': { minHeight: 44 },
     '& .MuiAccordionSummary-content, & .MuiAccordionSummary-content.Mui-expanded': { my: 1 },
   }}>
-    <WorkspaceToolbar placement="inline"><Tooltip title="Actualiser le tableau de bord"><span><IconButton aria-label="Actualiser le tableau de bord" disabled={busy || query.isFetching} onClick={() => { void query.refetch(); void client.invalidateQueries({ queryKey: ['organization', session.username] }) }}><RefreshRounded fontSize="small" /></IconButton></span></Tooltip></WorkspaceToolbar>
+    <WorkspaceToolbar placement="inline"><Tooltip title="Actualiser le tableau de bord"><span><IconButton aria-label="Actualiser le tableau de bord" disabled={busy || query.isFetching} onClick={() => { void query.refetch(); void client.invalidateQueries({ queryKey: ['organization', session.username] }); void client.invalidateQueries({ queryKey: ['work-center', session.username] }) }}><RefreshRounded fontSize="small" /></IconButton></span></Tooltip></WorkspaceToolbar>
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+    <WorkCenterPanel token={token} viewer={session.username} />
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: data ? 'minmax(0, 2fr) minmax(240px, 1fr)' : 'minmax(0, 1fr)' }, gap: 1.5, mb: 1.5, '& > .MuiPaper-root': { mb: 0 } }}>
       <PersonnelDistribution token={token} username={session.username} />
       {data && <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))', lg: '1fr' }, gridAutoRows: '1fr', gap: 1.5 }}>{[

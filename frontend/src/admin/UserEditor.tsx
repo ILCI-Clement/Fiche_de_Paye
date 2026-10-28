@@ -14,6 +14,7 @@ import type { AdminUser, OrganizationInput, RunAction } from './api'
 import { ContractEditor } from './ContractEditor'
 import { AccountAccess } from './AccountAccess'
 import { AccountPersonnelSection } from '../profile/AccountPersonnelSection'
+import { AccountReadiness } from '../dashboard/AccountReadiness'
 
 export function UserEditor({ token, user, users, groups, actor, actorRoles, busy, run, requestError = '' }: { token: string; user: AdminUser; users: AdminUser[]; groups: Group[]; actor: string; actorRoles: string[]; busy: boolean; run: RunAction; requestError?: string }) {
   const [draft, setDraft] = useState<OrganizationInput>({ role_tags: user.role_tags, employee_type: user.employee_type, group_ids: user.group_ids, managed_group_ids: user.managed_group_ids, manager_id: user.manager_id })
@@ -49,6 +50,7 @@ export function UserEditor({ token, user, users, groups, actor, actorRoles, busy
   return <>
     <Typography variant="h6" sx={{ mb: 1, overflowWrap: 'anywhere' }}>Fiche de {personDisplayName(user)}</Typography>
     <Typography color="text.secondary" sx={{ mb: 2, overflowWrap: 'anywhere' }}>{user.email}</Typography>
+    <AccountReadiness token={token} viewer={actor} username={user.username} />
     <AccountPersonnelSection key={user.username} token={token} username={user.username} viewer={actor} disabled={busy} />
     {protectedTarget && <Alert severity="info" sx={{ mb: 2 }}>Les droits et l’accès de ce compte sont protégés : seul un Super Admin peut les modifier.</Alert>}
     <Accordion disableGutters><AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography>Fonction, départements et responsable</Typography></AccordionSummary><AccordionDetails>

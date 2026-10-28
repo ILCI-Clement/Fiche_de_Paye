@@ -100,7 +100,7 @@ class DocumentPermissionTests(unittest.TestCase):
                     document_type='transport', receipt_month=9, receipt_year=2026)
 
     def assert_uploaded(self, owner):
-        self.cursor.fetchone.side_effect = [{'exists': 1}, self.row(owner)]
+        self.cursor.fetchone.side_effect = [{'exists': 1}, {'code': 'transport', 'label': 'Transport', 'is_active': True}, self.row(owner)]
         result = self.client.post('/transport-receipts', json=self.payload(owner))
         self.assertEqual(result.status_code, 200, result.text)
         self.assertEqual(result.json()['receipt']['employee_username'], owner)

@@ -27,6 +27,7 @@ import { periodLabel } from '../documents/api'
 import { personDisplayName } from '../personDisplayName'
 import { DraftStatus } from '../components/DraftStatus'
 import { AttendanceContractDialog } from './AttendanceContractDialog'
+import { useWorkNavigation } from '../workspaceNavigation'
 
 interface EditorState { dirty: boolean; busy: boolean }
 
@@ -44,6 +45,8 @@ export function AttendancePage({ token, session, onState }: { token: string; ses
 }
 
 function AttendanceEditor({ token, session, workspace, onState, reload }: { token: string; session: Session; workspace: Workspace; onState: (state: EditorState) => void; reload: () => Promise<void> }) {
+  const navigation = useWorkNavigation()
+  const [appliedWork, setAppliedWork] = useState<number | null>(null)
   const client = useQueryClient()
   const [config, setConfig] = useState<Config>(() => structuredClone(workspace.config))
   const [month, setMonth] = useState(() => workspace.config.mois || new Date().getMonth() + 1)
@@ -76,6 +79,19 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   const [archived, setArchived] = useState(false)
   const [signing, setSigning] = useState<{ ids: string[]; month: number; year: number } | null>(null)
   useEffect(() => { try { sessionStorage.setItem(`attendance-active-${session.username}`, JSON.stringify(active)) } catch { /* Browsing still works without storage. */ } }, [active, session.username])
+  const nextWork = navigation?.request
+  if (nextWork?.page === 'attendance' && appliedWork !== nextWork.sequence) {
+    const next = nextWork
+    setAppliedWork(next.sequence)
+    setMonth(next.month || month); setYear(next.year || year)
+    setView(next.view || 'editing'); setAccount(next.username || '')
+    setArchived(false); setSelected({}); setError('')
+    if (next.username) {
+      const saved = config.employes_data.find(item => item.account_username === next.username && !item.is_archived
+        && item.sheet_month === next.month && item.sheet_year === next.year)
+      if (saved) setActive(previous => ({ ...previous, [`${next.year}-${next.month}`]: String(saved.id) }))
+    }
+  }
   const period = `${year}-${month}`
   const visible = config.employes_data.filter(e => !!e.is_archived === archived && (!e.contract_id || (e.sheet_month === month && e.sheet_year === year)))
   const current = visible.find(e => String(e.id) === active[period]) || visible[0]

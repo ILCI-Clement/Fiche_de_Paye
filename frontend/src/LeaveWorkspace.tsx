@@ -1,6 +1,7 @@
 import { personDisplayName } from './personDisplayName'
 import { isAdmin } from './rolePolicy'
 import { useState } from 'react'
+import { useWorkNavigation } from './workspaceNavigation'
 import { Alert, Avatar, Box, Button, CircularProgress, Divider, IconButton, Pagination, Paper, Snackbar, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import AddRounded from '@mui/icons-material/AddRounded'
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded'
@@ -20,12 +21,19 @@ import { WorkspaceToolbar } from './components/WorkspaceToolbar'
 
 
 export function LeaveWorkspace({ token, session }: { token: string; session: Session }) {
+  const navigation = useWorkNavigation()
   const client = useQueryClient()
   const [scope, setScope] = useState<Scope>('mine')
   const [filter, setFilter] = useState<Filter>('all')
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
+  const [appliedWork, setAppliedWork] = useState<number | null>(null)
+  const nextWork = navigation?.request
+  if (nextWork?.page === 'leave' && appliedWork !== nextWork.sequence) {
+    setAppliedWork(nextWork.sequence)
+    setScope('team'); setFilter('pending'); setPage(1); setSelected(nextWork.leaveId || null)
+  }
   const [message, setMessage] = useState('')
   const list = useQuery({ queryKey: ['leave-list', session.username, scope, filter, page],
     queryFn: ({ signal }) => api.list(token, scope, filter, page, signal), refetchInterval: 30000 })
@@ -37,6 +45,7 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
     setMessage(text); setCreating(false); setSelected(null); setPage(1)
     void client.invalidateQueries({ queryKey: ['leave-list'] })
     void client.invalidateQueries({ queryKey: ['leave-detail'] })
+    void client.invalidateQueries({ queryKey: ['work-center'] })
   }
   return <Box>
       <Box component="main" className="workspace">

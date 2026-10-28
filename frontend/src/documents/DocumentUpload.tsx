@@ -3,12 +3,15 @@ import { useRef, useState } from 'react'
 import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField, Typography } from '@mui/material'
 import { documentsApi, periodLabel } from './api'
 import type { DocumentAccount } from './api'
+import type { DocumentCategory } from './api'
+import { DocumentTypeFields } from './DocumentTypeFields'
 import { personOptionLabel } from '../personDisplayName'
 
-export function DocumentUpload({ token, username, currentDisplayName, admin, accounts, month, year, busy, run, requestError, onClose }: {
+export function DocumentUpload({ token, username, currentDisplayName, admin, accounts, categories, month, year, busy, run, requestError, onClose }: {
   token: string; username: string; currentDisplayName: string; admin: boolean; accounts: DocumentAccount[]; month: number; year: number; busy: boolean;
   run: (action: () => Promise<void>, message: string) => Promise<boolean>
   requestError: string; onClose: () => void;
+  categories: DocumentCategory[];
 }) {
   const [owner, setOwner] = useState(username)
   const people = accounts.some(person => person.username === username) ? accounts : [{ username, display_name: currentDisplayName }, ...accounts]
@@ -22,6 +25,7 @@ export function DocumentUpload({ token, username, currentDisplayName, admin, acc
     if (!file) { setError('Choisissez un fichier.'); return }
     if (!file.size || file.size > 10 * 1024 * 1024) { setError('Le fichier doit contenir entre 1 octet et 10 Mo.'); return }
     if (!/\.(pdf|png|jpe?g)$/i.test(file.name)) { setError('Formats acceptés : PDF, JPG, PNG.'); return }
+    if (!categories.some(category => category.code === type && category.is_active)) { setError('Choisissez un type de document actif.'); return }
     if (type === 'autre' && !other.trim()) { setError('Précisez le type de document.'); return }
     setError('')
     const success = await run(async () => {
@@ -44,10 +48,7 @@ export function DocumentUpload({ token, username, currentDisplayName, admin, acc
         {admin && <TextField select label="Employé concerné" value={owner} disabled={busy} onChange={e => setOwner(e.target.value)} sx={{ minWidth: 220 }}>
           {people.map(person => <MenuItem key={person.username} value={person.username}>{personOptionLabel(person)}</MenuItem>)}
         </TextField>}
-        <TextField select label="Type de document" value={type} disabled={busy} onChange={e => setType(e.target.value)} sx={{ minWidth: 180 }}>
-          <MenuItem value="transport">Transport</MenuItem><MenuItem value="autre">Autre</MenuItem>
-        </TextField>
-        {type === 'autre' && <TextField label="Précisez le type" value={other} onChange={e => setOther(e.target.value)} disabled={busy} slotProps={{ htmlInput: { maxLength: 120 } }} />}
+        <DocumentTypeFields categories={categories} type={type} other={other} onType={setType} onOther={setOther} disabled={busy} />
         <Button component="label" variant="outlined" disabled={busy}>Choisir un fichier<input ref={input} type="file" hidden accept=".pdf,.png,.jpg,.jpeg" onChange={e => { setFile(e.target.files?.[0] || null); setError('') }} /></Button>
         <Typography variant="caption" color="text.secondary">PDF, JPG, PNG · 10 Mo maximum</Typography>
       </Box>

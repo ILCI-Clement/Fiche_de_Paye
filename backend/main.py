@@ -1991,9 +1991,13 @@ register_document_routes(
 if __package__:
     from .signed_fiches import register_signed_fiche_routes
     from .signed_fiche_store import rename_signed_fiche_owner
+    from .work_center import register_work_center
 else:
     from signed_fiches import register_signed_fiche_routes
     from signed_fiche_store import rename_signed_fiche_owner
+    from work_center import register_work_center
+register_work_center(app, get_db_connection=get_db_connection, get_current_user=get_current_user,
+                     load_user=load_user, all_users=all_users, can_manage=user_can_manage)
 register_signed_fiche_routes(
     app, get_db_connection=get_db_connection, get_current_user=get_current_user, load_user=load_user,
     root=os.getenv('PRESENCE_SIGNED_FICHES_DIR', '/var/lib/presence-app/signed-fiches'),

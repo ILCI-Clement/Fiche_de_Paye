@@ -23,6 +23,8 @@ import { recoverableModule } from './components/ModuleBoundary'
 import { WorkspaceToolbarContext } from './workspaceToolbar'
 import { workspacePages } from './workspacePages'
 import type { WorkspacePage } from './workspacePages'
+import { WorkspaceNavigation } from './workspaceNavigation'
+import type { WorkDestination, WorkRequest } from './workspaceNavigation'
 const AttendancePage = recoverableModule<Parameters<typeof import('./attendance/AttendancePage').AttendancePage>[0]>(() => import('./attendance/AttendancePage').then(module => ({ default: module.AttendancePage })))
 const LeaveWorkspace = recoverableModule<Parameters<typeof import('./LeaveWorkspace').LeaveWorkspace>[0]>(() => import('./LeaveWorkspace').then(module => ({ default: module.LeaveWorkspace })))
 const DocumentsPage = recoverableModule<Parameters<typeof import('./documents/DocumentsPage').DocumentsPage>[0]>(() => import('./documents/DocumentsPage').then(module => ({ default: module.DocumentsPage })))
@@ -49,9 +51,11 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
   const local = capabilities.data?.environment === 'local-snapshot'
   const attendanceAllowed = canManageTeam(session)
   const personnelAllowed = isAdmin(session)
-  const [page, setPage] = useState<Page>(attendanceAllowed ? 'attendance' : 'leave')
+  const [page, setPage] = useState<Page>(attendanceAllowed ? 'dashboard' : 'leave')
   const adminPage = personnelAllowed && (page === 'personnel' || page === 'admin')
-  const [visited, setVisited] = useState<Partial<Record<Page, boolean>>>({ attendance: attendanceAllowed, leave: !attendanceAllowed })
+  const [visited, setVisited] = useState<Partial<Record<Page, boolean>>>({ dashboard: attendanceAllowed, attendance: attendanceAllowed, leave: !attendanceAllowed })
+  const [workRequest, setWorkRequest] = useState<WorkRequest | null>(null)
+  const workSequence = useRef(0)
   const [attendanceState, setAttendanceState] = useState({ dirty: false, busy: false })
   const onAttendanceState = useCallback((state: { dirty: boolean; busy: boolean }) => setAttendanceState(state), [])
   const guard = useWorkspaceGuard()!
@@ -82,6 +86,11 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
     guard.request(() => go(next))
   }
   function requestLogout() { guard.request(logout) }
+  function openWork(destination: WorkDestination) {
+    if ((destination.page === 'admin' || destination.page === 'personnel') && !personnelAllowed) return
+    if ((destination.page === 'attendance' || destination.page === 'dashboard') && !attendanceAllowed) return
+    guard.request(() => { setWorkRequest({ ...destination, sequence: ++workSequence.current }); go(destination.page) })
+  }
   const nav = <>
     <Box className="brand"><Box className="brand-mark">{brand.mark}</Box><Box><Typography sx={{ fontWeight: 750, fontSize: 21 }}>{brand.name}</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 11, letterSpacing: 2 }}>{brand.organization} · PORTAIL RH</Typography></Box></Box>
     <Typography className="nav-heading">RESSOURCES HUMAINES</Typography>
@@ -99,7 +108,7 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
     <Box className="sidebar-note"><Typography sx={{ fontWeight: 650, fontSize: 13 }}>{local ? 'Version locale de test' : brand.title}</Typography><Typography sx={{ color: 'var(--sidebar-muted)', fontSize: 12, mt: 1, lineHeight: 1.7 }}>{local ? 'Vos modifications restent dans la copie locale de test.' : 'Personnel, contrats, documents et congés dans votre espace.'}</Typography></Box>
     <Box className="sidebar-user"><Avatar sx={{ width: 36, height: 36, bgcolor: 'var(--nav-active)', color: 'var(--sidebar-text)', fontSize: 13 }}>{initials(session.name)}</Avatar><Box sx={{ flex: 1, minWidth: 0 }}><Typography noWrap sx={{ fontSize: 13, fontWeight: 650 }}>{session.name}</Typography><Typography noWrap title={displayRoles(session.role_tags)} sx={{ fontSize: 11, color: 'var(--sidebar-muted)' }}>{displayRoles(session.role_tags)}</Typography></Box><IconButton aria-label="Se déconnecter" disabled={guard.busy} onClick={requestLogout} sx={{ color: 'var(--sidebar-muted)' }}><LogoutRounded fontSize="small" /></IconButton></Box>
   </>
-  return <Box className="app-shell">
+  return <WorkspaceNavigation value={{ request: workRequest, navigate: openWork }}><Box className="app-shell">
     <Box component="aside" className="sidebar">{nav}</Box>
     <Drawer open={drawer} onClose={() => setDrawer(false)} slotProps={{ paper: { sx: { bgcolor: 'var(--sidebar)', color: 'var(--sidebar-text)', width: 260, p: 2, display: 'flex' } } }}>{nav}</Drawer>
     <Box ref={mainColumn} className="main-column">
@@ -133,5 +142,5 @@ function Workspace({ token, session, logout, onSession }: { token: string; sessi
 
     </Box>
 
-  </Box>
+  </Box></WorkspaceNavigation>
 }

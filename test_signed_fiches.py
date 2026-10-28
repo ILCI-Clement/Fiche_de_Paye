@@ -42,7 +42,7 @@ class Cursor:
             raise RuntimeError('Synthetic audit failure')
         if 'FOR UPDATE' in sql and not self.connection.db.in_transaction:
             self.connection.db.execute('BEGIN IMMEDIATE')
-        sql = sql.replace(' FOR UPDATE', '').replace('%s', '?')
+        sql = sql.replace(' FOR UPDATE', '').replace('%s', '?').replace(' AS BINARY)', ' AS BLOB)')
         sql = re.sub(r'DATE_ADD\(UTC_TIMESTAMP\(6\),INTERVAL (\?|180) SECOND\)', r"datetime(UTC_TIMESTAMP(6), '+' || \1 || ' seconds')", sql)
         return self.raw.execute(sql, params)
     def fetchone(self):

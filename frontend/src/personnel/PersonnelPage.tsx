@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useWorkNavigation } from '../workspaceNavigation'
 import { Alert, Box, Button, CircularProgress, Paper, Snackbar, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import type { Session } from '../types'
@@ -19,11 +20,17 @@ export function PersonnelPage({ token, session }: { token: string; session: Sess
 }
 
 function PersonnelWorkspace({ token, viewer, canDelete }: { token: string; viewer: string; canDelete: boolean }) {
+  const navigation = useWorkNavigation()
   const [filters, setFilters] = useState<PersonnelFilters>({ q: '', personnel_type: '', archive: 'active', status: 'all', page: 1, page_size: 25 })
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
+  const [appliedWork, setAppliedWork] = useState<number | null>(null)
+  if (navigation?.request?.page === 'personnel' && appliedWork !== navigation.request.sequence) {
+    setAppliedWork(navigation.request.sequence)
+    setSelected(navigation.request.employeeId || null)
+  }
   const [message, setMessage] = useState('')
   const list = useQuery({ queryKey: ['personnel-register', viewer, 'list', filters], queryFn: ({ signal }) => personnelApi.list(token, filters, signal), retry: false })
   // An archive on the last page may make that page empty while earlier pages remain.

@@ -7,6 +7,7 @@ import { useCapabilities } from '../capabilities'
 import { CreateAccount } from './CreateAccount'
 import { useDraftGuard, useWorkspaceGuard } from '../draftGuard'
 import { useRef, useState } from 'react'
+import { useWorkNavigation } from '../workspaceNavigation'
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, CircularProgress, IconButton, ListSubheader, MenuItem, Paper, Snackbar, TextField, Tooltip, Typography } from '@mui/material'
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
 import PersonAddOutlined from '@mui/icons-material/PersonAddOutlined'
@@ -24,12 +25,18 @@ export function AdminPage({ token, session }: { token: string; session: Session 
 }
 
 function AdminWorkspace({ token, session }: { token: string; session: Session }) {
+  const navigation = useWorkNavigation()
   const client = useQueryClient()
   const capabilities = useCapabilities()
   const users = useQuery({ queryKey: ['admin-users', session.username], queryFn: ({ signal }) => adminApi.users(token, signal), retry: false })
   const groups = useQuery({ queryKey: ['admin-groups', session.username], queryFn: ({ signal }) => adminApi.groups(token, signal), retry: false })
   const [selected, setSelected] = useState('')
   const [search, setSearch] = useState('')
+  const [appliedWork, setAppliedWork] = useState<number | null>(null)
+  if (navigation?.request?.page === 'admin' && appliedWork !== navigation.request.sequence) {
+    setAppliedWork(navigation.request.sequence)
+    setSelected(navigation.request.username || ''); setSearch('')
+  }
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const lock = useRef(false)

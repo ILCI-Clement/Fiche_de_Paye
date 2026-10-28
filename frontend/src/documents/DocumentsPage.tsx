@@ -1,7 +1,7 @@
 import { isAdmin, isSuperAdmin } from '../rolePolicy'
 import { useDraftGuard, useWorkspaceGuard } from '../draftGuard'
 import { useRef, useState } from 'react'
-import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Pagination, Snackbar, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, MenuItem, Paper, Pagination, Snackbar, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material'
 import SearchRounded from '@mui/icons-material/SearchRounded'
 import CloseRounded from '@mui/icons-material/CloseRounded'
 import { useQuery } from '@tanstack/react-query'
@@ -9,7 +9,11 @@ import { alpha } from '@mui/material/styles'
 import type { Session } from '../types'
 import { downloadFile } from '../download'
 import { DocumentsToolbar } from './DocumentsToolbar'
-import { documentsApi, receiptPeriod } from './api'
+import { categoryApi, documentsApi, receiptPeriod } from './api'
+import { CategoryManager } from './CategoryManager'
+import { DocumentClassification } from './DocumentClassification'
+import { DocumentTypeBadge } from './DocumentTypeBadge'
+import { useWorkspaceToolbar } from '../workspaceToolbar'
 import { DocumentUpload } from './DocumentUpload'
 import { DocumentRow } from './DocumentRow'
 import { DocumentPreview } from './DocumentPreview'
@@ -32,6 +36,8 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   const [selected, setSelected] = useState<number[]>([])
   const [preview, setPreview] = useState<Receipt | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [manageTypes, setManageTypes] = useState(false)
+  const [classification, setClassification] = useState<Receipt | null>(null)
   const [busy, setBusy] = useState(false)
   const guard = useWorkspaceGuard()
   useDraftGuard(false, busy, 'Documents')
@@ -41,6 +47,8 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
   const [messageSeverity, setMessageSeverity] = useState<'success' | 'warning'>('success')
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const list = useQuery({ queryKey: ['documents', session.username], queryFn: ({ signal }) => documentsApi.list(token, signal), retry: false })
+  const slot = useWorkspaceToolbar()
+  const categories = useQuery({ queryKey: ['document-categories', session.username], queryFn: ({ signal }) => categoryApi.list(token, signal), enabled: slot?.active !== false, refetchInterval: slot?.active === false ? false : 60000, retry: false })
   const owners = useQuery({ queryKey: ['document-assignees', session.username], queryFn: ({ signal }) => documentsApi.assignees(token, signal), retry: false })
   function setPeriod(m: number, y: number) { guard?.request(() => { setMonth(m); setYear(y); setSelected([]); setPage(1) }) }
   async function run(action: () => Promise<void>, success: string) {
@@ -89,11 +97,16 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
     '& .MuiToggleButtonGroup-root': { gap: .75, flexWrap: 'wrap' },
     '& .MuiToggleButtonGroup-root .MuiToggleButton-root': { border: '1px solid', borderColor: alpha(theme.palette.text.primary, .12), borderRadius: '24px !important', px: 2, minHeight: 38, textTransform: 'none', color: 'text.secondary', '&.Mui-selected': { color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, .12), borderColor: alpha(theme.palette.primary.main, .4) }, '&:hover': { bgcolor: alpha(theme.palette.primary.main, .08) } },
   })}>
-    <DocumentsToolbar month={month} year={year} busy={busy} canUpload={!!owners.data && !owners.error} refreshing={list.isFetching} onPeriod={setPeriod}
-      onUpload={() => { setError(''); setUploadOpen(true) }} onRefresh={() => void list.refetch()} />
+    <DocumentsToolbar month={month} year={year} busy={busy} canUpload={!!owners.data && !owners.error && !!categories.data && !categories.error} refreshing={list.isFetching || categories.isFetching} onPeriod={setPeriod}
+      onCategories={admin && categories.data?.can_manage ? () => setManageTypes(true) : undefined}
+      onUpload={() => { setError(''); void categories.refetch(); setUploadOpen(true) }} onRefresh={() => { void list.refetch(); void categories.refetch() }} />
+    {categories.error && <Alert severity="error" sx={{ mb: 2 }}>Types de documents indisponibles. <Button onClick={() => void categories.refetch()}>Réessayer</Button></Alert>}
+    {manageTypes && admin && categories.data?.can_manage && <CategoryManager token={token} categories={categories.data.categories} onClose={() => setManageTypes(false)} />}
+    {classification && admin && categories.data && <DocumentClassification key={classification.id} receipt={classification} categories={categories.data.categories} busy={busy} error={error}
+      onClose={() => setClassification(null)} onSave={(type, other) => run(async () => { await documentsApi.category(token, classification, type, other) }, 'Type du document mis à jour.')} />}
     {owners.error ? <Alert severity="error" sx={{ mb: 2 }}>{owners.error.message}<Button onClick={() => void owners.refetch()}>Réessayer</Button></Alert>
       : owners.isPending ? <CircularProgress size={22} /> : null}
-    {uploadOpen && owners.data && <DocumentUpload token={token} username={session.username} currentDisplayName={session.name} admin={admin} accounts={owners.data.accounts || owners.data.users.map(username => ({ username }))} month={month} year={year} busy={busy} run={run} requestError={error} onClose={() => setUploadOpen(false)} />}
+    {uploadOpen && owners.data && categories.data && <DocumentUpload token={token} username={session.username} currentDisplayName={session.name} admin={admin} categories={categories.data.categories} accounts={owners.data.accounts || owners.data.users.map(username => ({ username }))} month={month} year={year} busy={busy} run={run} requestError={error} onClose={() => setUploadOpen(false)} />}
     <Paper sx={{ p: 1.5, mb: 1.5, borderRadius: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
         <TextField placeholder="Rechercher un document · nom, numéro, employé…"
@@ -109,9 +122,11 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
         <ToggleButtonGroup exclusive value={archived ? 'archives' : 'active'} size="small" disabled={busy} aria-label="Dossier" onChange={(_, value) => { if (value) { setArchived(value === 'archives'); setSelected([]); setPage(1) } }}>
           <ToggleButton value="active">À traiter</ToggleButton><ToggleButton value="archives">Archives</ToggleButton>
         </ToggleButtonGroup>
-        <ToggleButtonGroup exclusive value={type} size="small" disabled={busy} aria-label="Filtrer par type" sx={{ flexWrap: 'wrap' }} onChange={(_, value) => { if (value) { setType(value); setSelected([]); setPage(1) } }}>
-          {[['all', 'Tous'], ['transport', 'Transport'], ['autre', 'Autre'], ['unset', 'Non renseigné']].map(([value, label]) => <ToggleButton key={value} value={value}>{label}</ToggleButton>)}
-        </ToggleButtonGroup>
+        <TextField select size="small" label="Type de document" value={type} disabled={busy} sx={{ minWidth: 170, maxWidth: '100%' }} slotProps={{ select: { renderValue: selected => { const category = categories.data?.categories.find(item => item.code === selected); return <DocumentTypeBadge code={String(selected)} label={category?.label || (selected === 'all' ? 'Tous' : selected === 'transport' ? 'Transport' : selected === 'autre' ? 'Autre' : 'Non renseigné')} inactive={category ? !category.is_active : false} /> }, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }} onChange={event => { setType(event.target.value); setSelected([]); setPage(1) }}>
+          <MenuItem value="all"><DocumentTypeBadge code="all" label="Tous" /></MenuItem>
+          {(categories.data?.categories || [{ code: 'transport', label: 'Transport', is_active: true }, { code: 'autre', label: 'Autre', is_active: true }]).map(category => <MenuItem key={category.code} value={category.code} sx={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}><DocumentTypeBadge code={category.code} label={`${category.label}${!category.is_active ? ' (désactivé)' : ''}`} inactive={!category.is_active} /></MenuItem>)}
+          <MenuItem value="unset"><DocumentTypeBadge code="unset" label="Non renseigné" /></MenuItem>
+        </TextField>
         <Typography variant="caption" color="text.secondary" aria-live="polite" sx={{ ml: { sm: 'auto' } }}>{visible.length} document(s)</Typography>
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center', '& .MuiButton-root': { minHeight: 32, py: .5 } }}>
@@ -127,6 +142,7 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: .75 }}>
         {!visible.length && <Typography color="text.secondary">{search.trim() ? 'Aucun document ne correspond à la recherche et aux filtres.' : 'Aucun document dans ce dossier pour ce mois.'}</Typography>}
         {pageRows.map(r => <DocumentRow key={r.id} receipt={r} admin={admin} canArchive={admin || (!manager && (r.uploaded_by === session.username || r.employee_username === session.username))} canDelete={superAdmin && r.archived} selected={selected.includes(r.id)} busy={busy}
+          onClassify={() => { setError(''); setClassification(r); void categories.refetch() }}
           onPreview={() => setPreview(r)}
           onSelect={() => setSelected(previous => previous.includes(r.id) ? previous.filter(id => id !== r.id) : [...previous, r.id])}
           onDownload={() => void run(async () => downloadFile(await documentsApi.file(token, r.id)), 'Document prêt à télécharger.')}

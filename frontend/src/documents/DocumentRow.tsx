@@ -14,6 +14,8 @@ import { PermanentDeleteDialog } from '../components/PermanentDeleteDialog'
 import { PeriodSelector } from '../attendance/PeriodSelector'
 import type { Receipt } from './api'
 import { periodLabel, receiptPeriod } from './api'
+import { documentCategoryLabel } from './documentCategory'
+import { DocumentTypeBadge } from './DocumentTypeBadge'
 
 function DocumentAction({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: (event: MouseEvent<HTMLButtonElement>) => void; children: ReactNode }) {
   return <Tooltip title={label} arrow describeChild><span style={{ display: 'inline-flex' }}>
@@ -21,24 +23,25 @@ function DocumentAction({ label, disabled, onClick, children }: { label: string;
   </span></Tooltip>
 }
 
-export function DocumentRow({ receipt: r, admin, canArchive, canDelete, selected, busy, onSelect, onPreview, onDownload, onArchive, onDelete, onPeriod }: {
+export function DocumentRow({ receipt: r, admin, canArchive, canDelete, selected, busy, onSelect, onPreview, onDownload, onArchive, onDelete, onPeriod, onClassify }: {
   receipt: Receipt; admin: boolean; canArchive: boolean; canDelete: boolean; selected: boolean; busy: boolean;
   onSelect: () => void; onPreview: () => void; onDownload: () => void; onArchive: () => Promise<boolean>;
   onDelete: (confirmation: string) => Promise<unknown>; onPeriod: (month: number, year: number) => Promise<boolean>
+  onClassify: () => void;
 }) {
   const [dialog, setDialog] = useState<'delete' | 'period' | 'archive' | null>(null)
   const [failed, setFailed] = useState(false)
   const [menu, setMenu] = useState<HTMLElement | null>(null)
   const initial = receiptPeriod(r)
   const [period, setPeriod] = useState(initial)
-  return <Paper variant="outlined" sx={theme => ({ p: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '30px minmax(0, 1fr) auto', md: '30px minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto' }, alignItems: 'center', columnGap: 1.5, rowGap: .5, borderRadius: 1.5, borderColor: selected ? 'primary.main' : alpha(theme.palette.text.primary, .1), '&:hover': { borderColor: alpha(theme.palette.primary.main, .45) }, '& .MuiChip-root': { border: 0, fontWeight: 400, height: 21, fontSize: 11, maxWidth: '100%' } })}>
+  return <Paper variant="outlined" sx={theme => ({ p: 1, minWidth: 0, display: 'grid', gridTemplateColumns: { xs: '30px minmax(0, 1fr) auto', md: '30px minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto' }, alignItems: 'center', columnGap: 1.5, rowGap: .5, borderRadius: 1.5, borderColor: selected ? 'primary.main' : alpha(theme.palette.text.primary, .1), '&:hover': { borderColor: alpha(theme.palette.primary.main, .45) } })}>
     <Checkbox checked={selected} onChange={onSelect} disabled={busy} slotProps={{ input: { 'aria-label': `Sélectionner ${r.original_filename}` } }} sx={{ p: .5 }} />
     <Box sx={{ minWidth: 0 }}>
       <Tooltip title={r.original_filename}><Typography noWrap sx={{ fontWeight: 500, fontSize: 14 }}>{r.original_filename}</Typography></Tooltip>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5, mt: .5 }}>
-        {r.document_number && <Chip size="small" label={`N° ${r.document_number}`} sx={theme => ({ fontFamily: 'monospace', userSelect: 'text', bgcolor: alpha(theme.palette.primary.main, .12), color: 'primary.main' })} />}
-        <Chip size="small" label={r.document_type === 'autre' ? `Autre · ${r.other_type || 'Non précisé'}` : r.document_type === 'transport' ? 'Transport' : 'Non renseigné'} sx={theme => { const color = r.document_type === 'transport' ? theme.palette.info.main : theme.palette.secondary.main; return { bgcolor: alpha(color, .15), color } }} />
-        {r.archived && <Chip size="small" label="Archivé" />}
+        {r.document_number && <Chip size="small" label={`N° ${r.document_number}`} sx={theme => ({ height: 23, fontSize: 11, fontWeight: 400, maxWidth: '100%', fontFamily: 'monospace', userSelect: 'text', bgcolor: alpha(theme.palette.primary.main, .12), color: 'primary.main' })} />}
+        <DocumentTypeBadge code={r.document_type} label={documentCategoryLabel(r)} />
+        {r.archived && <Chip size="small" label="Archivé" sx={{ height: 23, fontSize: 11, fontWeight: 400 }} />}
       </Box>
     </Box>
     <Box sx={{ minWidth: 0, gridColumn: { xs: '2', md: 'auto' }, gridRow: { xs: 2, md: 'auto' } }}>
@@ -56,6 +59,7 @@ export function DocumentRow({ receipt: r, admin, canArchive, canDelete, selected
       {(admin || canArchive || canDelete) && <DocumentAction label="Autres actions" disabled={busy} onClick={event => { setFailed(false); setMenu(event.currentTarget) }}><MoreHorizRounded fontSize="small" /></DocumentAction>}
     </Box>
     <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)}>
+      {admin && <MenuItem disabled={busy} onClick={() => { setMenu(null); onClassify() }}><ListItemIcon><EditOutlined fontSize="small" /></ListItemIcon>Modifier le type</MenuItem>}
       {admin && <MenuItem disabled={busy} onClick={() => { setMenu(null); setPeriod(initial); setDialog('period') }}><ListItemIcon><EditOutlined fontSize="small" /></ListItemIcon>Modifier le mois</MenuItem>}
       {canArchive && <MenuItem disabled={busy} onClick={() => { setMenu(null); setDialog('archive') }}><ListItemIcon>{r.archived ? <UnarchiveOutlined fontSize="small" /> : <ArchiveOutlined fontSize="small" />}</ListItemIcon>{r.archived ? 'Restaurer' : 'Archiver'}</MenuItem>}
       {canDelete && <MenuItem disabled={busy} sx={{ color: 'error.main' }} onClick={() => { setMenu(null); setDialog('delete') }}><ListItemIcon sx={{ color: 'inherit' }}><DeleteOutlineRounded fontSize="small" /></ListItemIcon>Supprimer</MenuItem>}

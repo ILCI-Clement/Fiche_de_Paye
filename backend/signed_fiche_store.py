@@ -62,7 +62,8 @@ def signed_fiche_scope(actor):
     if is_admin(actor):
         return '1=1', []
     return '''(employee_username=%s OR (manager_username=%s AND %s=1
-        AND employee_username IN (SELECT username FROM users WHERE manager_username=%s)))''', [
+        AND CAST(employee_username AS BINARY) IN
+            (SELECT CAST(username AS BINARY) FROM users WHERE manager_username=%s)))''', [
             actor['username'], actor['username'], int('Responsable' in actor.get('role_tags', [])), actor['username']]
 
 

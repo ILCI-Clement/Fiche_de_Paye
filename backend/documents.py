@@ -15,18 +15,20 @@ try:
     from .destructive_audit import append_deletion_event
     from .role_policy import checked_resource_actor, is_admin, is_super_admin
     from .person_names import load_person_names, load_display_names, person_display_name
+    from .document_categories import register_category_routes, resolve_category, load_category_labels, receipt_category_label, category_event
 except ImportError:
     from document_numbers import allocate_document_number, ensure_document_number_schema
     from destructive_audit import append_deletion_event
     from role_policy import checked_resource_actor, is_admin, is_super_admin
     from person_names import load_person_names, load_display_names, person_display_name
+    from document_categories import register_category_routes, resolve_category, load_category_labels, receipt_category_label, category_event
 
 
 class TransportReceiptUploadRequest(BaseModel):
     employee_username: str
     original_filename: str
     file_b64: str
-    document_type: str = "transport"
+    document_type: str = Field(default="transport", min_length=1, max_length=20)
     other_type: str | None = None
     receipt_month: int | None = None
     receipt_year: int | None = None
@@ -35,6 +37,14 @@ class TransportReceiptUploadRequest(BaseModel):
 class ReceiptPeriodRequest(BaseModel):
     receipt_month: int
     receipt_year: int
+
+
+class ReceiptCategoryRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    document_type: str = Field(min_length=1, max_length=20)
+    other_type: str | None = Field(default=None, max_length=120)
+    expected_document_type: str | None
+    expected_other_type: str | None
 
 
 class DocumentExportRequest(BaseModel):
@@ -57,6 +67,7 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
     TRANSPORT_RECEIPTS_DIR = storage_dir
     MAX_TRANSPORT_RECEIPT_BYTES = max_file_bytes
     app.router.add_event_handler("startup", lambda: ensure_document_number_schema(get_db_connection))
+    register_category_routes(app, get_db_connection=get_db_connection, get_current_user=get_current_user, load_user=load_user)
     def sanitize_transport_receipt_filename(filename: str) -> str:
         """Keep only a safe display name for an uploaded transport receipt."""
         safe_name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
@@ -93,6 +104,7 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
             "mime_type": str(row["mime_type"]),
             "size_bytes": int(row["size_bytes"]),
             "document_type": row.get("document_type"),
+            "category_label": receipt_category_label(row),
             "other_type": row.get("other_type"),
             "receipt_month": row.get("receipt_month"),
             "receipt_year": row.get("receipt_year"),
@@ -110,6 +122,7 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
         receipt = cursor.fetchone()
         if not receipt:
             raise HTTPException(status_code=404, detail="Justificatif introuvable.")
+        receipt['category_label'] = receipt_category_label(receipt, load_category_labels(cursor, [receipt]))
         return receipt
 
 
@@ -166,8 +179,6 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
         if receipt_month is None or receipt_year is None or not 1 <= receipt_month <= 12 or not 2000 <= receipt_year <= 2100:
             raise HTTPException(status_code=400, detail="Choisissez un mois et une année valides pour le document.")
         document_type = payload.document_type.strip().lower()
-        if document_type not in {"transport", "autre"}:
-            raise HTTPException(status_code=400, detail="Choisissez Transport ou Autre comme type de document.")
         other_type = str(payload.other_type or "").strip() if document_type == "autre" else None
         if document_type == "autre" and (not other_type or len(other_type) > 120):
             raise HTTPException(status_code=400, detail="Précisez le type de document (1 à 120 caractères).")
@@ -188,6 +199,7 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
                     cursor.execute("SELECT 1 FROM users WHERE username = %s", (employee_username,))
                     if not cursor.fetchone():
                         raise HTTPException(status_code=400, detail="L'employé sélectionné n'existe pas.")
+                    _, other_type = resolve_category(cursor, document_type, other_type)
 
                     TRANSPORT_RECEIPTS_DIR.mkdir(parents=True, exist_ok=True)
                     stored_filename = f"{secrets.token_urlsafe(32)}{extension}"
@@ -245,6 +257,9 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
                 usernames = {row.get(key) for row in rows
                              for key in ('employee_username', 'uploaded_by', 'archived_by') if row.get(key)}
                 labels = load_display_names(cursor, usernames)
+                categories = load_category_labels(cursor, rows)
+                for row in rows:
+                    row['category_label'] = receipt_category_label(row, categories)
                 return {"receipts": [transport_receipt_response(row, labels) for row in rows]}
         finally:
             connection.close()
@@ -308,7 +323,7 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
                 try:
                     with connection.cursor() as cursor:
                         receipt = load_transport_receipt(cursor, receipt_id)
-                    category = receipt.get("other_type") if receipt.get("document_type") == "autre" else receipt.get("document_type")
+                    category = receipt.get('category_label') or receipt_category_label(receipt)
                     name = "_".join(safe_archive_component(value) for value in (
                         receipt.get("document_number") or receipt_id,
                         labels.get(receipt['employee_username'], 'Ancien compte'),
@@ -318,6 +333,34 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
                     connection.close()
         return Response(output.getvalue(), media_type="application/zip",
                         headers={"Content-Disposition": 'attachment; filename="documents.zip"'})
+
+    @app.patch('/transport-receipts/{receipt_id}/category')
+    def update_receipt_category(receipt_id: int, payload: ReceiptCategoryRequest, actor=Depends(get_current_user)):
+        db = get_db_connection()
+        try:
+            with db.cursor() as cursor:
+                current = checked_resource_actor(cursor, actor, load_user, lock=True)
+                if not is_admin(current):
+                    raise HTTPException(403, 'La modification du type est réservée aux administrateurs.')
+                receipt = load_transport_receipt(cursor, receipt_id, lock=True)
+                before = {key: receipt.get(key) for key in ('document_type', 'other_type')}
+                if before != {'document_type': payload.expected_document_type, 'other_type': payload.expected_other_type}:
+                    raise HTTPException(409, 'Le type de ce document a changé. Actualisez avant de réessayer.')
+                code = payload.document_type.strip().lower()
+                label, other = resolve_category(cursor, code, payload.other_type)
+                after = {'document_type': code, 'other_type': other}
+                if before != after:
+                    cursor.execute('UPDATE transport_receipts SET document_type=%s,other_type=%s WHERE id=%s', (code, other, receipt_id))
+                    category_event(cursor, current, code, 'reclassified', before, after, receipt_id)
+                receipt.update(**after, category_label=label)
+                labels = load_display_names(cursor, [receipt.get(key) for key in ('employee_username', 'uploaded_by', 'archived_by') if receipt.get(key)])
+            db.commit()
+            return {'status': 'success', 'receipt': transport_receipt_response(receipt, labels)}
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     @app.patch("/transport-receipts/{receipt_id}/period")
     def update_receipt_period(
