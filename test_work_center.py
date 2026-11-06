@@ -26,6 +26,31 @@ class Cursor:
 
 
 class WorkCenterTests(unittest.TestCase):
+    def test_deleted_login_email_does_not_make_new_owner_contacts_ambiguous(self):
+        self.users['retired'] = {**self.users['own'], 'username': 'retired',
+                                  'is_active': False, 'login_deleted_at': 'synthetic-time'}
+        self.connection.execute('INSERT INTO users VALUES (?,?)', ('retired', None))
+        current = next(p for p in self.fetch().json()['people'] if p['username'] == 'own')
+        self.assertFalse(any(i['code'] == 'email' for i in current['issues']))
+
+    def test_no_manager_is_optional_but_a_broken_assigned_manager_is_reported(self):
+        user = {'username': 'independent', 'full_name': 'Independent User',
+                'email': 'independent@example.com', 'role_tags': ['Employe']}
+        args = dict(actor={'username': 'admin', 'role_tags': ['Admin']}, month=10, year=2026,
+                    emails=Counter({'independent@example.com': 1}))
+        value = person_readiness(user, None, [], **args)
+        self.assertFalse(any(i['code'].startswith('manager') for i in value['issues']))
+        value = person_readiness({**user, 'manager_username': 'missing'}, None, [], **args)
+        self.assertTrue(any(i['code'] == 'manager' for i in value['issues']))
+
+    def test_super_admin_has_no_employee_completeness_requirements(self):
+        value = person_readiness({'username': 'system', 'role_tags': ['SuperAdmin', 'Admin', 'Employe']},
+                                 None, [], actor={'username': 'system', 'role_tags': ['SuperAdmin']},
+                                 month=10, year=2026, emails=Counter())
+        self.assertEqual(value['issues'], [])
+        self.assertTrue(value['contacts_ready'])
+        self.assertFalse(value['attendance_ready'])
+
     def setUp(self):
         self.connection = sqlite3.connect(':memory:', check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
@@ -39,7 +64,7 @@ class WorkCenterTests(unittest.TestCase):
                 birth_date TEXT,job_title TEXT,qualification TEXT,personnel_type TEXT);
             CREATE TABLE personnel_register_periods (period_id INTEGER PRIMARY KEY,employee_id INT,entry_date TEXT);
             CREATE TABLE leave_requests (id INTEGER PRIMARY KEY,employee_username TEXT,start_date TEXT,end_date TEXT,
-                status TEXT,is_archived INT,created_at TEXT);
+                status TEXT,is_archived INT,created_at TEXT,cancellation_status TEXT DEFAULT '');
             CREATE TABLE signed_fiche_documents (id TEXT,employee_username TEXT,manager_username TEXT,status TEXT,
                 fiche_month INT,fiche_year INT,last_error TEXT,mode TEXT,created_at TEXT);
         ''')
@@ -60,7 +85,7 @@ class WorkCenterTests(unittest.TestCase):
         self.connection.executemany('INSERT INTO personnel_contracts VALUES (?,?,?,?,?)', [
             (1, 'own', '2026-10-01', None, 0), (2, 'department', '2026-09-01', '2026-09-30', 0),
             (3, 'outside', '2026-01-01', None, 0)])
-        self.connection.executemany('INSERT INTO leave_requests VALUES (?,?,?,?,?,?,?)', [
+        self.connection.executemany('INSERT INTO leave_requests (id,employee_username,start_date,end_date,status,is_archived,created_at) VALUES (?,?,?,?,?,?,?)', [
             (1, 'own', '2026-11-01', '2026-11-02', 'pending', 0, '2026-10-01'),
             (2, 'department', '2026-11-01', '2026-11-02', 'pending', 0, '2026-10-01'),
             (3, 'own', '2026-11-01', '2026-11-02', 'pending', 1, '2026-10-01'),
@@ -94,6 +119,15 @@ class WorkCenterTests(unittest.TestCase):
         self.assertEqual({p['username'] for p in data['people']}, {'own', 'department'})
         self.assertEqual([t['id'] for t in data['tasks'] if t['kind'] == 'leave'], ['leave:1'])
         self.assertEqual(data['counts']['leave'], 1)
+
+    def test_cancellation_request_is_a_review_task_until_decided(self):
+        self.connection.execute("UPDATE leave_requests SET cancellation_status='pending' WHERE id=4")
+        data = self.fetch().json()
+        task = next(t for t in data['tasks'] if t['id'] == 'leave:4')
+        self.assertTrue(task['label'].startswith('Annulation'))
+        self.assertEqual(data['counts']['leave'], 2)
+        self.connection.execute("UPDATE leave_requests SET status='cancelled',cancellation_status='approved' WHERE id=4")
+        self.assertEqual(self.fetch().json()['counts']['leave'], 1)
 
     def test_old_or_unknown_signing_manager_and_sandbox_are_not_inherited(self):
         data = self.fetch().json()
@@ -169,6 +203,17 @@ class WorkCenterTests(unittest.TestCase):
         for params in ({'month': 0}, {'month': 13}, {'year': 1999}, {'year': 2101}):
             self.assertEqual(self.fetch(**params).status_code, 422)
 
+    def test_failed_snapshots_only_add_an_admin_task_and_open_the_archive_window(self):
+        self.connection.execute('CREATE TABLE personnel_snapshots(status TEXT)')
+        self.connection.executemany('INSERT INTO personnel_snapshots VALUES (?)', [('failed',), ('ready',)])
+        self.client.app.state.personnel_snapshots = object()
+        self.assertFalse(any(task['id'] == 'snapshot:failures' for task in self.fetch().json()['tasks']))
+        self.actor = self.current = self.users['admin']
+        task = next(task for task in self.fetch().json()['tasks'] if task['id'] == 'snapshot:failures')
+        self.assertEqual(task['destination'], {'page': 'personnel', 'snapshots': True})
+        self.assertEqual(task['kind'], 'archive')
+        self.db.commit.assert_not_called()
+
     def test_duplicate_email_and_invalid_manager_are_explicit_issues(self):
         user = self.users['own']
         emails = Counter([mailbox(user['email']), mailbox(user['email'])])
@@ -176,6 +221,23 @@ class WorkCenterTests(unittest.TestCase):
             actor=self.actor, month=10, year=2026, emails=emails)
         self.assertFalse(value['contacts_ready'])
         self.assertTrue({'email', 'manager'} <= {i['code'] for i in value['issues']})
+
+    def test_employee_and_manager_completion_links_are_explicit_and_distinct(self):
+        employee = {**self.users['own'], 'username': 'emilie-key', 'full_name': None, 'first_name': '', 'last_name': ''}
+        manager = {**self.users['manager'], 'username': 'christophe-key', 'full_name': None,
+                   'email': 'christophe@example.test'}
+        emails = Counter([mailbox(employee['email']), mailbox(manager['email'])])
+        result = person_readiness(employee, manager, [], actor=self.users['admin'],
+                                  month=10, year=2026, emails=emails)
+        by_code = {issue['code']: issue for issue in result['issues']}
+        self.assertEqual(by_code['name']['destination'], {'page': 'admin', 'username': 'emilie-key'})
+        self.assertEqual(by_code['manager_contact']['destination'], {'page': 'admin', 'username': 'christophe-key'})
+        self.assertIn('christophe', by_code['manager_contact']['label'])
+        manager['role_tags'] = ['SuperAdmin', 'Admin']
+        result = person_readiness(employee, manager, [], actor=self.users['admin'],
+                                  month=10, year=2026, emails=emails)
+        issue = next(issue for issue in result['issues'] if issue['code'] == 'manager_contact')
+        self.assertIsNone(issue['destination'])
 
 
 if __name__ == '__main__':

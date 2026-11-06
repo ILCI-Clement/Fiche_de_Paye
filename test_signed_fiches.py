@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+from test_support.sqlite_fixtures import connect_fixture
 import tempfile
 import unittest
 from unittest.mock import patch, Mock
@@ -24,11 +25,13 @@ SCHEMA = '''CREATE TABLE users(username TEXT PRIMARY KEY,manager_username TEXT,r
     is_active INTEGER DEFAULT 1,session_version INTEGER DEFAULT 0,login_deleted_at TEXT);
 CREATE TABLE signed_fiche_documents(id TEXT PRIMARY KEY,reference_hash TEXT UNIQUE,namespace TEXT,
     document_id TEXT UNIQUE,employee_username TEXT,sender_username TEXT,manager_username TEXT,employee_name TEXT,
-    fiche_month INTEGER,fiche_year INTEGER,mode TEXT,status TEXT DEFAULT 'pending',signed_pdf_url TEXT,
+    fiche_month INTEGER,fiche_year INTEGER,mode TEXT,status TEXT DEFAULT 'pending',is_archived INTEGER DEFAULT 0,signed_pdf_url TEXT,
     completed_at TEXT,archived_at TEXT,sha256 TEXT,file_bytes INTEGER,download_attempts INTEGER DEFAULT 0,
     next_attempt_at TEXT,lease_until TEXT,lease_token TEXT,last_error TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE signed_fiche_events(id INTEGER PRIMARY KEY,archive_id TEXT,event TEXT,actor_username TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP);'''
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE permanent_deletion_events(id INTEGER PRIMARY KEY,actor_username TEXT,resource_type TEXT,
+    resource_id TEXT,metadata TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);'''
 
 
 class Cursor:
@@ -54,7 +57,7 @@ class Cursor:
 class Connection:
     def __init__(self, fixture):
         self.fixture = fixture
-        self.db = sqlite3.connect(fixture.path, timeout=10)
+        self.db = connect_fixture(fixture.path, timeout=10)
         self.db.row_factory = sqlite3.Row
         self.db.create_function('UTC_TIMESTAMP', 1, lambda _: fixture.now.isoformat(' ', timespec='microseconds'))
         self.db.create_function('IF', 3, lambda condition, yes, no: yes if condition else no)
@@ -72,7 +75,7 @@ class SignedFicheTests(unittest.TestCase):
         self.path = self.root / 'archive.sqlite3'
         self.now = datetime(2026, 10, 23, 12)
         self.fail_audit = False
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.executescript(SCHEMA)
             for name, role, manager in [('admin','Admin',None), ('super','SuperAdmin',None),
                     ('manager','Responsable',None),('former','Responsable',None),('employee','Employe','manager'),('other','Employe',None)]:
@@ -129,6 +132,95 @@ class SignedFicheTests(unittest.TestCase):
         self.assertNotIn('reference_hash', response.text)
         self.assertNotIn(request['reference'], response.text)
         self.assertIn('no-store', response.headers['cache-control'])
+
+    def delete(self, identifier, confirmation=None):
+        return self.client.request('DELETE', f'/signed-fiches/{identifier}',
+                                   json={'confirmation': confirmation or identifier})
+
+    def test_super_admin_deletes_archived_pdf_and_metadata_with_independent_audit(self):
+        row = self.ready()
+        self.actor = self.identity('super')
+        path = self.service.path(row)
+        self.assertTrue(self.client.get('/signed-fiches?year=2026').json()['can_delete'])
+        result = self.delete(row['id'])
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertFalse(result.json()['cleanup_pending'])
+        self.assertFalse(path.exists())
+        self.assertEqual(self.rows(), [])
+        self.assertEqual(self.client.get('/signed-fiches?year=2026').json()['total'], 0)
+        self.assertEqual(self.client.get(f"/signed-fiches/{row['id']}/file").status_code, 404)
+        self.assertEqual(self.client.get('/signed-fiches/export.zip?year=2026&month=9').status_code, 404)
+        self.assertEqual(self.delete(row['id']).status_code, 404)
+        audit = self.rows('SELECT * FROM permanent_deletion_events')
+        self.assertEqual(len(audit), 1)
+        self.assertEqual((audit[0]['resource_type'], audit[0]['actor_username']), ('signed_fiche', 'super'))
+        self.assertNotIn('Synthetic Employee', audit[0]['metadata'])
+        self.assertEqual(self.rows('SELECT event FROM signed_fiche_events ORDER BY id')[-1]['event'], 'permanently_deleted')
+
+    def test_deletion_denies_other_roles_and_stale_super_admin_sessions(self):
+        row = self.ready()
+        for name in ('admin', 'manager', 'employee', 'other'):
+            self.actor = self.identity(name)
+            self.assertFalse(self.client.get('/signed-fiches?year=2026').json()['can_delete'])
+            self.assertEqual(self.delete(row['id']).status_code, 403)
+        self.actor = None
+        self.assertEqual(self.delete(row['id']).status_code, 401)
+        self.actor = self.identity('super')
+        with self.service.store.transaction() as cursor:
+            cursor.execute("UPDATE users SET role_tags=%s WHERE username='super'", ('["Admin"]',))
+        self.assertEqual(self.delete(row['id']).status_code, 403)
+        with self.service.store.transaction() as cursor:
+            cursor.execute("UPDATE users SET role_tags=%s,session_version=1 WHERE username='super'", ('["SuperAdmin"]',))
+        self.assertEqual(self.delete(row['id']).status_code, 401)
+        self.assertTrue(self.service.path(row).exists())
+        self.assertEqual(len(self.rows()), 1)
+        self.assertEqual(self.rows('SELECT * FROM permanent_deletion_events'), [])
+
+    def test_deletion_rejects_unfinished_requests_and_wrong_confirmation(self):
+        row = self.ready()
+        self.actor = self.identity('super')
+        self.assertEqual(self.delete(row['id'], 'wrong').status_code, 400)
+        self.assertEqual(self.client.request('DELETE', f"/signed-fiches/{row['id']}", json={}).status_code, 422)
+        for status in ('pending', 'sent', 'partially_signed', 'completed', 'uncertain', 'cancelled', 'expired', 'declined'):
+            with self.service.store.transaction() as cursor:
+                cursor.execute('UPDATE signed_fiche_documents SET status=%s WHERE id=%s', (status, row['id']))
+            self.assertEqual(self.delete(row['id']).status_code, 409)
+        self.assertTrue(self.service.path(row).exists())
+        self.assertEqual(self.rows('SELECT * FROM permanent_deletion_events'), [])
+
+    def test_deletion_audit_failure_rolls_back_before_file_removal(self):
+        row = self.ready()
+        self.actor = self.identity('super')
+        with patch('backend.signed_fiches.append_deletion_event', side_effect=RuntimeError('Synthetic audit failure')):
+            self.assertEqual(self.delete(row['id']).status_code, 500)
+        self.assertEqual(self.service.read(self.rows()[0]), self.pdf)
+        self.assertEqual(self.rows('SELECT * FROM permanent_deletion_events'), [])
+        self.fail_audit = True
+        self.assertEqual(self.delete(row['id']).status_code, 500)
+        self.assertEqual(self.rows('SELECT * FROM permanent_deletion_events'), [])
+        self.assertTrue(self.service.path(row).exists())
+
+    def test_file_cleanup_failure_is_explicit_and_removed_row_cannot_reappear(self):
+        request = self.prepare()
+        self.assertEqual(self.notify(request).status_code, 204)
+        claimed = self.service.store.claim()
+        self.service.save(claimed, self.pdf)
+        self.actor = self.identity('super')
+        with patch('backend.signed_fiches.Path.unlink', side_effect=OSError('Synthetic permission failure')):
+            result = self.delete(request['id'])
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()['cleanup_pending'])
+        self.assertEqual(self.rows(), [])
+        self.assertEqual(self.notify(request).status_code, 404)
+        self.assertIsNone(self.service.store.claim())
+
+    def test_deletion_rejects_archive_path_escape_and_keeps_external_file(self):
+        row = self.ready()
+        self.actor = self.identity('super')
+        with patch.object(self.service, 'path', side_effect=ValueError('Synthetic invalid path')):
+            self.assertEqual(self.delete(row['id']).status_code, 409)
+        self.assertTrue(self.service.path(row).exists())
+        self.assertEqual(len(self.rows()), 1)
 
     def test_successor_cannot_inherit_old_signature_even_if_they_sent_it(self):
         row = self.ready(manager='former', sender='manager')
@@ -262,6 +354,69 @@ class SignedFicheTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/signed-fiches/{row['id']}/file").status_code,503)
         self.assertEqual(self.client.get('/signed-fiches/export.zip?year=2026&month=9').status_code,503)
 
+    def test_yearly_zip_groups_all_pages_by_month_and_separates_year_and_mode(self):
+        expected = [self.ready(month=1, name='Synthetic ../ Person'), self.ready(month=12)]
+        for index in range(20):
+            expected.append(self.ready(month=9, name=f'Synthetic {index}'))
+        self.ready(year=2025)
+        self.ready(mode='sandbox-only')
+        response = self.client.get('/signed-fiches/export.zip?year=2026')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('ILCI_RH_2026.zip', response.headers['content-disposition'])
+        self.assertIn('no-store', response.headers['cache-control'])
+        with ZipFile(io.BytesIO(response.content)) as archive:
+            names = archive.namelist()
+            self.assertEqual(len(names), 22)
+            self.assertEqual({name.split('/')[1] for name in names}, {'01', '09', '12'})
+            self.assertTrue(all(name.startswith('ILCI_RH_2026/') and '..' not in name.split('/') for name in names))
+            for name in names:
+                self.assertEqual(archive.read(name), self.pdf)
+        audited = self.rows("SELECT archive_id FROM signed_fiche_events WHERE event='yearly_export'")
+        self.assertEqual({r['archive_id'] for r in audited}, {r['id'] for r in expected})
+        specimen = self.client.get('/signed-fiches/export.zip?year=2026&mode=sandbox-only')
+        self.assertEqual(specimen.status_code, 200)
+        self.assertIn('SPECIMEN_ILCI_RH_2026.zip', specimen.headers['content-disposition'])
+        with ZipFile(io.BytesIO(specimen.content)) as archive:
+            self.assertEqual(len(archive.namelist()), 1)
+            self.assertTrue(archive.namelist()[0].startswith('SPECIMEN_ILCI_RH_2026/09/'))
+
+    def test_yearly_export_rejects_non_admins_and_stale_admin_role(self):
+        self.ready()
+        path = '/signed-fiches/export.zip?year=2026'
+        for username in ('employee', 'manager', 'other'):
+            self.actor = self.identity(username)
+            self.assertEqual(self.client.get(path).status_code, 403)
+        self.actor = self.identity('super')
+        self.assertEqual(self.client.get(path).status_code, 200)
+        self.actor = self.identity('admin')
+        with closing(connect_fixture(self.path)) as db, db:
+            db.execute('UPDATE users SET role_tags=? WHERE username=?', ('["Employe"]', 'admin'))
+        self.assertEqual(self.client.get(path).status_code, 403)
+
+    def test_yearly_export_never_returns_partial_zip_or_keeps_partial_audit(self):
+        row = self.ready(month=1)
+        late = self.prepare(month=12)
+        self.assertEqual(self.notify(late).status_code, 204)
+        path = '/signed-fiches/export.zip?year=2026'
+        self.assertEqual(self.client.get(path).status_code, 409)
+        self.assertEqual(self.rows("SELECT * FROM signed_fiche_events WHERE event='yearly_export'"), [])
+        with self.service.store.transaction() as cursor:
+            cursor.execute("UPDATE signed_fiche_documents SET status='cancelled' WHERE id=%s", (late['id'],))
+        self.service.path(row).write_bytes(b'synthetic corrupted PDF')
+        self.assertEqual(self.client.get(path).status_code, 503)
+        self.assertEqual(self.rows("SELECT * FROM signed_fiche_events WHERE event='yearly_export'"), [])
+
+    def test_yearly_export_limits_and_audit_failure_return_no_zip(self):
+        row = self.ready()
+        path = '/signed-fiches/export.zip?year=2026'
+        with patch('backend.signed_fiches.MAX_ARCHIVE_BYTES', 1):
+            self.assertEqual(self.client.get(path).status_code, 413)
+        self.fail_audit = True
+        self.assertEqual(self.client.get(path).status_code, 500)
+        self.fail_audit = False
+        self.assertEqual(self.rows("SELECT * FROM signed_fiche_events WHERE event='yearly_export'"), [])
+        self.assertEqual(self.service.read(row), self.pdf)
+
     def test_atomic_archive_refuses_different_replacement(self):
         row=self.ready()
         with self.assertRaises(ValueError): self.service.save(row,self.pdf+b'changed')
@@ -276,6 +431,22 @@ class SignedFicheTests(unittest.TestCase):
         self.actor=self.identity('other')
         self.assertEqual(self.client.get('/signed-fiches?year=2026&month=9').json()['total'],0)
         self.assertEqual(self.client.get('/signed-fiches?year=2026&month=9&username=employee').status_code,403)
+
+    def test_annual_listing_groups_months_and_keeps_manager_scope(self):
+        self.prepare(month=2)
+        self.prepare(month=10)
+        self.prepare(month=10, manager='former')
+        self.prepare(month=12, year=2025)
+        self.prepare(month=11, mode='sandbox-only')
+        annual = self.client.get('/signed-fiches?year=2026').json()
+        self.assertEqual(annual['total'], 3)
+        self.assertEqual([row['fiche_month'] for row in annual['items']], [10, 10, 2])
+        self.assertEqual(self.client.get('/signed-fiches?year=2026&month=2').json()['total'], 1)
+        self.actor = self.identity('manager')
+        self.assertEqual(self.client.get('/signed-fiches?year=2026').json()['total'], 2)
+        self.actor = self.identity('other')
+        self.assertEqual(self.client.get('/signed-fiches?year=2026').json()['total'], 0)
+        self.assertEqual(self.client.get('/signed-fiches?year=2026&month=13').status_code, 422)
 
     def test_body_limit_and_malformed_callback(self):
         self.assertEqual(self.client.post('/esign/callback',content=b'x'*32769).status_code,413)

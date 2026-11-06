@@ -1,5 +1,6 @@
+import { canAdoptWorkspaceRevision } from './contractRefresh'
 import { alpha } from '@mui/material/styles'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Paper, Snackbar, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material'
 import DownloadRounded from '@mui/icons-material/DownloadRounded'
 import SaveOutlined from '@mui/icons-material/SaveOutlined'
@@ -79,6 +80,16 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
   const [archived, setArchived] = useState(false)
   const [signing, setSigning] = useState<{ ids: string[]; month: number; year: number } | null>(null)
   useEffect(() => { try { sessionStorage.setItem(`attendance-active-${session.username}`, JSON.stringify(active)) } catch { /* Browsing still works without storage. */ } }, [active, session.username])
+  const [appliedWorkspaceRevision, setAppliedWorkspaceRevision] = useState(workspace.revision)
+  if (canAdoptWorkspaceRevision(appliedWorkspaceRevision, workspace.revision, { dirty, busy, pending: pendingCalendar })) {
+    setAppliedWorkspaceRevision(workspace.revision)
+    setConfig(structuredClone(workspace.config))
+    setHiddenCount(workspace.hidden_sheet_count || 0)
+    setVersion(previous => previous + 1)
+  }
+  useLayoutEffect(() => {
+    if (appliedWorkspaceRevision === workspace.revision) revision.current = workspace.revision
+  }, [appliedWorkspaceRevision, workspace.revision])
   const nextWork = navigation?.request
   if (nextWork?.page === 'attendance' && appliedWork !== nextWork.sequence) {
     const next = nextWork
@@ -86,6 +97,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
     setMonth(next.month || month); setYear(next.year || year)
     setView(next.view || 'editing'); setAccount(next.username || '')
     setArchived(false); setSelected({}); setError('')
+    if (next.completion === 'contract') setMissingContract(workspace.accounts.find(person => person.username === next.username) || null)
     if (next.username) {
       const saved = config.employes_data.find(item => item.account_username === next.username && !item.is_archived
         && item.sheet_month === next.month && item.sheet_year === next.year)
@@ -179,7 +191,7 @@ function AttendanceEditor({ token, session, workspace, onState, reload }: { toke
       onClose={() => setMissingContract(null)} onSaved={async () => {
         await perform(async () => { await openAccount(missingContract.username); setMissingContract(null) }, true)
       }} />}
-    {view === 'signed' && <><SignedFichesPanel key={period} token={token} viewer={session.username} month={month} year={year} /><DraftStatus /></>}
+    {view === 'signed' && <><SignedFichesPanel key={year} token={token} viewer={session.username} year={year} /><DraftStatus /></>}
     <Box hidden={view !== 'editing'}>
     {hiddenCount > 0 && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
       {hiddenCount} fiche(s) historique(s) conservée(s) hors de cette vue. Un Admin peut vérifier leur association.

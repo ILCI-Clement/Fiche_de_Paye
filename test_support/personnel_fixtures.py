@@ -14,7 +14,7 @@ def registration_payload(**overrides):
 def extend_sqlite_register(db):
     # MySQL migration is exercised independently with TEMPORARY tables.
     for table, fields in (
-        ('personnel_register', {'first_name': "TEXT DEFAULT ''", 'last_name': "TEXT DEFAULT ''",
+        ('personnel_register', {'first_name': "TEXT DEFAULT ''", 'last_name': "TEXT DEFAULT ''", 'email': "TEXT DEFAULT ''",
                                 'registration_schema_version': 'INTEGER DEFAULT 1'}),
         ('personnel_register_periods', {'actual_exit_date': 'TEXT', 'is_foreign_worker': 'INTEGER DEFAULT 0',
             'work_permit_type': "TEXT DEFAULT ''", 'work_permit_number': "TEXT DEFAULT ''",

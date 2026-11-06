@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Switch, TextField, Typography } from '@mui/material'
 import { useDraftGuard } from '../draftGuard'
-import { ApiError, request } from '../api'
+import { ApiError } from '../api'
+import { adminApi } from './api'
 import { OrganizationFields } from './OrganizationFields'
 import type { AdminUser, OrganizationInput, RunAction } from './api'
 import type { Group } from '../team/api'
@@ -27,7 +28,7 @@ export function CreateAccount({ token, users, groups, allowSuperAdmin, enabled, 
     setNameError('')
     await run(async () => {
       try {
-        const result = await request<{ welcome_email_sent?: boolean }>('/create-user', token, { method: 'POST', body: JSON.stringify({ first_name, last_name, new_mail: email.trim(), generate_password: generatePassword, ...(generatePassword ? {} : { new_password: password }), ...organization }) }, { timeout: 90000 })
+        const result = await adminApi.create(token, { first_name, last_name, new_mail: email.trim(), generate_password: generatePassword, ...(generatePassword ? {} : { new_password: password }), ...organization })
         setCreated({ emailSent: result.welcome_email_sent === true }); setPassword(''); setConfirmation('')
         return result
       } catch (failure) {

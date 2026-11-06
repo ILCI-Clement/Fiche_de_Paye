@@ -17,6 +17,10 @@ if runtime['database'] != 'presence_local_rebuild':
 nir_key_file = STATE / 'keys' / 'personnel-nir.json'
 nir_key_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 ensure_local_nir_key_file(nir_key_file)
+snapshot_key_file = STATE / 'keys' / 'personnel-snapshots.json'
+ensure_local_nir_key_file(snapshot_key_file)
+medical_key_file = STATE / 'keys' / 'medical-visits.json'
+ensure_local_nir_key_file(medical_key_file)
 
 os.environ.update({
     'PRESENCE_API_TOKEN': runtime['api_token'], 'PRESENCE_DB_HOST': '127.0.0.1',
@@ -25,12 +29,16 @@ os.environ.update({
     'PRESENCE_SMTP_SERVER': '127.0.0.1', 'PRESENCE_SMTP_PORT': '1',
     'PRESENCE_SMTP_USER': 'disabled', 'PRESENCE_SMTP_PASSWORD': 'disabled',
     'PRESENCE_APP_URL': 'http://127.0.0.1:5173',
+    'PRESENCE_LEAVE_NOTIFICATION_WORKER': '0',
     'PRESENCE_TRANSPORT_RECEIPTS_DIR': str(STATE / 'snapshot' / 'documents'),
     'PRESENCE_ESIGN_DOCUMENTS_DIR': str(STATE / 'esign-documents'),
     'PRESENCE_SIGNED_FICHES_DIR': str(STATE / 'signed-fiches'),
     'PRESENCE_ESIGN_CALLBACK_URL': str(runtime.get('esign_callback_url') or ''),
     'PRESENCE_PERSONNEL_NIR_ENABLED': '1',
     'PRESENCE_PERSONNEL_NIR_KEYS_FILE': str(nir_key_file),
+    'PRESENCE_PERSONNEL_SNAPSHOT_KEYS_FILE': str(snapshot_key_file),
+    'PRESENCE_MEDICAL_KEYS_FILE': str(medical_key_file),
+    'PRESENCE_MEDICAL_DIR': str(STATE / 'medical-visits'),
 })
 # No inherited signing credential: only the private, explicitly selected local policy.
 os.environ.pop('CLAWSHOW_ESIGN_API_KEY', None)
@@ -56,13 +64,26 @@ from urllib.parse import urlsplit
 main.DB_CONFIG.update(host='127.0.0.1', port=3307, database=runtime['database'])
 main.start_contract_reminder_worker = lambda: None
 main.send_password_reset_email = lambda *_args: False
+main.send_account_welcome_email = lambda *_args: False
 main.send_contract_end_reminder_email = lambda *_args: False
 app = main.app
+from .system_storage import register_storage_routes, application_storage_paths
+register_storage_routes(app, get_db_connection=main.get_db_connection,
+                        get_current_user=main.get_current_user, load_user=main.load_user,
+                        paths=application_storage_paths(main))
+from .personnel_snapshots import register_snapshot_routes
+register_snapshot_routes(app, get_db_connection=main.get_db_connection,
+                         get_current_user=main.get_current_user, load_user=main.load_user)
 register_personnel_routes(app, get_db_connection=main.get_db_connection,
-                          get_current_user=main.get_current_user, load_user=main.load_user)
+                          get_current_user=main.get_current_user, load_user=main.load_user,
+                          insert_account=main.insert_account, welcome_account=main.welcome_created_account)
+from .medical_visits import register_medical_routes
+register_medical_routes(app, get_db_connection=main.get_db_connection,
+                        get_current_user=main.get_current_user, load_user=main.load_user, can_manage=main.user_can_manage)
 register_resource_maintenance(app, get_db_connection=main.get_db_connection,
                              get_current_user=main.get_current_user, load_user=main.load_user)
 app.state.local_snapshot = True
+app.state.local_account_creation = True
 app.state.esign_recipient_policy = signing_policy.check
 
 
@@ -74,7 +95,7 @@ async def local_only(request, call_next):
     if request.url.path in {'/forgot-password', '/contract-reminders/send', '/contract-reminders/resend'}:
         from fastapi.responses import JSONResponse
         return JSONResponse({'detail': 'Les e-mails sont désactivés dans cette copie locale.'}, status_code=403)
-    if request.url.path == '/create-user':
+    if request.url.path == '/create-user' and not app.state.local_account_creation:
         from fastapi.responses import JSONResponse
         return JSONResponse({'detail': 'Aucun compte fictif dans cette copie de test.'}, status_code=403)
     return await call_next(request)

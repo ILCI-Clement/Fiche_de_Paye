@@ -3,12 +3,9 @@ from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-if __package__:
-    from .person_names import person_display_name
-else:
-    from person_names import person_display_name
+from .person_names import person_display_name
 
-Status = Literal['pending', 'approved', 'rejected', 'withdrawn']
+Status = Literal['pending', 'approved', 'rejected', 'withdrawn', 'cancelled']
 Slot = Literal['full', 'morning', 'afternoon']
 
 
@@ -34,6 +31,7 @@ class LeaveDecision(BaseModel):
     model_config = ConfigDict(extra='forbid')
     decision: Literal['approved', 'rejected']
     comment: str = Field(default='', max_length=2000)
+    attendance_confirmation: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 def roles(actor):

@@ -1,4 +1,8 @@
 export const workspacePages = {
+  medical: {
+    title: 'Visites médicales',
+    description: 'Déposez vos attestations et consultez vos visites. Les responsables accèdent aux dossiers de leur équipe. Les corrections gardent les versions précédentes ; les administrateurs gèrent les archives.',
+  },
   attendance: {
     title: 'Fiches de temps',
     description: 'Retrouvez vos fiches par mois et préparez les exports ou la signature. Dans le calendrier, cliquez ou glissez sur les demi-journées pour sélectionner ; partez d’une case sélectionnée pour désélectionner, puis choisissez un statut et appliquez. Le bouton en bas à droite enregistre vos modifications.',
@@ -17,7 +21,7 @@ export const workspacePages = {
   },
   admin: {
     title: 'Comptes et départements',
-    description: 'Recherchez un compte et gérez ses rôles, départements, responsable et contrats. La création d’un compte de connexion est distincte de l’inscription au registre du personnel.',
+    description: 'Recherchez un compte et gérez ses droits, départements, responsable et contrats. Pour enregistrer une personne avec création facultative de son accès, utilisez Utilisateurs.',
   },
   dashboard: {
     title: 'Tableau de bord',
@@ -28,8 +32,8 @@ export const workspacePages = {
     description: 'Modifiez votre nom d’utilisateur, votre adresse e-mail ou votre mot de passe avec votre mot de passe actuel. Enregistrez d’abord vos autres modifications : la mise à jour renouvelle la session et recharge votre espace.',
   },
   personnel: {
-    title: 'Registre du personnel',
-    description: 'Enregistrez et recherchez les salariés, stagiaires et alternants. Une ligne représente une personne ; le bouton « … » ouvre ses informations, périodes d’emploi et modifications. Le compte de connexion est géré séparément.',
+    title: 'Utilisateurs',
+    description: 'Enregistrez les salariés, stagiaires et alternants, avec création facultative du compte de connexion. Une ligne représente une personne ; le bouton « … » ouvre sa fiche complète.',
   },
 } as const
 

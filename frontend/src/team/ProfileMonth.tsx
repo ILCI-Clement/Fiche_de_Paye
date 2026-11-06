@@ -4,11 +4,12 @@ import { signedStatus } from '../attendance/signedFichesApi'
 
 export interface MonthlyProfile {
   month: number; attendance_sheets: number; documents: number; archived_documents: number;
+  approved_leave_days?: number; leave_duration_incomplete?: boolean;
   leaves: { id: number; start_date: string; end_date: string; start_slot: string; end_slot: string; status: string }[];
   signature_requests: { document_id: string; mode: string; created_at: string; status: string; archive_id?: string }[];
 }
 const monthName = (month: number) => new Intl.DateTimeFormat('fr-FR', { month: 'long' }).format(new Date(2026, month - 1, 1))
-const statusLabels: Record<string, string> = { pending: 'En attente', approved: 'Approuvé', rejected: 'Refusé', withdrawn: 'Retiré' }
+const statusLabels: Record<string, string> = { cancelled: 'Annulé', pending: 'En attente', approved: 'Approuvé', rejected: 'Refusé', withdrawn: 'Retiré' }
 const slotLabels: Record<string, string> = { full: 'journée', morning: 'matin', afternoon: 'après-midi' }
 const dateLabel = (value: string) => new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString('fr-FR')
 
@@ -23,7 +24,8 @@ export function ProfileMonth({ item, year, current, signaturesAvailable, onPrevi
     { label: 'Présences', value: `${item.attendance_sheets} fiche(s)` },
     { label: 'Documents', value: String(item.documents) },
     { label: 'Signatures', value: signaturesAvailable ? `${archived} / ${item.signature_requests.length} archivées` : 'Indisponible' },
-    { label: 'Congés', value: `${pending} en attente · ${approved} approuvés`, pending: pending > 0 },
+    { label: 'Congés', value: item.approved_leave_days == null ? `${pending} en attente · ${approved} approuvés`
+      : `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(item.approved_leave_days)} j approuvé(s)${item.leave_duration_incomplete ? ' · À vérifier' : ''}${pending ? ` · ${pending} en attente` : ''}`, pending: pending > 0 },
   ]
   return <Paper component="article" variant="outlined" aria-labelledby={titleId}
     sx={{ minWidth: 0, minHeight: 212, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderColor: current ? 'primary.main' : 'divider' }}>

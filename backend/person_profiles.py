@@ -5,7 +5,9 @@ from datetime import date, datetime
 from fastapi import Depends, HTTPException, Query
 from .person_names import load_person_names, person_display_name
 from .role_policy import is_admin
+from .person_visibility import account_list_visible
 from .signed_fiche_store import signed_fiche_scope
+from .leave_totals import annual_leave_totals
 
 
 def register_profile_routes(app, *, get_db_connection, get_current_user, load_user, attempts):
@@ -17,7 +19,7 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                 # Re-read actor and target: neither role nor relationship comes from the client.
                 current = load_user(cursor, actor['username'])
                 target = load_user(cursor, username)
-                if not current or not current.get('is_active', True) or not target or not (
+                if not current or not current.get('is_active', True) or not account_list_visible(target, current) or not (
                     current['username'] == target['username']
                     or is_admin(current)
                     or ('Responsable' in current.get('role_tags', []) and current['username'] == target.get('manager_username'))
@@ -48,7 +50,12 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                 cursor.execute('''SELECT id,start_date,end_date,start_slot,end_slot,status FROM leave_requests
                     WHERE employee_username=%s AND start_date<=%s AND end_date>=%s ORDER BY start_date,id''',
                     (target['username'], date(year, 12, 31), date(year, 1, 1)))
-                for row in cursor.fetchall():
+                leave_requests = cursor.fetchall()
+                leave_totals = annual_leave_totals(cursor, target['username'], year, leave_requests)
+                for month, total in zip(months, leave_totals['months']):
+                    month['approved_leave_days'] = total['approved_days']
+                    month['leave_duration_incomplete'] = total['incomplete']
+                for row in leave_requests:
                     start, end = date.fromisoformat(str(row['start_date'])[:10]), date.fromisoformat(str(row['end_date'])[:10])
                     item = {**row, 'start_date': start.isoformat(), 'end_date': end.isoformat(),
                             'employee_name': display_name, 'manager_name': manager_name}
@@ -60,6 +67,8 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                 seen, legacy, invalid = set(), set(), 0
                 email = str(target.get('email') or '').strip().casefold()
                 cursor.execute('SELECT username FROM users WHERE LOWER(email)=LOWER(%s)', (email,))
+                # Include deleted identities: a reused mailbox must not inherit
+                # old attendance rows that have no stable account identity.
                 email_unique = len(cursor.fetchall()) == 1
                 cursor.execute('SELECT user_id,form_content FROM Presence')
                 for stored in cursor.fetchall():
@@ -113,6 +122,7 @@ def register_profile_routes(app, *, get_db_connection, get_current_user, load_us
                         'full_name': names.get(target['username']), 'manager_name': manager_name,
                         'can_view_personnel_data': is_admin(current) or current['username'] == target['username'],
                         'groups': groups, 'manager': manager['username'] if manager else None, 'year': year,
+                        'leave_totals': {key: value for key, value in leave_totals.items() if key != 'months'},
                         'months': months, 'legacy_unbound_sheets': len(legacy), 'attendance_incomplete': bool(invalid),
                         'signatures_available': signatures_available}
         finally:

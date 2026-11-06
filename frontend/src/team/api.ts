@@ -9,6 +9,7 @@ export interface Organization {
 export interface TeamMember { name: string; display_name?: string; full_name?: string | null; group_ids: number[]; managed_group_ids: number[] }
 export interface DirectoryPerson { username: string; display_name: string; full_name?: string | null; email?: string; group_ids: number[]; managed_group_ids: number[] }
 export interface Personnel {
+  is_active?: boolean; login_deleted_at?: string | null; personnel_archived?: boolean;
   username: string; email: string; employee_type?: string; manager_id?: string | null;
   full_name?: string | null; display_name?: string; manager_display_name?: string;
   group_ids: number[]; role_tags?: string[]; role?: string; is_admin?: boolean;

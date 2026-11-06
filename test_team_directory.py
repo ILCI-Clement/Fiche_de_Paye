@@ -16,6 +16,8 @@ USERS = [{'username': 'william', 'is_ceo': True, 'display_name': 'William',
 class DirectoryApiTests(unittest.TestCase):
     def setUp(self):
         self.actor = {'username': 'employee', 'role_tags': ['Employe']}
+        self.archive_lookup = patch('backend.person_visibility.archived_usernames', return_value=set()).start()
+        self.addCleanup(patch.stopall)
         self.cursor = MagicMock()
         # These scope tests model an older installation without the optional register.
         self.cursor.fetchone.return_value = None

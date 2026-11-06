@@ -1,17 +1,16 @@
 import { personDisplayName } from '../personDisplayName'
-import { isAdmin, isSuperAdmin } from '../rolePolicy'
-import { AccountOption, AccountOptionHeader } from './AccountOption'
-import { accountMenuProps } from './accountOptionLayout'
+import { isAdmin } from '../rolePolicy'
+import { AccountList } from './AccountList'
+import { accountStatus, type AccountStatusFilter } from './accountStatus'
+import { selectedAccount } from './accountSelection'
 import { AdvancedMaintenance } from './AdvancedMaintenance'
-import { useCapabilities } from '../capabilities'
-import { CreateAccount } from './CreateAccount'
 import { useDraftGuard, useWorkspaceGuard } from '../draftGuard'
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useWorkNavigation } from '../workspaceNavigation'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, CircularProgress, IconButton, ListSubheader, MenuItem, Paper, Snackbar, TextField, Tooltip, Typography } from '@mui/material'
-import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
-import PersonAddOutlined from '@mui/icons-material/PersonAddOutlined'
-import RefreshRounded from '@mui/icons-material/RefreshRounded'
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Snackbar, Tab, Tabs, TextField } from '@mui/material'
+import GroupsOutlined from '@mui/icons-material/GroupsOutlined'
+import CloseRounded from '@mui/icons-material/CloseRounded'
+import SaveOutlined from '@mui/icons-material/SaveOutlined'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Session } from '../types'
 import { adminApi } from './api'
@@ -27,17 +26,19 @@ export function AdminPage({ token, session }: { token: string; session: Session 
 function AdminWorkspace({ token, session }: { token: string; session: Session }) {
   const navigation = useWorkNavigation()
   const client = useQueryClient()
-  const capabilities = useCapabilities()
   const users = useQuery({ queryKey: ['admin-users', session.username], queryFn: ({ signal }) => adminApi.users(token, signal), retry: false })
   const groups = useQuery({ queryKey: ['admin-groups', session.username], queryFn: ({ signal }) => adminApi.groups(token, signal), retry: false })
   const [selected, setSelected] = useState('')
+  const [status, setStatus] = useState<AccountStatusFilter>('active')
+  const statusId = useId()
+  const organizationFormId = `${statusId}-organization`
   const [search, setSearch] = useState('')
+  const [managingGroups, setManagingGroups] = useState(false)
   const [appliedWork, setAppliedWork] = useState<number | null>(null)
   if (navigation?.request?.page === 'admin' && appliedWork !== navigation.request.sequence) {
     setAppliedWork(navigation.request.sequence)
-    setSelected(navigation.request.username || ''); setSearch('')
+    setSelected(navigation.request.username || ''); setSearch(''); setStatus('all')
   }
-  const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const lock = useRef(false)
   const [error, setError] = useState('')
@@ -51,30 +52,44 @@ function AdminWorkspace({ token, session }: { token: string; session: Session })
     catch (e) { setError(e instanceof Error ? e.message : 'Une erreur est survenue.'); return false }
     finally { lock.current = false; setBusy(false) }
   }
-  const current = users.data?.users.find(p => p.username === selected) || users.data?.users[0]
-  const choices = (users.data?.users || []).filter(p => p.username === current?.username || `${personDisplayName(p)} ${p.email}`.toLocaleLowerCase('fr').includes(search.toLocaleLowerCase('fr')))
+  const accounts = (users.data?.users || []).filter(person => status === 'all' || accountStatus(person) === status)
+  const current = selected ? selectedAccount(users.data?.users || [], selected) : undefined
+  const choices = accounts.filter(p => `${personDisplayName(p)} ${p.email || ''}`.toLocaleLowerCase('fr').includes(search.trim().toLocaleLowerCase('fr')))
+  function closeAccount() { guard?.request(() => { setSelected(''); setError('') }) }
   return <Box className="workspace">
     <WorkspaceToolbar>
       <Box className="workspace-action-bar" sx={{ width: '100%' }}>
+        <Tabs value={status} aria-label="État des comptes" variant="scrollable" scrollButtons="auto" sx={{ minHeight: 40, maxWidth: '100%', '& .MuiTab-root': { minHeight: 40, minWidth: 0, px: 1.5, fontSize: 13 } }}
+          onChange={(_, next: AccountStatusFilter) => guard?.request(() => { setStatus(next); setSelected(''); setSearch('') })}>
+          {([['active', 'Normal'], ['inactive', 'Désactivés'], ['archived', 'Archivés'], ['deleted', 'Connexion supprimée'], ['all', 'Tous']] as const).map(([value, label]) =>
+            <Tab key={value} value={value} label={label} disabled={busy} id={`${statusId}-${value}`} aria-controls={`${statusId}-panel`} />)}
+        </Tabs>
         <TextField size="small" placeholder="Rechercher un compte" value={search} onChange={event => setSearch(event.target.value)} disabled={busy || !users.data || !groups.data} slotProps={{ htmlInput: { 'aria-label': 'Rechercher un compte' } }} sx={{ width: { xs: '100%', sm: 220 }, maxWidth: '100%' }} />
-        <TextField select size="small" label={`Compte (${users.data?.users.length || 0})`} value={current?.username || ''} disabled={busy || !users.data || !groups.data} slotProps={{ select: { renderValue: () => current ? <AccountOption person={current} compact /> : '', MenuProps: accountMenuProps } }} sx={{ minWidth: 'min(100%, 220px)', maxWidth: 360, flex: { xs: '1 1 100%', sm: '1 1 260px' } }} onChange={event => { const value = event.target.value; guard?.request(() => setSelected(value)) }}>
-          <ListSubheader><AccountOptionHeader /></ListSubheader>
-          {choices.map(person => <MenuItem key={person.username} value={person.username}><AccountOption person={person} /></MenuItem>)}
-        </TextField>
-        <Tooltip title="Actualiser"><span><IconButton aria-label="Actualiser" disabled={busy} onClick={() => { guard?.request(() => { void users.refetch(); void groups.refetch() }) }}><RefreshRounded /></IconButton></span></Tooltip>
-        <Button className="workspace-primary-action" variant="outlined" startIcon={<PersonAddOutlined />} disabled={busy || !users.data || !groups.data || !!users.error || !!groups.error} onClick={() => { setError(''); setCreating(true) }}>Créer un compte</Button>
+        <Button className="workspace-primary-action" variant="contained" startIcon={<GroupsOutlined />} disabled={busy || !groups.data || !!groups.error} onClick={() => setManagingGroups(true)} sx={{ ml: 'auto', whiteSpace: 'nowrap' }}>Gérer les départements</Button>
       </Box>
     </WorkspaceToolbar>
-    {!capabilities.canCreateAccounts && <Alert severity="info" sx={{ mb: 2 }}>La création de nouveaux comptes est désactivée ou indisponible dans cet environnement. Les comptes existants peuvent être gérés.</Alert>}
     {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
     {users.isPending || groups.isPending ? <CircularProgress /> : users.error || groups.error ? <Alert severity="error">{users.error?.message || groups.error?.message}</Alert> : <>
-      <Paper sx={{ p: { xs: 2, md: 2.5 }, mb: 2 }}>
-        {current ? <UserEditor key={current.username} token={token} user={current} users={users.data.users} groups={groups.data.groups} actor={session.username} actorRoles={session.role_tags} busy={busy} run={run} requestError={error} /> : <Typography>Aucun compte enregistré.</Typography>}
-      </Paper>
-      <Accordion disableGutters><AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography>Gérer les départements ({groups.data.groups.length})</Typography></AccordionSummary><AccordionDetails><GroupEditor token={token} groups={groups.data.groups} busy={busy} run={run} /></AccordionDetails></Accordion>
+      <Box role="tabpanel" id={`${statusId}-panel`} aria-labelledby={`${statusId}-${status}`}>
+        <AccountList accounts={choices} busy={busy} onOpen={username => { setSelected(username); setError('') }} />
+      </Box>
+      {!!selected && <Dialog open fullWidth maxWidth="lg" onClose={busy ? undefined : closeAccount}
+        aria-labelledby={`${statusId}-detail-title`} slotProps={{ paper: { sx: { maxHeight: 'min(820px, 90dvh)', m: { xs: 2, sm: 4 }, width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 64px)' } } } }}>
+        <DialogTitle id={`${statusId}-detail-title`} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5 }}>
+          Détails du compte<IconButton aria-label="Fermer le compte" disabled={busy} onClick={closeAccount}><CloseRounded /></IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+          {current ? <UserEditor key={current.username} completion={navigation?.request?.page === 'admin' && navigation.request.username === current.username ? navigation.request : undefined} formId={organizationFormId} token={token} user={current} users={users.data.users} groups={groups.data.groups} actor={session.username} actorRoles={session.role_tags} busy={busy} run={run} requestError={error} /> : <Alert severity="warning">Le compte demandé est introuvable ou inaccessible.</Alert>}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 1.5, flexShrink: 0 }}>
+          <Button disabled={busy} onClick={closeAccount}>Fermer</Button>
+          <Button variant="contained" startIcon={<SaveOutlined />} type="submit" form={organizationFormId} disabled={busy || !current}>{busy ? 'Enregistrement…' : 'Enregistrer'}</Button>
+        </DialogActions>
+      </Dialog>}
     </>}
     <AdvancedMaintenance token={token} session={session} />
-    {creating && users.data && groups.data && <CreateAccount token={token} users={users.data.users} groups={groups.data.groups} allowSuperAdmin={isSuperAdmin(session)} enabled={capabilities.canCreateAccounts} busy={busy} run={run} error={error} onClose={() => setCreating(false)} />}
+    {managingGroups && groups.data && <GroupEditor token={token} groups={groups.data.groups} busy={busy} run={run} onClose={() => setManagingGroups(false)} />}
     <Snackbar open={!!message} autoHideDuration={5000} onClose={() => setMessage('')}><Alert severity="success" variant="filled" onClose={() => setMessage('')}>{message}</Alert></Snackbar>
   </Box>
 }

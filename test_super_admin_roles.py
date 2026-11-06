@@ -98,6 +98,9 @@ class Cursor:
             row = self.fixture.users[params[-1]]
             row.update(session_version=row['session_version'] + 1, remember_token_hash=None,
                        remember_token_expires=None, reset_token=None, reset_token_expires=None)
+        elif query.startswith('UPDATE users SET session_version=%s,'):
+            self.fixture.users[params[-1]].update(session_version=params[0], remember_token_hash=None,
+                       remember_token_expires=None, reset_token=None, reset_token_expires=None)
         elif query.startswith('UPDATE users SET is_active='):
             row = self.fixture.users[params[1]]
             row.update(is_active=bool(params[0]), session_version=row['session_version'] + 1,
@@ -217,10 +220,43 @@ class MainRoleMutationTests(unittest.TestCase):
         self.assertEqual(self.fixture.users['admin']['session_version'], 0)
         self.assertFalse(self.fixture.events)
 
-    def test_cannot_remove_last_or_own_super_role(self):
+    def test_cannot_remove_last_super_but_can_demote_self_with_successor(self):
         self.assert_http(409, lambda: self.change('root', ['Admin']))
         self.fixture.users['second'] = account('second', ['SuperAdmin'])
-        self.assert_http(400, lambda: self.change('root', ['Admin']))
+        result = self.change('root', ['Admin'])
+        self.assertEqual(result['user']['role_tags'], ['Admin'])
+        self.assertTrue(is_super_admin(self.fixture.users['second']))
+
+    def test_handover_to_successor_then_self_demote_to_standard_revokes_old_session(self):
+        self.change('admin', ['SuperAdmin'])
+        old_token = main.create_session_token('root', 0)
+        old_actor = self.fixture.actor()
+        result = self.change('root', ['Employe'])
+        self.assertEqual(result['user']['role_tags'], ['Employe'])
+        self.assertFalse(self.fixture.users['root']['is_admin'])
+        self.assertIsNone(self.fixture.users['root']['remember_token_hash'])
+        self.assertIsNone(self.fixture.users['root']['reset_token'])
+        self.assert_http(401, lambda: main.get_current_user('Bearer ' + old_token))
+        self.assert_http(401, lambda: main.update_user_organization('worker', {'role_tags': ['Admin']}, old_actor))
+        self.assert_http(409, lambda: self.change('admin', ['Employe'], actor='admin'))
+        self.assertEqual(len(self.fixture.events), 2)
+
+    def test_inactive_or_login_deleted_super_is_not_a_valid_successor(self):
+        self.fixture.users['second'] = account('second', ['SuperAdmin'], active=False)
+        self.assert_http(409, lambda: self.change('root', ['Employe']))
+        self.fixture.users['second'].update(is_active=True, login_deleted_at='synthetic-time')
+        self.assert_http(409, lambda: self.change('root', ['Employe']))
+        self.assertEqual(self.fixture.users['root']['session_version'], 0)
+
+    def test_failed_self_demotion_rolls_back_permissions_and_session(self):
+        self.fixture.users['second'] = account('second', ['SuperAdmin'])
+        self.fixture.fail_audit = True
+        with self.assertRaises(RuntimeError): self.change('root', ['Employe'])
+        self.assertTrue(is_super_admin(self.fixture.users['root']))
+        self.assertEqual(self.fixture.users['root']['session_version'], 0)
+
+    def test_ordinary_admin_self_demotion_still_rejected(self):
+        self.assert_http(400, lambda: self.change('admin', ['Employe'], actor='admin'))
 
     def test_audit_failure_rolls_back_role_and_version_change(self):
         self.fixture.fail_audit = True
@@ -261,11 +297,13 @@ class MainRoleMutationTests(unittest.TestCase):
                                                                self.fixture.load_user(None, 'admin')))
 
     def test_self_profile_update_keeps_super_role(self):
-        with patch.object(main, 'verify_password', return_value=True), patch.object(main, 'migrate_username_in_saved_fiches'):
+        with patch.object(main, 'verify_password', return_value=True), patch.object(main, 'migrate_username_in_saved_fiches'), \
+                patch.object(main, 'sync_registry_email') as linked_email:
             payload = main.ProfileUpdateRequest(current_password='synthetic-current', new_email='unit-changed@example.com')
             result = main.update_profile('root', payload, self.fixture.actor())
         self.assertTrue(is_super_admin(self.fixture.users['root']))
         self.assertTrue(result['auth_token'])
+        linked_email.assert_called_once()
 
     def test_permanent_delete_guards_run_before_purge_service(self):
         payload = main.AccountPurgeRequest(confirmation='worker', reason='synthetic_cleanup')

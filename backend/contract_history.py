@@ -5,14 +5,9 @@ import json
 from typing import Literal
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
-try:
-    from .personnel_contract_sync import sync_account_contracts, sync_current_contract
-    from .destructive_audit import append_deletion_event
-    from .role_policy import canonical_role_tags, checked_resource_actor, is_admin, is_super_admin
-except ImportError:
-    from personnel_contract_sync import sync_account_contracts, sync_current_contract
-    from destructive_audit import append_deletion_event
-    from role_policy import canonical_role_tags, checked_resource_actor, is_admin, is_super_admin
+from .personnel_contract_sync import sync_account_contracts, sync_current_contract
+from .destructive_audit import append_deletion_event
+from .role_policy import canonical_role_tags, checked_resource_actor, is_admin, is_super_admin, direct_business_report
 
 
 class ContractInput(BaseModel):
@@ -174,11 +169,7 @@ def register_contract_history(app, connect, require_roles, get_current_user, acc
                     target = load_account(cur, username)
                     if not target or not target.get('is_active', True) or target.get('login_deleted_at'):
                         raise HTTPException(404, 'Compte actif introuvable.')
-                    if not is_admin(current_actor) and not (
-                            'Responsable' in current_actor['role_tags']
-                            and 'Employe' in target['role_tags'] and not is_admin(target)
-                            and target.get('manager_username') == current_actor['username']
-                            and target['username'] != current_actor['username']):
+                    if not is_admin(current_actor) and not direct_business_report(current_actor, target):
                         raise HTTPException(403, 'Seul un Admin ou le responsable direct peut compléter ce contrat.')
                 else:
                     current_actor = locked_admin(cur, actor)

@@ -3,12 +3,8 @@ from datetime import date
 
 from fastapi import HTTPException
 
-try:
-    from .personnel_rules import paris_today, entry_precedes_birth
-    from .personnel_store import append_personnel_event, insert_period, load_employee_detail, touch_employee
-except ImportError:
-    from personnel_rules import paris_today, entry_precedes_birth
-    from personnel_store import append_personnel_event, insert_period, load_employee_detail, touch_employee
+from .personnel_rules import paris_today, entry_precedes_birth
+from .personnel_store import append_personnel_event, insert_period, load_employee_detail, touch_employee
 
 
 def sync_current_contract(cursor, username):

@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@mui/material'
 import { useDraftGuard } from '../draftGuard'
 
 /** Destructive requests remain subject to live server authorization and reference checks. */
-export function PermanentDeleteDialog({ title, description, expected, confirmationLabel, requireReason = false, onConfirm, onDeleted, onClose }: {
+export function PermanentDeleteDialog({ title, description, expected, confirmationLabel, requireReason = false, children, onConfirm, onDeleted, onClose }: {
   title: string; description: string; expected: string; requireReason?: boolean;
-  confirmationLabel?: string;
+  confirmationLabel?: string; children?: ReactNode;
   onConfirm: (confirmation: string, reason: string) => Promise<unknown>; onDeleted: () => void; onClose: () => void;
 }) {
   const [confirmation, setConfirmation] = useState('')
@@ -26,6 +27,7 @@ export function PermanentDeleteDialog({ title, description, expected, confirmati
     <DialogContent>
       <Alert severity="warning" sx={{ mb: 2 }}>{description} Cette opération est définitive.</Alert>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Seul un super-administrateur peut effectuer cette suppression. Les références et protections sont vérifiées par le serveur.</Typography>
+      {children}
       <TextField fullWidth label={confirmationLabel || `Saisissez ${expected} pour confirmer`} helperText={confirmationLabel ? `Valeur attendue : ${expected}` : undefined} value={confirmation} disabled={busy} autoComplete="off" onChange={event => setConfirmation(event.target.value)} />
       {requireReason && <TextField fullWidth multiline minRows={2} label="Motif de la suppression" required value={reason} disabled={busy} onChange={event => setReason(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} sx={{ mt: 2 }} />}
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}

@@ -5,7 +5,7 @@
 | 环境 | 入口 / 端口 |
 | --- | --- |
 | 生产 React | 仓库根目录运行 `backend.rebuild_server:app`，8015 |
-| 保留 API | `/var/www/presence-app` 内运行 `main:app`，8001 |
+| Retired API / UI | Services masked; 8001 / 8501 closed; source available only in protected backup |
 | 独立本地副本 | `backend.local_rebuild:app`，8013；MySQL 3307 |
 
 生产地址：https://app.presence.217.65.145.103.nip.io/ 。
@@ -138,3 +138,49 @@ npm --prefix frontend run build
 ```
 
 本地 MySQL 3307 和私有 runtime 配置存在时，设置进程变量 `PRESENCE_MYSQL_TEMP_TEST=1` 可启用连接级 TEMPORARY 表测试；不创建持久测试员工，不写真实业务表。最新发布验证为后端 442 项、前端 52 项通过，详见本人设置与签署联系信息发布记录。
+
+Personnel register encrypted snapshot configuration, dedicated key backup and restore requirements: [snapshot documentation](../doc/personnel-snapshots.md). Published with an independent production key in [RH unified release](../doc/releases/rh-unified-20261029.md).
+
+Published 2026-10-30 (Europe/Paris): `rh-file-batch-20261030T131557Z` now includes leave cancellation/attendance synchronization, annual signed ZIP, file batch actions, Utilisateurs pagination and the shared sidebar/header layout. See [release verification](../doc/releases/file-batch-layout-20261030.md). Production backup and guarded rollback are documented there; no local simulation data was imported.
+
+Published 2026-10-30: frontend `rh-compact-ui-20261030T140103Z` adds account rows/dialogs, compact registry actions and readiness markers, and preserves partial keyboard date input. API/data remain unchanged. See [verification and rollback](../doc/releases/compact-ui-20261030.md).
+
+Frontend hotfix 2026-10-30: `rh-nir-exclusive-20261030T142313Z` enforces one revealed NIR per application window. API/data unchanged. [Verification and rollback](../doc/releases/nir-exclusive-20261030.md).
+
+Published 2026-10-30: `rh-role-handover-20261030T150210Z` updates both APIs and UI with optional managers, system-only Super Admin onboarding/readiness, guarded self-demotion and the account detail footer save button. [Verification and rollback](../doc/releases/role-handover-20261030.md). Existing roles, credentials and business data were not modified by deployment.
+
+Published 2026-10-30: `rh-email-identity-20261030T155220Z` adds transactional linked mailbox synchronization, live-login normalized uniqueness and safe mailbox release after login deletion. Historical identities remain intact. [Verification and guarded rollback](../doc/releases/email-identity-20261030.md); old authentication must not be restored after mailbox reuse.
+
+## Current production deployment: one API
+
+As of 2026-10-30, `presence-react-api` on 8015 is the sole RH application backend. `presence-app` and `presence-interface` are stopped and masked; their previous runtime directories were moved to a root-only retirement backup. Historical instructions to synchronize two API deployments or restart Streamlit are superseded.
+
+- Deploy only the complete current React/API release and switch its single systemd service and frontend static root.
+- Enable `PRESENCE_CONTRACT_REMINDER_WORKER=1`, `PRESENCE_SIGNED_FICHE_WORKER=1` and `PRESENCE_PERSONNEL_SNAPSHOT_WORKER=1` on that one service. Disable workers on candidates.
+- Preserve `/etc/presence-app`, `/var/lib/presence-app` and `/var/lib/presence-secrets`: these names still hold current settings, private files, SQLite and encryption keys, not retired runtime code.
+- The old API hostname remains a proxy alias to 8015 for existing signed-document URLs and callbacks. Do not remove it until in-flight links have been accounted for; do not expose 8001 or 8501 again.
+- Old full rollback scripts that restore the parallel API/UI services must not be run as routine release rollback. Roll back the sole API/UI release while retaining current worker ownership and the mailbox-identity safeguards.
+- Verify the old units remain masked, both old ports remain closed, public frontend/API and callback routes work, and data/private files remain intact.
+
+[Retirement verification and recovery artifacts](../doc/releases/retire-legacy-20261030.md).
+
+Local code cleanup: package-only imports replace retired flat API fallback branches; `backend/main.py` is shared by the current package entry and is no longer supported as a standalone `uvicorn main:app` entry. Full or targeted backend tests with timings: `.venv/Scripts/python.exe scripts/run_tests.py --mysql [test_module ...]`. See [test workflow](../doc/test-workflow.md). This cleanup was published in `rh-leave-dot-20261030T164037Z`.
+
+Published 2026-10-30: `rh-leave-dot-20261030T164037Z` adds responsive leave-pending dots and package-only backend cleanup. The single API, worker ownership and retired-service masks remain intact. [Verification and single-service rollback](../doc/releases/leave-dot-20261030.md).
+
+Published 2026-11-04: `rh-storage-20261104T093711Z` adds the Admin/Super Admin read-only `/system/storage` capacity endpoint and sidebar panel. No migration or background backup job. Sole API/worker ownership and retired-service masks preserved. [Verification and rollback](../doc/releases/storage-20261104.md).
+
+Published 2026-11-04: `rh-completion-20261104T104651Z` adds frontend completion focus/navigation and concise help. Backend/dependencies unchanged from the storage release; sole service/worker ownership and business data preserved. [Verification and rollback](../doc/releases/completion-20261104.md).
+
+Published 2026-11-04: `rh-reports-20261104T140753Z` includes batched direct-report editing, horizontal account details with compact controls, and protected editable contract-snapshot refresh. Earlier local-only notes for these changes are superseded. See [release verification](../doc/releases/reports-20261104.md).
+
+Frontend-only publication 2026-11-04: `rh-report-align-20261104T142250Z` serves aligned direct-report name/department rows. Sole API/current remains `rh-reports-20261104T140753Z`; Nginx static root differs intentionally. [Verification](../doc/releases/report-align-20261104.md).
+
+Local-only leave notifications: see [queue, delivery states and candidate disable requirement](../doc/leave-notifications.md). Before deployment set `PRESENCE_LEAVE_NOTIFICATION_WORKER=0` on candidates and enable only on the sole production API. Existing request data is not backfilled.
+
+Published 2026-11-04: `rh-mailnotify-20261104T162306Z` enables new-request and decision-result email notifications, login-protected leave detail links, and a transactional mail outbox. Withdrawal stays silent. Previous local-only notes for this feature are superseded. Sole API and frontend now share this release. [Verification](../doc/releases/mailnotify-20261104.md).
+
+Published frontend 2026-11-05: `rh-help-guide-20261105T101144Z` adds the French question-mark guide with left-side topic tabs/right-side steps. Previous local-only help notes are superseded. Nginx static root uses this frontend; sole API/current remains `rh-mailnotify-20261104T162306Z`. [Verification](../doc/releases/help-guide-20261105.md).
+
+
+Published 2026-11-05: `rh-medical-20261105T161729Z` adds Visites médicales, versioned encrypted certificates, team/owner permissions, Admin archives and Super Admin deletion, and ordinary year/month ZIP downloads (filtered, individual full-history or selected). Previous local-only medical notes are superseded. Sole API/current and frontend share this release; original 43 business tables preserved, three medical tables initialized empty. Independent server-generated medical key and guarded single-service rollback backed up. See [medical release verification](../doc/releases/medical-visits-20261105.md).

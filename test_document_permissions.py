@@ -46,6 +46,7 @@ class DocumentPermissionTests(unittest.TestCase):
         self.assertEqual(response.status_code,400)
 
     def setUp(self):
+        self.archive_lookup = patch('backend.person_visibility.archived_usernames', return_value=set()).start()
         # Keep number allocation independent of this permission-focused fixture.
         self.number = patch('backend.documents.allocate_document_number', return_value='20261021-0001').start()
         self.addCleanup(patch.stopall)
@@ -161,6 +162,15 @@ class DocumentPermissionTests(unittest.TestCase):
         self.assertEqual(result.json()['users'], ['admin', 'employee'])
         self.assertEqual([account['display_name'] for account in result.json()['accounts']],
                          ['Synthetic Admin', 'employee-mail'])
+
+    def test_admin_upload_choices_hide_archived_employee(self):
+        self.actor['role_tags'] = ['Admin']
+        self.archive_lookup.return_value = {'employee'}
+        self.cursor.fetchall.return_value = [{'username': 'employee', 'email': 'employee@example.test'}]
+        with patch('backend.documents.load_person_names', return_value={}):
+            result = self.client.get('/transport-receipts/assignees')
+        self.assertEqual(result.json()['users'], [])
+        self.assertIn('is_active=1 AND login_deleted_at IS NULL', self.cursor.execute.call_args.args[0])
 
     def test_unauthenticated_upload_and_assignees_are_rejected(self):
         self.actor = None

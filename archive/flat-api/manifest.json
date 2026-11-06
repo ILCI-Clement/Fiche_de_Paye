@@ -1,0 +1,33 @@
+{
+  "archive": "source.zip",
+  "sha256": "7cf2b3e8282dfee6fad2d80a617c150686600e87fe7bc02cf756015787234775",
+  "files": {
+    "backend/account_email.py": "364e90ebb94d20d256e7b0711526537e6c757753e7c8e65a99b37e4ea18fd086",
+    "backend/account_lifecycle.py": "15015304a6db4ae42a1dd97d6085735c13d6bc0ebead303a8fb9228b4cb8514c",
+    "backend/account_purge.py": "b41e4c34d2c97256211e9a1fd357d3fe2e1187ee9720b751b0eaf50f3cea2405",
+    "backend/attendance_permissions.py": "fbe13dde9ed65af0e9b81e6a8eec3d9089d7efe636b05ecb131580bfbd1d8453",
+    "backend/attendance_sheet.py": "5316df55ecc351dfdbab429c5085495f601df1887074a9593cc056d5cd6e912c",
+    "backend/contract_history.py": "472dfe946b946a2c3cd262061d59eae6f3717fadf697deefc7bcd29b599b77e0",
+    "backend/document_categories.py": "930b2c53641753cf6dd95df6b25d74a8ed84e7ebe279ba2c87db102267150b18",
+    "backend/documents.py": "f23f359ca86320a3782e89423eb7b9f00276fe9aa81753d206182ef8a22839dc",
+    "backend/esign.py": "836a8f0c12b3ba697c0337d8c6fb6169cffa311610fb301e1380d4de5fe15663",
+    "backend/leave_attendance.py": "b5669e8811cd4c088919f1d3a47d644349660c3c0b683c794a7aeb19c2900f8d",
+    "backend/leave_requests.py": "34851e83d2fd33416b48e5acc4872d3bcd67a753b78e2541c1dfcbf99b0f9d57",
+    "backend/leave_rules.py": "7e24f5052589add7168050950a5f58d5d7ae6fd20750118eaf06b18a262f55e7",
+    "backend/leave_store.py": "369d1cdb468961295f1905167fcda0d0f37070be22fb6626d77badd715e0a343",
+    "backend/main.py": "5e6dbd0638ebffae8d6cfc34fe4291f88dac1823c6a7ba378c19e8abc918596b",
+    "backend/person_visibility.py": "705e81b988e61175821c790a8ef7a464f2859443b9163b8620b6e77dd3c18251",
+    "backend/personnel_contract_sync.py": "71d4a3fbb02ff3d9514bc4c46f3cd463cae2a70cf1c43a05cdca95faa6a7bed0",
+    "backend/personnel_pdf.py": "14f15a5873c15dfdf177394bdac450a784f3ba0aac9f61a80f6f6554fe4edc94",
+    "backend/personnel_register.py": "90ea31d6333a51d6555fbb981c309bfd45b6bde4e00ecd1a7a3a48200a352377",
+    "backend/personnel_rules.py": "3e8a45d902768969e63074b0354483a06883aed6a50e8552b6110af200bdd09e",
+    "backend/personnel_store.py": "57d440cef97d6fc843a5130dad69b0c91a667e033f6c1e8745322c054008b9ac",
+    "backend/signature_flow.py": "5a9cf2df7be89a7bc91f0883575cf3a05170674dbd8afbdd2bed544b3527f746",
+    "backend/signed_fiche_store.py": "a38e6c7954dfe21ba5e121afa4e48166cfc94e398ef73acd65bcf2d0569b96f9",
+    "backend/signed_fiches.py": "6422480620111dbb4fdc660d6b485218eaf91e6ef43e7df3523cf1b191ef508d",
+    "backend/team_directory.py": "0db678d932dc2ed0982d1c07abde43f220e9e945a032f3abe91c9059f80666b6",
+    "backend/work_center.py": "9c6fd44da9f5076894f16d9ae66cb5713dfb6a34471b04e08638b4c5e1a70aac",
+    "test_flat_backend_imports.py": "72fed154619c8197bb0540ce338b4cb001048b1a519964cac3673f741acc47a2",
+    "test_attendance_revision.py": "88fd9a560624b98a385de942c130875af1add9fc2f220005290b4ee8a4e6a795"
+  }
+}

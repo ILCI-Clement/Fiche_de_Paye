@@ -1,7 +1,7 @@
 import type { LeaveRequest, Slot, Status } from './types'
 
 export const slotLabels: Record<Slot, string> = { full: 'Journée entière', morning: 'Matin', afternoon: 'Après-midi' }
-export const statusLabels: Record<Status, string> = { pending: 'En attente', approved: 'Approuvée', rejected: 'Refusée', withdrawn: 'Retirée' }
+export const statusLabels: Record<Status, string> = { pending: 'En attente', approved: 'Approuvée', rejected: 'Refusée', cancelled: 'Annulée', withdrawn: 'Retirée' }
 export function dateLabel(value: string) {
   return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T12:00:00`))
 }

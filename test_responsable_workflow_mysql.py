@@ -25,14 +25,26 @@ from backend.attendance_signatures import register_signature_preflight
 from backend.signature_attempts import SignatureAttempts
 from backend.contract_history import register_contract_history
 from backend.personnel_register import register_personnel_routes
+from backend.team_directory import register_team_directory
+from backend.management_reports import register_report_routes
+from backend.leave_notifications import LeaveNotifications
+from backend.leave_requests import register_leave_routes
 from test_support.personnel_fixtures import registration_payload
 
 
 class WorkflowCursor(fixture.RestrictedCursor):
+    def close(self):
+        self.cursor.close()
+
     def executemany(self, sql, parameters):
         return sum(self.execute(sql, params) for params in parameters)
 
     def execute(self, sql, params=()):
+        if 'LEFT JOIN users m ON' in sql:
+            # MySQL cannot reopen a TEMPORARY table as both employee and manager.
+            self.cursor.execute('DROP TEMPORARY TABLE IF EXISTS leave_fixture_managers')
+            self.cursor.execute('CREATE TEMPORARY TABLE leave_fixture_managers AS SELECT * FROM users')
+            sql = sql.replace('LEFT JOIN users m ON', 'LEFT JOIN leave_fixture_managers m ON')
         # SHOW TABLES cannot see connection-owned TEMPORARY tables.
         if sql in ("SHOW TABLES LIKE 'personnel_contracts'",):
             return self.cursor.execute("SELECT 'personnel_contracts' AS table_name")
@@ -42,6 +54,9 @@ class WorkflowCursor(fixture.RestrictedCursor):
 
 
 class WorkflowConnection(fixture.TemporaryConnection):
+    def begin(self):
+        self.db.begin()
+
     def cursor(self):
         return WorkflowCursor(self)
 
@@ -52,7 +67,9 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
         fixture.PersonnelSensitiveMySQLTests.setUp(self)
         self.client.close()
         extra_tables = {'Presence', 'organization_groups', 'user_group_memberships',
-                        'account_role_events', 'account_username_reservations', 'contract_setup_events'}
+                        'account_role_events', 'account_username_reservations', 'contract_setup_events',
+                        'leave_requests', 'leave_events', 'leave_attendance_cells', 'signed_fiche_documents',
+                        'management_assignment_events', 'leave_notification_outbox'}
         self.stack.enter_context(patch.object(fixture, 'TABLES', fixture.TABLES | extra_tables))
         with self.db.cursor() as cursor:
             cursor.execute('''ALTER TABLE users
@@ -64,6 +81,13 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
                 ADD remember_token_hash CHAR(64) NULL, ADD remember_token_expires DATETIME NULL,
                 ADD reset_token VARCHAR(255) NULL, ADD reset_token_expires DATETIME NULL''')
             definitions = {
+                'leave_notification_outbox': '''event_id BIGINT PRIMARY KEY,request_id BIGINT NOT NULL,
+                    kind VARCHAR(24) NOT NULL,status VARCHAR(24) DEFAULT 'pending',attempts INT DEFAULT 0,
+                    next_attempt_at VARCHAR(40),recipient_username VARCHAR(255),created_at VARCHAR(40),updated_at VARCHAR(40)''',
+                'management_assignment_events': '''id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    actor_username VARCHAR(255),employee_username VARCHAR(255),
+                    before_manager VARCHAR(255),after_manager VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP''',
                 'Presence': 'user_id VARCHAR(255) PRIMARY KEY,form_content LONGTEXT',
                 'organization_groups': 'id INT PRIMARY KEY,name VARCHAR(100) UNIQUE,is_active BOOLEAN DEFAULT 1',
                 'user_group_memberships': 'username VARCHAR(255),group_id INT,relation VARCHAR(20)',
@@ -73,6 +97,19 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
                 'contract_setup_events': '''id INT AUTO_INCREMENT PRIMARY KEY,contract_id BIGINT,
                     employee_username VARCHAR(255),actor_username VARCHAR(255),fiche_month INT,fiche_year INT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP''',
+                'leave_requests': '''id BIGINT AUTO_INCREMENT PRIMARY KEY,employee_username VARCHAR(255),
+                    employee_name VARCHAR(255),start_date DATE,end_date DATE,start_slot VARCHAR(12),end_slot VARCHAR(12),
+                    note TEXT,status VARCHAR(12),cancellation_status VARCHAR(12) DEFAULT '',is_archived INT DEFAULT 0,
+                    created_at VARCHAR(40),updated_at VARCHAR(40)''',
+                'leave_events': '''id BIGINT AUTO_INCREMENT PRIMARY KEY,request_id BIGINT,actor_username VARCHAR(255),
+                    actor_name VARCHAR(255),action VARCHAR(20),previous_status VARCHAR(12),new_status VARCHAR(12),
+                    comment TEXT,created_at VARCHAR(40)''',
+                'leave_attendance_cells': '''id BIGINT AUTO_INCREMENT PRIMARY KEY,request_id BIGINT,
+                    workspace_owner VARCHAR(255),sheet_id VARCHAR(64),cell_date DATE,cell_period VARCHAR(8),
+                    before_state TEXT,after_state TEXT,changed INT,
+                    UNIQUE(request_id,workspace_owner,sheet_id,cell_date,cell_period)''',
+                'signed_fiche_documents': '''employee_username VARCHAR(255),fiche_year INT,fiche_month INT,
+                    mode VARCHAR(32),status VARCHAR(32)''',
             }
             for table, columns in definitions.items():
                 cursor.execute(f'CREATE TEMPORARY TABLE {table} ({columns}) ENGINE=InnoDB')
@@ -91,14 +128,21 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
         app.add_api_route('/groups', main.list_groups, methods=['GET'])
         app.add_api_route('/groups/{group_id}', main.update_group, methods=['PUT'])
         app.add_api_route('/users/{target_username}/organization', main.update_user_organization, methods=['PUT'])
+        register_report_routes(app,get_db_connection=lambda:self.proxy,get_current_user=main.get_current_user,
+            load_user=main.load_user,valid_manager=main.is_valid_direct_manager,
+            would_cycle=main.would_create_management_cycle)
         register_personnel_routes(app, get_db_connection=lambda: self.proxy,
-                                 get_current_user=main.get_current_user, load_user=main.load_user)
+                                 get_current_user=main.get_current_user, load_user=main.load_user,
+                                 insert_account=main.insert_account, welcome_account=main.welcome_created_account)
         register_contract_history(app, lambda: self.proxy, main.require_roles,
                                   main.get_current_user, main.require_target_access, load_user=main.load_user)
         register_attendance_routes(app, get_db_connection=lambda: self.proxy,
                                    get_current_user=main.get_current_user, load_user=main.load_user,
                                    can_manage=main.user_can_manage, save_config=main.save_config,
                                    save_checked=main.save_config_checked)
+        self.notifications = LeaveNotifications(lambda: self.proxy, deliver=Mock(return_value='sent'))
+        register_leave_routes(app, get_db_connection=lambda: self.proxy, get_current_user=main.get_current_user,
+                              attendance=main.leave_attendance, notifications=self.notifications)
         # Schema is supplied by the owned fixture; do not execute app lifespan.
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
@@ -111,6 +155,205 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
 
     def workspace(self):
         return self.request('GET', '/attendance/workspace', actor='fixture-manager').json()
+
+    def test_leave_notification_outbox_real_mysql_sends_to_current_manager_without_real_mail(self):
+        # EmailStr intentionally rejects reserved .test mailboxes; delivery stays mocked.
+        with self.db.cursor() as cursor:
+            cursor.execute("UPDATE users SET email='fixture-manager@example.com' WHERE username='fixture-manager'")
+            cursor.execute("UPDATE users SET email='fixture-employee@example.com' WHERE username='fixture-employee'")
+        self.db.commit()
+        self.request('POST','/leave-requests',actor='fixture-employee',status=201,json={
+            'start_date':'2026-11-05','end_date':'2026-11-05','start_slot':'afternoon','end_slot':'afternoon'})
+        self.notifications.deliver.assert_not_called()
+        with patch.dict(os.environ,{'PRESENCE_APP_URL':'https://rh.example.com/','PRESENCE_SMTP_USER':'synthetic@example.com'}):
+            self.assertTrue(self.notifications.dispatch_one())
+        self.notifications.deliver.assert_called_once()
+        with self.db.cursor() as cursor:
+            cursor.execute('SELECT status,recipient_username FROM leave_notification_outbox')
+            row=cursor.fetchone()
+            self.assertEqual(row['status'],'sent')
+            self.assertEqual(row['recipient_username'],'fixture-manager')
+        self.assertFalse(self.notifications.dispatch_one())
+        with self.db.cursor() as cursor:
+            cursor.execute('SELECT id FROM leave_requests ORDER BY id DESC LIMIT 1')
+            identifier=cursor.fetchone()['id']
+        self.request('POST',f'/leave-requests/{identifier}/decision',actor='fixture-manager',
+            json={'decision':'rejected','comment':'Synthetic decision'})
+        with patch.dict(os.environ,{'PRESENCE_APP_URL':'https://rh.example.com/','PRESENCE_SMTP_USER':'synthetic@example.com'}):
+            self.assertTrue(self.notifications.dispatch_one())
+        message=self.notifications.deliver.call_args.args[0]
+        self.assertEqual(message['To'],'fixture-employee@example.com')
+        self.assertIn('refusée',message['Subject'])
+        self.assertEqual(self.notifications.deliver.call_count,2)
+        self.assertFalse(self.notifications.dispatch_one())
+
+    def test_batch_reports_update_real_mysql_and_preserve_unrelated_membership(self):
+        # Isolate direct supervision: department-wide authority is a separate permission.
+        with self.db.cursor() as cursor:
+            cursor.execute("DELETE FROM user_group_memberships WHERE username='fixture-manager'")
+        self.db.commit()
+        path = '/users/fixture-manager/reports'
+        change = {'username':'fixture-employee','expected_manager_id':'fixture-manager','assigned':False}
+        self.request('PUT',path,actor='fixture-manager',status=403,json={'changes':[change]})
+        self.request('PUT',path,json={'changes':[change]})
+        with self.db.cursor() as cursor:
+            employee = main.load_user(cursor,'fixture-employee')
+            self.assertIsNone(employee['manager_username'])
+            self.assertEqual(employee['group_ids'],[1])
+            self.assertFalse(main.user_can_manage(cursor,main.load_user(cursor,'fixture-manager'),employee))
+        self.request('PUT',path,status=409,json={'changes':[change]})
+        self.request('PUT',path,json={'changes':[dict(change,expected_manager_id=None,assigned=True)]})
+        with self.db.cursor() as cursor:
+            employee = main.load_user(cursor,'fixture-employee')
+            self.assertEqual(employee['manager_username'],'fixture-manager')
+            self.assertTrue(main.user_can_manage(cursor,main.load_user(cursor,'fixture-manager'),employee))
+            cursor.execute('SELECT COUNT(*) AS total FROM management_assignment_events')
+            self.assertEqual(cursor.fetchone()['total'],2)
+
+    def test_contract_change_refreshes_existing_manager_sheet_without_losing_attendance(self):
+        self.request('POST', '/users/fixture-employee/contracts', json={
+            'employee_type':'salarie', 'start_date':'2025-09-15', 'end_date':'2026-09-14', 'is_cdi':False})
+        opened = self.request('POST', '/attendance/open/fixture-employee', actor='fixture-manager',
+            json={'month':9,'year':2026,'revision':self.workspace()['revision']}).json()
+        identifier = opened['active_id']
+        edited = self.request('POST', f'/attendance/calendar/{identifier}', actor='fixture-manager', json={
+            'month':9,'year':2026,'revision':opened['revision'],
+            'cells':[{'date':'2026-09-02','period':'matin'}], 'status':'Absence','reason':'synthetic'}).json()
+        before = edited['config']['employes_data'][0]
+        self.request('PATCH', f"/users/fixture-employee/contracts/{before['contract_id']}", json={
+            'employee_type':'salarie','start_date':'2026-08-03','end_date':'2027-08-21','is_cdi':False})
+        stale = self.workspace()
+        self.assertTrue(stale['contract_refresh_required'])
+        result = self.request('POST','/attendance/refresh-contracts',actor='fixture-manager',
+            json={'revision':stale['revision']}).json()
+        after = result['config']['employes_data'][0]
+        self.assertEqual(after['id'], identifier)
+        self.assertEqual(after['fdc'],'2027-08-21')
+        self.assertEqual(after['ddc'],'2026-08-03')
+        self.assertEqual(after['sheet_period_end'],'2026-09-30')
+        self.assertEqual(after['calendar_overrides'],before['calendar_overrides'])
+        self.assertEqual(len(after['contract_sync_history']),1)
+        self.request('POST','/attendance/save',actor='fixture-manager',status=409,
+            json={'config':edited['config'],'revision':edited['revision']})
+        self.assertFalse(self.workspace()['contract_refresh_required'])
+        # Later contract corrections cannot rewrite a source once signing has begun.
+        with self.proxy.cursor() as cursor:
+            cursor.execute("INSERT INTO signed_fiche_documents VALUES('fixture-employee',2026,9,'production','ready')")
+        self.db.commit()
+        self.request('PATCH',f"/users/fixture-employee/contracts/{before['contract_id']}",json={
+            'employee_type':'salarie','start_date':'2026-08-03','end_date':'2028-08-21','is_cdi':False})
+        signed = self.workspace()
+        self.assertFalse(signed['contract_refresh_required'])
+        preserved = self.request('POST','/attendance/refresh-contracts',actor='fixture-manager',
+            json={'revision':signed['revision']}).json()
+        self.assertEqual(preserved['config']['employes_data'][0], after)
+        self.mail.assert_not_called()
+
+    def test_approved_leave_creates_calendar_in_real_transaction_and_cancels_safely(self):
+        self.request('POST', '/users/fixture-employee/contracts', json={
+            'employee_type': 'salarie', 'start_date': '2026-01-01', 'end_date': None, 'is_cdi': True})
+        identifier = self.request('POST', '/leave-requests', actor='fixture-employee', status=201,
+            json={'start_date': '2026-10-30', 'end_date': '2026-11-03', 'start_slot': 'afternoon', 'end_slot': 'morning'}).json()['id']
+        preview = self.request('GET', f'/leave-requests/{identifier}/attendance-preview?operation=approve', actor='fixture-manager').json()
+        self.assertEqual(preview['created_sheets'], 2)
+        self.request('POST', f'/leave-requests/{identifier}/decision', actor='fixture-manager',
+                     json={'decision': 'approved', 'attendance_confirmation': preview['fingerprint']})
+        from backend.leave_totals import annual_leave_totals
+        def totals():
+            with self.proxy.cursor() as cursor:
+                cursor.execute('SELECT * FROM leave_requests WHERE employee_username=%s', ('fixture-employee',))
+                return annual_leave_totals(cursor, 'fixture-employee', 2026, cursor.fetchall())
+        self.assertEqual(totals()['approved_days'], 2)
+        self.assertFalse(totals()['incomplete'])
+        workspace = self.workspace()
+        self.assertEqual(len(workspace['config']['employes_data']), 2)
+        october = next(e for e in workspace['config']['employes_data'] if e['sheet_month'] == 10)
+        path = f"/attendance/calendar/{october['id']}?month=10&year=2026"
+        cell = self.request('GET', path, actor='fixture-manager').json()['days'][29]
+        self.assertEqual(cell['matin'][0], 'Travail')
+        self.assertEqual(cell['aprem'][0], 'Congé payé')
+        # A stale browser cannot overwrite the synchronized calendar.
+        self.request('POST', '/attendance/save', actor='fixture-manager', status=409,
+                     json={'config': workspace['config'], 'revision': '0' * 64})
+        self.request('POST', f'/leave-requests/{identifier}/cancellation', actor='fixture-employee')
+        self.request('POST', f'/leave-requests/{identifier}/cancellation-decision', actor='fixture-manager', json={'decision': 'approved'})
+        cell = self.request('GET', path, actor='fixture-manager').json()['days'][29]
+        self.assertEqual(cell['aprem'][0], 'Travail')
+        with self.proxy.cursor() as cursor:
+            cursor.execute('SELECT COUNT(*) AS total FROM leave_attendance_cells WHERE request_id=%s', (identifier,))
+            self.assertGreater(cursor.fetchone()['total'], 0)
+        self.assertEqual(totals()['approved_days'], 0)
+        self.mail.assert_not_called()
+
+    def test_pending_leave_hint_does_not_change_status_and_signed_calendar_rejects_manual_save(self):
+        self.request('POST', '/users/fixture-employee/contracts', json={
+            'employee_type': 'salarie', 'start_date': '2026-01-01', 'end_date': None, 'is_cdi': True})
+        opened = self.request('POST', '/attendance/open/fixture-employee', actor='fixture-manager',
+            json={'month': 10, 'year': 2026, 'revision': self.workspace()['revision']}).json()
+        self.request('POST', '/leave-requests', actor='fixture-employee', status=201,
+            json={'start_date': '2026-10-30', 'end_date': '2026-10-30', 'start_slot': 'morning', 'end_slot': 'morning'})
+        path = f"/attendance/calendar/{opened['active_id']}?month=10&year=2026"
+        cell = self.request('GET', path, actor='fixture-manager').json()['days'][29]
+        self.assertEqual(cell['matin'][0], 'Travail')
+        self.assertTrue(cell['pending_leave']['matin'])
+        self.assertNotIn('aprem', cell['pending_leave'])
+        with self.proxy.cursor() as cursor:
+            cursor.execute("INSERT INTO signed_fiche_documents VALUES('fixture-employee',2026,10,'production','ready')")
+        self.db.commit()
+        config = copy.deepcopy(opened['config'])
+        config['employes_data'][0]['calendar_overrides'] = {'2026-10-30': {'matin': {'status': 'Absence', 'reason': ''}}}
+        self.request('POST', '/attendance/save', actor='fixture-manager', status=409,
+            json={'config': config, 'revision': opened['revision']})
+        self.assertEqual(self.workspace()['config'], opened['config'])
+
+    def test_archived_linked_employee_disappears_from_daily_catalogs_and_returns_on_restore(self):
+        register_team_directory(self.client.app, get_db_connection=lambda: self.proxy,
+                                get_current_user=main.get_current_user)
+        employee = self.request('POST', '/personnel-register', status=201,
+            json=registration_payload(first_name='Hidden', last_name='Person', full_name='Hidden Person',
+                                      linked_username='fixture-employee')).json()['employee']
+        def assert_visibility(visible):
+            for actor in ('fixture-admin', 'fixture-manager'):
+                names = [u['username'] for u in self.request('GET', '/list-users', actor=actor).json()['users']]
+                self.assertEqual('fixture-employee' in names, visible)
+            catalog = self.workspace()['accounts']
+            self.assertEqual('fixture-employee' in [u['username'] for u in catalog], visible)
+            directory = self.request('GET', '/organization-directory', actor='fixture-employee').json()
+            self.assertEqual('fixture-employee' in [u['username'] for u in directory['users']], visible)
+            team = self.request('GET', '/my-team', actor='fixture-employee').json()
+            self.assertEqual(any(u['name'] == employee['full_name'] for u in team['members']), visible)
+        assert_visibility(True)
+        archived = self.request('PATCH', f"/personnel-register/{employee['employee_id']}/archive",
+            json={'expected_version': employee['version'], 'is_archived': True}).json()['employee']
+        assert_visibility(False)
+        # Hiding a catalog entry must not revoke login or remove the admin's recovery path.
+        own = self.request('GET', '/account', actor='fixture-employee').json()
+        self.assertTrue(own['is_active'])
+        history = self.request('GET', '/list-users?include_inactive=true').json()['users']
+        self.assertTrue(next(u for u in history if u['username']=='fixture-employee')['personnel_archived'])
+        self.request('PATCH', f"/personnel-register/{employee['employee_id']}/archive",
+            json={'expected_version': archived['version'], 'is_archived': False})
+        assert_visibility(True)
+        with self.proxy.cursor() as cursor:
+            cursor.execute("UPDATE users SET is_active=0 WHERE username='fixture-employee'")
+        self.db.commit()
+        names = [u['username'] for u in self.request('GET', '/organization-directory').json()['users']]
+        self.assertNotIn('fixture-employee', names)
+
+    def test_super_admin_identity_is_owner_only_across_person_catalogs(self):
+        register_team_directory(self.client.app, get_db_connection=lambda: self.proxy,
+                                get_current_user=main.get_current_user)
+        with self.proxy.cursor() as cursor:
+            cursor.execute("UPDATE users SET role='SuperAdmin',role_tags=%s,is_admin=1 WHERE username='fixture-employee'",
+                           ('["SuperAdmin","Admin"]',))
+        self.db.commit()
+        for actor in ('fixture-admin', 'fixture-manager', 'fixture-employee'):
+            expected = actor == 'fixture-employee'
+            for path, key in [('/list-users', 'users'), ('/organization-directory', 'users'),
+                              ('/attendance/workspace', 'accounts')]:
+                result = self.request('GET', path, actor=actor).json()
+                self.assertEqual('fixture-employee' in [u['username'] for u in result[key]], expected)
+        self.assertEqual(self.request('GET', '/account', actor='fixture-employee').json()['username'], 'fixture-employee')
 
     def test_own_settings_for_pure_manager_do_not_depend_on_directory_or_register(self):
         directory = self.request('GET', '/list-users', actor='fixture-manager').json()['users']
@@ -125,6 +368,45 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
             cursor.execute("UPDATE users SET is_active=0 WHERE username='fixture-manager'")
         self.request('GET', '/account', actor='fixture-manager', status=401)
 
+    def test_direct_manager_report_can_complete_contract_create_and_save_attendance(self):
+        self.client.app.add_api_route('/get-config/{user_id}', main.get_config, methods=['GET'])
+        self.client.app.add_api_route('/save-config/{user_id}', main.save_config, methods=['POST'])
+        with self.proxy.cursor() as cursor:
+            cursor.execute("UPDATE users SET role_tags=%s WHERE username='fixture-employee'", (json.dumps(['Responsable']),))
+            cursor.execute("INSERT INTO users(username,email,role_tags) VALUES(%s,%s,%s)",
+                           ('peer-manager', 'peer@example.test', json.dumps(['Responsable'])))
+            cursor.execute("INSERT INTO user_group_memberships VALUES('peer-manager',1,'member')")
+        self.db.commit()
+        people = self.request('GET', '/list-users', actor='fixture-manager').json()['users']
+        self.assertIn('fixture-employee', [u['username'] for u in people])
+        self.assertNotIn('peer-manager', [u['username'] for u in people])
+        self.request('GET', '/get-config/fixture-employee', actor='fixture-manager', status=403)
+        self.request('POST', '/save-config/fixture-employee', actor='fixture-manager', status=403,
+                     json={'employes_data': []})
+        self.assertIn('fixture-employee', [u['username'] for u in self.workspace()['accounts']])
+        self.assertNotIn('peer-manager', [u['username'] for u in self.workspace()['accounts']])
+        missing = self.open_sheet('fixture-employee', status=409)
+        self.assertIn('contrat', missing.json()['detail'].lower())
+        contract = {'month': 10, 'year': 2026, 'employee_type': 'salarie',
+                    'start_date': '2026-10-01', 'end_date': None, 'is_cdi': True}
+        self.request('POST', '/attendance/contracts/peer-manager', actor='fixture-manager', status=403, json=contract)
+        self.request('POST', '/attendance/contracts/fixture-employee', actor='fixture-manager', json=contract)
+        opened = self.open_sheet('fixture-employee').json()
+        identity = opened['active_id']
+        applied = self.request('POST', f'/attendance/calendar/{identity}', actor='fixture-manager', json={
+            'month': 10, 'year': 2026, 'revision': opened['revision'],
+            'cells': [{'date': '2026-10-05', 'period': 'matin'}], 'status': 'Absence', 'reason': 'Synthetic hierarchy test'}).json()
+        self.request('POST', '/attendance/save', actor='fixture-manager', json={
+            'config': applied['config'], 'revision': applied['revision']})
+        saved = next(e for e in self.workspace()['config']['employes_data'] if e['id']==identity)
+        self.assertTrue(any(e['date']=='2026-10-05' and e['matin'] for e in saved['absences']))
+        self.request('PUT', '/users/fixture-employee/organization', actor='fixture-manager', status=403,
+                     json={'role_tags': ['Admin']})
+        with self.proxy.cursor() as cursor:
+            cursor.execute("UPDATE users SET manager_username='fixture-manager' WHERE username='fixture-admin'")
+        self.db.commit()
+        self.assertNotIn('fixture-admin', [u['username'] for u in self.workspace()['accounts']])
+        self.request('POST', '/attendance/contracts/fixture-admin', actor='fixture-manager', status=403, json=contract)
     def test_pure_manager_signs_linked_legacy_sheet_without_register_or_new_contract(self):
         sheet = {'id': 'legacy-blank-contact', 'account_username': 'fixture-employee',
                  'nom': 'Historical fixture', 'ddc': '2026-01-01', 'fdc': '2026-12-31',
@@ -138,6 +420,10 @@ class ResponsableWorkflowMySQLTests(unittest.TestCase):
             for table in ('personnel_register', 'personnel_contracts'):
                 cursor.execute('SELECT COUNT(*) AS total FROM ' + table)
                 self.assertEqual(cursor.fetchone()['total'], 0)
+        # Real requests read committed fixtures on independent connections. The
+        # shared TEMPORARY-table proxy must commit setup before the source lock's
+        # finally/rollback releases its read-only transaction.
+        self.db.commit()
         root = self.stack.enter_context(tempfile.TemporaryDirectory())
         sender = Mock(return_value={'document_id': 'synthetic-signed-request'})
         register_signature_preflight(self.client.app, get_current_user=main.get_current_user,

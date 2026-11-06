@@ -89,6 +89,22 @@ class AttendanceOpenHistoryTests(unittest.TestCase):
         self.assertEqual(self.open(revision='0' * 64).status_code, 409)
         self.save.assert_not_called()
 
+    def test_refresh_contracts_uses_scoped_checked_writer_and_revision(self):
+        revision = config_revision(self.config)
+        response = self.client.post('/attendance/refresh-contracts', json={'revision': revision})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.save.call_args.args[3], revision)
+        self.assertTrue(self.save.call_args.kwargs['preserve_hidden'])
+        self.assertEqual(self.save.call_args.args[1], self.config)
+
+    def test_refresh_contracts_rejects_employee_and_stale_revision(self):
+        response = self.client.post('/attendance/refresh-contracts', json={'revision': '0' * 64})
+        self.assertEqual(response.status_code, 409)
+        self.actor['role_tags'] = ['Employe']
+        response = self.client.post('/attendance/refresh-contracts', json={'revision': config_revision(self.config)})
+        self.assertEqual(response.status_code, 403)
+        self.save.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

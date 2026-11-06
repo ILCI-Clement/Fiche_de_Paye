@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import time
+from contextlib import contextmanager
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 from contract_periods import period_sheets
@@ -26,6 +27,21 @@ class SignatureSubmit(BaseModel):
     year: int = Field(ge=2000, le=2100)
     fingerprint: str = Field(min_length=64, max_length=64)
     request_id: str = Field(min_length=16, max_length=128, pattern=r'^[a-zA-Z0-9_-]+$')
+
+
+@contextmanager
+def signed_source_lock(connect, username):
+    """Serialize PDF generation/provider acceptance with leave and calendar writes."""
+    db = connect()
+    try:
+        with db.cursor() as cursor:
+            cursor.execute('SELECT username FROM users WHERE username=%s FOR UPDATE', (username,))
+            if not cursor.fetchone():
+                raise HTTPException(409, 'Le compte du salarié a changé. Actualisez la préparation.')
+            yield
+    finally:
+        db.rollback()
+        db.close()
 
 
 def register_signature_preflight(app, *, get_current_user, get_db_connection, load_user,
@@ -93,6 +109,15 @@ def register_signature_preflight(app, *, get_current_user, get_db_connection, lo
         employee = records.get(payload.id)
         if not employee:
             raise HTTPException(400, 'La fiche ne fait pas partie du mois affiché.')
+        _, initial_manager = prepare_signers(employee, actor)
+        with signed_source_lock(get_db_connection, initial_manager['employee_username']):
+            # Read again after acquiring the same account lock used by leave approval.
+            fresh = records_for(actor, payload.month, payload.year).get(payload.id)
+            if not fresh or fresh.get('account_username') != employee.get('account_username'):
+                raise HTTPException(409, 'La fiche a changé. Actualisez la préparation.')
+            return send_locked(payload, actor, fresh, ready)
+
+    def send_locked(payload, actor, employee, ready):
         try:
             employee, manager = prepare_signers(employee, actor)
             details = inspect(employee, manager, payload.month, payload.year)

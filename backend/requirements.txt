@@ -5,3 +5,4 @@ bcrypt>=4.0
 cryptography>=46,<51
 email-validator>=2.0
 pypdf>=5,<7
+reportlab>=4,<5

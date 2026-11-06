@@ -9,6 +9,6 @@ def register_ui_capabilities(app: FastAPI, *, mail_configured: Callable[[], bool
         local = bool(getattr(app.state, 'local_snapshot', False))
         return {
             'environment': 'local-snapshot' if local else 'server',
-            'account_creation': not local,
+            'account_creation': not local or bool(getattr(app.state, 'local_account_creation', False)),
             'mail_enabled': not local and bool(mail_configured()),
         }

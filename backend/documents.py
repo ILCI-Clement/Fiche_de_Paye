@@ -10,18 +10,13 @@ import pymysql
 from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
-try:
-    from .document_numbers import allocate_document_number, ensure_document_number_schema
-    from .destructive_audit import append_deletion_event
-    from .role_policy import checked_resource_actor, is_admin, is_super_admin
-    from .person_names import load_person_names, load_display_names, person_display_name
-    from .document_categories import register_category_routes, resolve_category, load_category_labels, receipt_category_label, category_event
-except ImportError:
-    from document_numbers import allocate_document_number, ensure_document_number_schema
-    from destructive_audit import append_deletion_event
-    from role_policy import checked_resource_actor, is_admin, is_super_admin
-    from person_names import load_person_names, load_display_names, person_display_name
-    from document_categories import register_category_routes, resolve_category, load_category_labels, receipt_category_label, category_event
+from .file_batch import FileBatchAction, DELETE_WORD, cleanup_files
+from .person_visibility import account_list_visible, annotate_visibility, daily_person
+from .document_numbers import allocate_document_number, ensure_document_number_schema
+from .destructive_audit import append_deletion_event, append_archive_event
+from .role_policy import checked_resource_actor, is_admin, is_super_admin
+from .person_names import load_person_names, load_display_names, person_display_name
+from .document_categories import register_category_routes, resolve_category, load_category_labels, receipt_category_label, category_event
 
 
 class TransportReceiptUploadRequest(BaseModel):
@@ -59,6 +54,10 @@ class ReceiptArchiveRequest(BaseModel):
 class ReceiptDeleteRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     confirmation: str = Field(strict=True, min_length=1, max_length=32)
+
+
+class ReceiptBatchAction(FileBatchAction):
+    ids: list[int] = Field(min_length=1, max_length=100)
 
 
 def register_document_routes(app, *, get_db_connection, get_current_user, require_roles,
@@ -149,12 +148,12 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
         try:
             with connection.cursor() as cursor:
                 if is_admin(actor):
-                    cursor.execute("SELECT username,email FROM users ORDER BY username")
+                    cursor.execute("SELECT username,email,role_tags FROM users WHERE is_active=1 AND login_deleted_at IS NULL ORDER BY username")
                 else:
-                    cursor.execute("SELECT username,email FROM users WHERE username=%s", (actor['username'],))
-                rows = cursor.fetchall()
+                    cursor.execute("SELECT username,email,role_tags FROM users WHERE username=%s", (actor['username'],))
+                rows = [row for row in annotate_visibility(cursor, cursor.fetchall()) if daily_person(row) and account_list_visible(row, actor)]
                 names = load_person_names(cursor, [row['username'] for row in rows])
-                accounts = [{**row, 'full_name': names.get(row['username']),
+                accounts = [{'username': row['username'], 'email': row['email'], 'full_name': names.get(row['username']),
                              'display_name': person_display_name(row, names)} for row in rows]
                 return {"users": [str(row['username']) for row in rows], 'accounts': accounts}
         finally:
@@ -441,8 +440,8 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
                 receipt = load_transport_receipt(cursor, receipt_id, lock=True)
                 if not receipt['archived']:
                     raise HTTPException(409, 'Archivez ce document avant sa suppression définitive.')
-                if payload is None or payload.confirmation != str(receipt_id):
-                    raise HTTPException(400, 'Confirmez le numéro exact du document.')
+                if payload is None or payload.confirmation not in (str(receipt_id), DELETE_WORD):
+                    raise HTTPException(400, 'Saisissez SUPPRIMER pour confirmer.')
                 stored_name = str(receipt['stored_filename'])
                 if not stored_name or Path(stored_name).name != stored_name:
                     raise HTTPException(409, 'Le document doit être vérifié avant suppression.')
@@ -465,3 +464,55 @@ def register_document_routes(app, *, get_db_connection, get_current_user, requir
         return {"status": "success", "cleanup_pending": False, "message": "Justificatif supprimé."}
 
 
+
+    @app.post('/transport-receipts/batch')
+    def batch_receipts(payload: ReceiptBatchAction, actor=Depends(get_current_user)):
+        ids = sorted(set(payload.ids))
+        if any(identifier <= 0 for identifier in ids):
+            raise HTTPException(400, 'Référence de document invalide.')
+        paths = []
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                current = checked_resource_actor(cursor, actor, load_user, lock=True)
+                if payload.action == 'delete':
+                    if not is_super_admin(current):
+                        raise HTTPException(403, 'La suppression définitive est réservée au Super Admin.')
+                    if payload.confirmation != DELETE_WORD:
+                        raise HTTPException(400, 'Saisissez SUPPRIMER pour confirmer.')
+                elif 'Responsable' in current.get('role_tags', []) and not is_admin(current):
+                    raise HTTPException(403, 'Un responsable dispose ici d’un accès en lecture seule.')
+                rows = []
+                for identifier in ids:
+                    receipt = load_transport_receipt(cursor, identifier, lock=True)
+                    if payload.action != 'delete' and not is_admin(current) and current['username'] not in {
+                            receipt['employee_username'], receipt['uploaded_by']}:
+                        raise HTTPException(403, 'Vous pouvez archiver uniquement vos propres justificatifs.')
+                    if bool(receipt['archived']) != payload.expected_archived:
+                        raise HTTPException(409, 'La sélection a changé. Actualisez la liste.')
+                    if payload.action == 'delete':
+                        if not receipt['archived']:
+                            raise HTTPException(409, 'Archivez les documents avant leur suppression définitive.')
+                        stored = str(receipt['stored_filename'])
+                        if not stored or Path(stored).name != stored:
+                            raise HTTPException(409, 'Un fichier doit être vérifié avant suppression.')
+                        paths.append(TRANSPORT_RECEIPTS_DIR / stored)
+                    rows.append(receipt)
+                for receipt in rows:
+                    if payload.action == 'delete':
+                        append_deletion_event(cursor, current, 'document', receipt['id'],
+                            {'deleted_records': 1, 'document_count': 1, 'confirmed': True, 'previous_is_archived': True})
+                        cursor.execute('DELETE FROM transport_receipts WHERE id = %s', (receipt['id'],))
+                    else:
+                        archived = payload.action == 'archive'
+                        if bool(receipt['archived']) != archived:
+                            cursor.execute('UPDATE transport_receipts SET archived = %s, archived_at = %s, archived_by = %s WHERE id = %s',
+                                (archived, datetime.now() if archived else None, current['username'] if archived else None, receipt['id']))
+                            append_archive_event(cursor, current, 'document', receipt['id'], archived)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+        return {'status': 'success', 'count': len(ids), 'cleanup_pending': cleanup_files(paths)}

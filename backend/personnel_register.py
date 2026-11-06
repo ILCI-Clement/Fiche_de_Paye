@@ -13,47 +13,30 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.routing import APIRoute
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, EmailStr
 from pymysql.err import IntegrityError, OperationalError
 
-try:
-    from .personnel_contract_sync import detach_contract_links, sync_account_contracts, sync_register_period
-    from .personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
-    from .personnel_rules import (
-        ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
-        EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing, entry_precedes_birth,
-    )
-    from .personnel_store import (
-        EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
-        append_personnel_event, delete_personnel_records, employee_record, ensure_personnel_schema, insert_period,
-        load_employee_detail, period_record, selected_columns,
-        sensitive_metadata, touch_employee, utc_timestamp,
-    )
-    from .personnel_sensitive import (
-        NirProtectionError, decrypt_social_security_number, encrypt_social_security_number, nir_storage_ready,
-    )
-    from .destructive_audit import append_deletion_event
-    from .role_policy import checked_resource_actor, is_admin, is_super_admin
-    from .person_names import load_display_names, load_person_accounts, person_display_name
-except ImportError:
-    from personnel_contract_sync import detach_contract_links, sync_account_contracts, sync_register_period
-    from personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
-    from personnel_rules import (
-        ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
-        EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing, entry_precedes_birth,
-    )
-    from personnel_store import (
-        EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
-        append_personnel_event, delete_personnel_records, employee_record, ensure_personnel_schema, insert_period,
-        load_employee_detail, period_record, selected_columns,
-        sensitive_metadata, touch_employee, utc_timestamp,
-    )
-    from personnel_sensitive import (
-        NirProtectionError, decrypt_social_security_number, encrypt_social_security_number, nir_storage_ready,
-    )
-    from destructive_audit import append_deletion_event
-    from role_policy import checked_resource_actor, is_admin, is_super_admin
-    from person_names import load_display_names, load_person_accounts, person_display_name
+from .account_email import change_linked_login_email, require_available_login_email
+from .personnel_contract_sync import detach_contract_links, sync_account_contracts, sync_register_period
+from .personnel_export import MAX_EXPORT_ROWS, generate_personnel_excel
+from .personnel_pdf import personnel_excel_to_pdf
+from .personnel_rules import (
+    ArchiveFilter, ArchiveMutation, EmployeeCreate, EmployeeUpdate,
+    EmploymentStatus, MAX_IDENTIFIER, PeriodInput, PeriodMutation, PersonnelType, like_search, paris_today, registration_missing, entry_precedes_birth,
+)
+from .personnel_store import (
+    EMPLOYEE_COLUMNS, EMPLOYEE_FIELDS, PERIOD_COLUMNS, PERIOD_FIELDS,
+    append_personnel_event, delete_personnel_records, employee_record, ensure_personnel_schema, insert_period,
+    load_employee_detail, period_record, selected_columns,
+    sensitive_metadata, touch_employee, utc_timestamp,
+)
+from .personnel_sensitive import (
+    NirProtectionError, decrypt_social_security_number, encrypt_social_security_number, nir_storage_ready,
+)
+from .destructive_audit import append_deletion_event
+from .person_visibility import account_list_visible, hidden_account_usernames
+from .role_policy import checked_resource_actor, is_admin, is_super_admin
+from .person_names import load_display_names, load_person_accounts, person_display_name
 
 
 _SAFE_ERROR_LOCATIONS = frozenset({
@@ -122,7 +105,8 @@ class PersonnelRoute(APIRoute):
         return handler
 
 
-def register_personnel_routes(app, *, get_db_connection, get_current_user, load_user):
+def register_personnel_routes(app, *, get_db_connection, get_current_user, load_user,
+                              insert_account=None, welcome_account=None):
     router = APIRouter(route_class=PersonnelRoute)
 
     def nir_enabled():
@@ -174,13 +158,13 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             employee['linked_display_name'] = labels.get(linked, 'Ancien compte') if linked else None
         return details
 
-    def transact(actor, change, *, require_super=False):
+    def transact(actor, change, *, require_super=False, super_error='La suppression définitive est réservée au SuperAdmin.'):
         db = get_db_connection()
         try:
             with db.cursor() as cursor:
                 current = checked_admin(cursor, actor, lock=True)
                 if require_super and not is_super_admin(current):
-                    raise HTTPException(403, 'La suppression définitive est réservée au SuperAdmin.')
+                    raise HTTPException(403, super_error)
                 result = change(cursor, current['username'])
                 displayed_details(cursor, [result])
             db.commit()
@@ -251,7 +235,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             with db.cursor() as cursor:
                 current = checked_resource_actor(cursor, actor, load_user)
                 target = load_user(cursor, username)
-                if not target or (not is_admin(current) and current['username'] != target['username']):
+                if not account_list_visible(target, current) or (not is_admin(current) and current['username'] != target['username']):
                     raise HTTPException(403, 'Ces informations sont réservées à la personne et aux administrateurs.')
                 return account_personnel(cursor, target, is_admin(current))
         finally:
@@ -326,6 +310,24 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
         return transact(actor, change)
 
     # Static routes must precede the employee-id route.
+    @router.get('/personnel-register/email-availability')
+    def email_availability(email: EmailStr, employee_id: int | None = Query(default=None, ge=1, le=MAX_IDENTIFIER),
+                           actor=Depends(get_current_user)):
+        db = get_db_connection()
+        try:
+            with db.cursor() as cursor:
+                checked_admin(cursor, actor)
+                exclude = detail_or_404(cursor, employee_id)['employee']['linked_username'] if employee_id else ''
+                try:
+                    require_available_login_email(cursor, str(email), exclude_username=exclude or '')
+                except HTTPException as error:
+                    if error.status_code != 400:
+                        raise
+                    return {'available': False}
+                return {'available': True}
+        finally:
+            db.close()
+
     @router.get('/personnel-register/capabilities')
     def capabilities(actor=Depends(get_current_user)):
         db = get_db_connection()
@@ -344,13 +346,15 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             with db.cursor() as cursor:
                 checked_admin(cursor, actor)
                 term = like_search(q.strip())
-                cursor.execute('''SELECT u.username,u.email,u.is_active,u.login_deleted_at,
+                hidden = hidden_account_usernames(cursor, actor)
+                excluded = ' AND u.username NOT IN (' + ','.join(['%s'] * len(hidden)) + ')' if hidden else ''
+                cursor.execute(f'''SELECT u.username,u.email,u.role_tags,u.is_active,u.login_deleted_at,
                     r.employee_id AS linked_employee_id,r.full_name FROM users u
                     LEFT JOIN personnel_register r ON r.linked_username=u.username
-                    WHERE u.username LIKE %s ESCAPE '=' OR u.email LIKE %s ESCAPE '='
-                        OR r.full_name LIKE %s ESCAPE '='
+                    WHERE (u.username LIKE %s ESCAPE '=' OR u.email LIKE %s ESCAPE '='
+                        OR r.full_name LIKE %s ESCAPE '='){excluded}
                     ORDER BY COALESCE(NULLIF(r.full_name,''),u.email),u.username LIMIT %s''',
-                               (term, term, term, limit + 1))
+                               (term, term, term, *hidden, limit + 1))
                 rows = cursor.fetchall()
                 directory = load_person_accounts(cursor, [row['username'] for row in rows[:limit]])
                 return {'accounts': [{**row, 'is_active': bool(row['is_active']),
@@ -360,8 +364,13 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
         finally:
             db.close()
 
-    def employee_filter(q, personnel_type, archive, status):
+    def employee_filter(cursor, actor, q, personnel_type, archive, status):
         clauses, params = [], []
+        hidden = hidden_account_usernames(cursor, actor)
+        if hidden:
+            marks = ",".join(["%s"] * len(hidden))
+            clauses.append(f"(e.linked_username IS NULL OR e.linked_username NOT IN ({marks}))")
+            params.extend(hidden)
         if q.strip():
             clauses.append("(e.full_name LIKE %s ESCAPE '=' OR e.linked_username LIKE %s ESCAPE '=' "
                            'OR CAST(e.employee_id AS CHAR)=%s)')
@@ -379,13 +388,12 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
         where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
         return where, params
 
-    @router.post('/personnel-register/export.xlsx')
-    def export_employees(payload: PersonnelExportInput, actor=Depends(get_current_user)):
+    def export_employees(payload, actor, *, pdf=False):
         def generate(cursor, actor_username):
             if not payload.confirm_sensitive_export:
                 raise HTTPException(400, 'Confirmez l’export des données personnelles et des numéros de sécurité sociale.')
             require_nir_storage()
-            where, params = employee_filter(payload.q, payload.personnel_type, payload.archive, payload.status)
+            where, params = employee_filter(cursor, actor, payload.q, payload.personnel_type, payload.archive, payload.status)
             columns = ','.join(f'e.{key}' for key in (
                 'employee_id', 'full_name', 'nationality', 'sex', 'address', 'birth_date',
                 'job_title', 'qualification', 'social_security_number_encrypted'))
@@ -410,17 +418,27 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                 row.pop('social_security_number_encrypted', None)
                 counts[identifier] = counts.get(identifier, 0) + 1
             content = generate_personnel_excel(rows)
+            if pdf:
+                content = personnel_excel_to_pdf(content)
             # Commit one metadata-only event per person before releasing plaintext.
             # Never persist the generated file, filter text, number or envelope.
             for identifier, row_count in counts.items():
                 metadata = sensitive_metadata(identifier, bool(numbers[identifier]))
-                metadata['export'] = {'format': 'xlsx', 'row_count': row_count,
+                metadata['export'] = {'format': 'pdf' if pdf else 'xlsx', 'row_count': row_count,
                                       'includes_social_security_number': True}
-                append_personnel_event(cursor, identifier, actor_username, 'excel_exported', metadata, metadata)
-            filename = f'registre-du-personnel-{paris_today().isoformat()}.xlsx'
-            return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                append_personnel_event(cursor, identifier, actor_username, 'pdf_exported' if pdf else 'excel_exported', metadata, metadata)
+            filename = f'utilisateurs-{paris_today().isoformat()}.{"pdf" if pdf else "xlsx"}'
+            return Response(content, media_type='application/pdf' if pdf else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                             headers={'Content-Disposition': f'attachment; filename="{filename}"'})
-        return transact(actor, generate)
+        return transact(actor, generate, require_super=not pdf, super_error='L’export Excel est réservé au Super Admin.')
+
+    @router.post('/personnel-register/export.xlsx')
+    def export_excel(payload: PersonnelExportInput, actor=Depends(get_current_user)):
+        return export_employees(payload, actor)
+
+    @router.post('/personnel-register/export.pdf')
+    def export_pdf(payload: PersonnelExportInput, actor=Depends(get_current_user)):
+        return export_employees(payload, actor, pdf=True)
 
     @router.get('/personnel-register')
     def list_employees(q: str = Query(default='', max_length=200), personnel_type: PersonnelType = '',
@@ -431,7 +449,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
         try:
             with db.cursor() as cursor:
                 checked_admin(cursor, actor)
-                where, params = employee_filter(q, personnel_type, archive, status)
+                where, params = employee_filter(cursor, actor, q, personnel_type, archive, status)
                 base = f'FROM personnel_register e {_LATEST_PERIOD_JOIN}{where}'
                 cursor.execute(f'SELECT COUNT(*) AS total {base}', tuple(params))
                 total = cursor.fetchone()['total']
@@ -453,11 +471,23 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
 
     @router.post('/personnel-register', status_code=201)
     def create_employee(payload: EmployeeCreate, actor=Depends(get_current_user)):
+        created_account = None
+        if payload.account and (not insert_account or (getattr(app.state, 'local_snapshot', False)
+                                                       and not getattr(app.state, 'local_account_creation', False))):
+            raise HTTPException(403, 'La création de comptes est désactivée dans cet environnement.')
         def change(cursor, actor_username):
+            nonlocal created_account
             nir_requested = 'social_security_number' in payload.model_fields_set
             if nir_requested:
                 require_nir_storage()
             values = payload.model_dump(include=set(EMPLOYEE_FIELDS))
+            if payload.account:
+                created_account = insert_account(cursor, {
+                    **payload.account.model_dump(), 'first_name': payload.first_name,
+                    'last_name': payload.last_name, 'new_mail': payload.email,
+                    'generate_password': True, 'employee_type': payload.personnel_type,
+                }, actor)
+                values['linked_username'] = created_account['username']
             values['linked_username'] = canonical_link(cursor, values['linked_username'])
             placeholders = ','.join(['%s'] * len(EMPLOYEE_FIELDS))
             cursor.execute(f"INSERT INTO personnel_register ({','.join(EMPLOYEE_FIELDS)},registration_schema_version) VALUES ({placeholders},2)",
@@ -483,7 +513,14 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
                 append_personnel_event(cursor, employee_id, actor_username, 'social_security_number_changed',
                                        sensitive_metadata(employee_id, False), sensitive_metadata(employee_id, True))
             return after
-        return transact(actor, change)
+        result = transact(actor, change)
+        if created_account:
+            try:
+                sent = bool(welcome_account and welcome_account(created_account))
+            except Exception:
+                sent = False
+            result['account_creation'] = {'created': True, 'welcome_email_sent': sent}
+        return result
 
     @router.get('/personnel-register/{employee_id}')
     def get_employee(employee_id: int = Path(ge=1, le=MAX_IDENTIFIER), actor=Depends(get_current_user)):
@@ -504,7 +541,7 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             before = editable_detail(cursor, employee_id, payload.expected_version)
             values = payload.model_dump(include=set(EMPLOYEE_FIELDS))
             # An older client cannot clear structured names it never received.
-            for key in ('first_name', 'last_name'):
+            for key in ('first_name', 'last_name', 'email'):
                 if key not in payload.model_fields_set:
                     values[key] = before['employee'][key]
             if values['first_name'] and values['last_name']:
@@ -519,6 +556,8 @@ def register_personnel_routes(app, *, get_db_connection, get_current_user, load_
             if values['birth_date'] != before['employee']['birth_date'] and any(
                     entry_precedes_birth(p['entry_date'], values['birth_date']) for p in before['periods']):
                 raise HTTPException(400, 'La date d’entrée ne peut pas précéder la naissance.')
+            if values['linked_username'] and values['email'] != before['employee']['email']:
+                change_linked_login_email(cursor, load_user(cursor, values['linked_username']), values['email'], load_user(cursor, actor_username))
             details_changed = any(before['employee'][key] != values[key] for key in EMPLOYEE_FIELDS)
             nir_requested = 'social_security_number' in payload.model_fields_set
             if nir_requested:

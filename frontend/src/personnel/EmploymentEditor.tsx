@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useCompletionFocus } from '../components/useCompletionFocus'
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
 import { useDraftGuard } from '../draftGuard'
 import { blankPeriod, dateLabel, personnelApi } from './api'
@@ -8,7 +9,9 @@ import { WriteError } from './WriteError'
 import { useRegistryAction } from './useRegistryAction'
 import { validateEmployment } from './personnelValidation'
 
-export function EmploymentEditor({ token, employee, period, situationsOnly = false, onClose, onSaved }: { token: string; employee: Employee; period?: EmploymentPeriod; situationsOnly?: boolean; onClose: () => void; onSaved: (message: string) => void }) {
+export function EmploymentEditor({ token, employee, period, situationsOnly = false, onClose, onSaved, focusEntry = false }: { focusEntry?: boolean; token: string; employee: Employee; period?: EmploymentPeriod; situationsOnly?: boolean; onClose: () => void; onSaved: (message: string) => void }) {
+  const completionRoot = useRef<HTMLDivElement>(null)
+  useCompletionFocus(completionRoot, focusEntry ? 'entry_date' : undefined)
   const [version] = useState(employee.version)
   const initial = () => {
     const value = blankPeriod()
@@ -33,9 +36,9 @@ export function EmploymentEditor({ token, employee, period, situationsOnly = fal
   return <Dialog open fullWidth maxWidth="md" aria-labelledby="employment-editor-title" onClose={() => { if (!action.busy) close(onClose) }}>
     <Box component="form" onSubmit={event => { event.preventDefault(); void save() }}>
       <DialogTitle id="employment-editor-title">{editSituations ? 'Modifier les situations particulières' : period ? 'Corriger une période d’emploi' : 'Ajouter une période d’emploi'}</DialogTitle>
-      <DialogContent dividers>
+      <DialogContent ref={completionRoot} dividers>
         <Typography sx={{ mb: 1, fontWeight: 500 }}>{employee.full_name}</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{editSituations ? `Période d’emploi · entrée le ${dateLabel(value.entry_date)}` : `La sortie effective est indépendante de la fin prévue du contrat.${employee.linked_username ? ' Le début et la fin prévue restent synchronisés avec le contrat associé ; les dates incomplètes ne créent pas de contrat.' : ' Une nouvelle entrée après un départ est enregistrée comme une nouvelle période.'}`}</Typography>
+        {editSituations && <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Entrée : {dateLabel(value.entry_date)}</Typography>}
         {validation && <Alert severity="error" sx={{ mb: 2 }}>{validation}</Alert>}
         <WriteError error={action.error} conflict={action.conflict} />
         {editSituations ? <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}><SpecialEmploymentFields value={value} onChange={setValue} busy={action.busy} /></Box> : <EmploymentFields entryRequired={!period || employee.registration_schema_version >= 2} value={value} onChange={setValue} busy={action.busy} />}

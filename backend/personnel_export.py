@@ -13,9 +13,9 @@ MAX_EXPORT_ROWS = 10_000
 _CONTRACTS = {'CDI': 'CDI', 'CDD': 'CDD', 'stage': 'Convention de stage'}
 
 
-def generate_personnel_excel(rows):
+def generate_personnel_excel(rows, *, allow_empty=False, snapshot_at=None):
     """One row per employment period; never invent unavailable template fields."""
-    if not rows or len(rows) > MAX_EXPORT_ROWS:
+    if (not rows and not allow_empty) or len(rows) > MAX_EXPORT_ROWS:
         raise ValueError('Le nombre de lignes à exporter est invalide.')
     workbook = load_workbook(TEMPLATE, keep_links=False)
     sheet = workbook.active
@@ -67,6 +67,11 @@ def generate_personnel_excel(rows):
     sheet.print_area = f'A1:R{len(rows) + 7}'
     workbook.properties.creator = 'ILCI · RH'
     workbook.properties.lastModifiedBy = 'ILCI · RH'
+    if snapshot_at is not None:
+        workbook.properties.subject = f'Archive du registre au {snapshot_at.isoformat()} UTC'
+        workbook.properties.description = 'Personnel non archivé au moment de la collecte, toutes les périodes d’emploi.'
+        workbook.properties.created = snapshot_at
+        workbook.properties.modified = snapshot_at
     output = BytesIO()
     workbook.save(output)
     workbook.close()

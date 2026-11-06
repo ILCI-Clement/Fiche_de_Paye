@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import secrets
 import sqlite3
+from test_support.sqlite_fixtures import connect_fixture
 import tempfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -61,7 +62,7 @@ class Cursor:
 class Connection:
     def __init__(self, fixture):
         self.fixture = fixture
-        self.db = sqlite3.connect(fixture.path, timeout=10, isolation_level=None)
+        self.db = connect_fixture(fixture.path, timeout=10, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.create_function('UTC_TIMESTAMP', 1, lambda _: datetime.utcnow().isoformat(' '))
 
@@ -80,7 +81,7 @@ class AccountLifecycleTests(unittest.TestCase):
         self.password = secrets.token_urlsafe(18)
         self.invoice = Path(self.temp.name) / 'invoice.pdf'
         self.invoice.write_bytes(b'%PDF-1.4 isolated retention fixture')
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.executescript('''CREATE TABLE users (
                 username TEXT PRIMARY KEY, email TEXT UNIQUE, role_tags TEXT, password_hash TEXT,
                 is_active INTEGER DEFAULT 1, session_version INTEGER DEFAULT 0, login_deleted_at TEXT,
@@ -165,7 +166,7 @@ class AccountLifecycleTests(unittest.TestCase):
             self.assertIsNone(self.stored()['login_deleted_at'])
 
     def retained(self):
-        with closing(sqlite3.connect(self.path)) as db:
+        with closing(connect_fixture(self.path)) as db:
             return db.execute('SELECT * FROM retained_business ORDER BY kind,owner').fetchall(), self.invoice.read_bytes()
 
     def test_email_login_uses_canonical_identity_and_remember_token(self):
@@ -188,12 +189,12 @@ class AccountLifecycleTests(unittest.TestCase):
             self.assertEqual(self.login(identifier).status_code, 401)
 
     def test_email_login_rejects_username_email_collision(self):
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.execute('UPDATE users SET username=? WHERE username=?', ('employee@example.test', 'manager'))
         self.assertEqual(self.login('employee@example.test').status_code, 401)
 
     def test_email_login_rejects_case_variant_duplicate_addresses(self):
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.execute('UPDATE users SET email=? WHERE username=?', ('EMPLOYEE@example.test', 'manager'))
         self.assertEqual(self.login('employee@example.test').status_code, 401)
 
@@ -254,7 +255,7 @@ class AccountLifecycleTests(unittest.TestCase):
 
     def test_remembered_login_and_reset_tokens_are_revoked(self):
         remembered = self.login(remember=True).json()['remember_token']
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.execute("UPDATE users SET reset_token='temporary-fixture' WHERE username='employee'")
         self.activation(False)
         self.assertIsNone(self.stored()['remember_token_hash'])
@@ -311,7 +312,7 @@ class AccountLifecycleTests(unittest.TestCase):
 
     def test_deleted_username_and_email_stay_reserved(self):
         self.activation(False); self.delete()
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             for username, email in [('employee', 'new@example.test'), ('new', 'employee@example.test')]:
                 with self.assertRaises(sqlite3.IntegrityError):
                     db.execute('INSERT INTO users(username,email) VALUES(?,?)', (username, email))
@@ -342,7 +343,7 @@ class AccountLifecycleTests(unittest.TestCase):
         self.activation(False, username='other-admin')
         self.activation(True, username='other-admin')
         self.assertEqual(self.activation(False, actor='other-admin').status_code, 401)
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.execute("UPDATE users SET role_tags=? WHERE username='other-admin'", (json.dumps(['Employe']),))
         response = self.client.patch('/users/employee/activation', json={'is_active': False}, headers=self.headers('other-admin', 2))
         self.assertEqual(response.status_code, 403)

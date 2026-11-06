@@ -1,6 +1,6 @@
 import { personDisplayName } from '../personDisplayName'
 import { useCallback, useState } from 'react'
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, TextField, Tooltip, Typography } from '@mui/material'
 import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded'
 import { useQuery } from '@tanstack/react-query'
 import { request } from '../api'
@@ -16,6 +16,7 @@ interface Profile {
   username: string; name: string; display_name?: string; full_name?: string | null; manager_name?: string; groups: string[]; manager: string | null; year: number; months: MonthlyProfile[];
   legacy_unbound_sheets: number; attendance_incomplete: boolean; signatures_available: boolean;
   can_view_personnel_data?: boolean;
+  leave_totals?: { approved_days: number; incomplete: boolean; unverified_requests: number };
 }
 
 function ProfileSignedPreview({ token, archiveId, filename, onClose }: { token: string; archiveId: string; filename: string; onClose: () => void }) {
@@ -54,6 +55,14 @@ export function PersonProfile({ username, token, viewer, onClose }: { username: 
         {!!data.legacy_unbound_sheets && <Alert severity="warning" sx={{ mb: 2 }}>{data.legacy_unbound_sheets} ancienne(s) fiche(s) sans rattachement mensuel : non réparties entre les mois.</Alert>}
         {data.attendance_incomplete && <Alert severity="warning" sx={{ mb: 2 }}>Certaines anciennes configurations ne peuvent pas être lues. Le relevé des présences peut être incomplet.</Alert>}
         {!data.signatures_available && <Alert severity="warning" sx={{ mb: 2 }}>Historique des envois indisponible : aucun statut de signature ne peut être déduit.</Alert>}
+        {data.leave_totals && <Tooltip title={data.leave_totals.incomplete
+          ? `${data.leave_totals.unverified_requests} ancienne(s) demande(s) sans durée vérifiable : total partiel.`
+          : 'Demandes approuvées, dates futures incluses. Demi-journée = 0,5 jour. Repos, jours fériés et doublons exclus.'}>
+          <Paper variant="outlined" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, mb: 1.5 }}>
+            <Typography variant="body2" sx={{ flex: 1 }}>Congés approuvés · {year}{data.leave_totals.incomplete ? ' · À vérifier' : ''}</Typography>
+            <Typography sx={{ fontWeight: 600 }}>{new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(data.leave_totals.approved_days)} jour(s){data.leave_totals.incomplete ? ' confirmés' : ''}</Typography>
+          </Paper>
+        </Tooltip>}
         <Box component="section" aria-label={`Détails · ${periodLabel(month, year)}`} sx={{ minWidth: 0 }}>
           {detail ? <ProfileMonth key={`${year}-${month}`} item={detail} year={year} current={year === today.getFullYear() && month === today.getMonth() + 1} signaturesAvailable={data.signatures_available} onPreview={(id, selectedMonth) => setPreview({ id, month: selectedMonth })} /> : <Typography color="text.secondary">Aucune donnée disponible pour ce mois.</Typography>}
         </Box>

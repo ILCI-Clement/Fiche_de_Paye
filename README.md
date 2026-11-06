@@ -15,3 +15,5 @@
 安装当前 Python 依赖使用 `python -m pip install -r requirements.txt`，开发依赖使用 `requirements-dev.txt`。前端在 `frontend/` 通过 `npm ci` 安装。依赖列表只保留直接使用的软件包，不再默认安装 Streamlit。
 
 历史日志、报告和路径描述可用于查阅过往版本；当前定位以模块索引为准。备案标签为 `archive/streamlit-20261023`，独立源码包及恢复步骤见备案目录。
+
+- [测试流程与耗时优化](doc/test-workflow.md)：完整/按模块测试、慢项定位及旧 API 代码备案。

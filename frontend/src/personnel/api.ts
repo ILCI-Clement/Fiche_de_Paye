@@ -1,4 +1,5 @@
 import { request } from '../api'
+import type { OrganizationInput } from '../admin/api'
 
 export type PersonnelType = '' | 'salarie' | 'stagiaire' | 'alternance'
 export type ContractType = '' | 'CDI' | 'CDD' | 'stage' | 'autre'
@@ -12,6 +13,7 @@ export interface EmploymentInput {
 }
 export interface EmploymentPeriod extends EmploymentInput { period_id: number; account_contract_id?: number | null }
 export interface PersonnelInput {
+  email?: string;
   full_name: string; last_name: string; first_name: string; nationality: string; sex: '' | 'F' | 'M'; address: string;
   birth_date: string | null; job_title: string; qualification: string;
   personnel_type: PersonnelType; linked_username: string | null;
@@ -26,7 +28,7 @@ export interface Employee extends PersonnelInput {
   registration_schema_version: number;
   latest_period: EmploymentPeriod | null; status: EmploymentStatus; created_at: string; updated_at: string;
 }
-export interface PersonnelDetail { employee: Employee; periods: EmploymentPeriod[] }
+export interface PersonnelDetail { employee: Employee; periods: EmploymentPeriod[]; account_creation?: { created: boolean; welcome_email_sent: boolean } }
 export interface PersonnelList {
   employees: Employee[]; total: number; page: number; page_size: number;
 }
@@ -50,19 +52,20 @@ export interface RegistryEvent {
 const path = '/personnel-register'
 const body = (method: string, value: unknown) => ({ method, body: JSON.stringify(value) })
 export const personnelApi = {
+  emailAvailability: (token: string, email: string, employeeId?: number, signal?: AbortSignal) => request<{ available: boolean }>(`${path}/email-availability?${new URLSearchParams({ email, ...(employeeId ? { employee_id: String(employeeId) } : {}) })}`, token, { signal, cache: 'no-store' }),
   capabilities: (token: string, signal?: AbortSignal) => request<{ nir_enabled: boolean }>(`${path}/capabilities`, token, { signal, cache: 'no-store' }),
   list: (token: string, filters: PersonnelFilters, signal?: AbortSignal) => {
     const params = new URLSearchParams(Object.entries(filters).map(([key, value]) => [key, String(value)]))
     return request<PersonnelList>(`${path}?${params}`, token, { signal })
   },
-  exportExcel: (token: string, filters: PersonnelFilters, signal: AbortSignal) => {
+  exportFile: (token: string, filters: PersonnelFilters, signal: AbortSignal, format: 'pdf' | 'xlsx' = 'pdf') => {
     const { q, personnel_type, archive, status } = filters
-    return request<{ blob: Blob; filename: string }>(`${path}/export.xlsx`, token,
+    return request<{ blob: Blob; filename: string }>(`${path}/export.${format}`, token,
       { ...body('POST', { q, personnel_type, archive, status, confirm_sensitive_export: true }), signal, cache: 'no-store' },
       { blob: true, timeout: 120000 })
   },
   detail: (token: string, id: number, signal?: AbortSignal) => request<PersonnelDetail>(`${path}/${id}`, token, { signal }),
-  create: (token: string, data: PersonnelWriteInput & { initial_period?: EmploymentInput }) => request<PersonnelDetail>(path, token, body('POST', data)),
+  create: (token: string, data: PersonnelWriteInput & { initial_period?: EmploymentInput; account?: Omit<OrganizationInput, 'employee_type'> }) => request<PersonnelDetail>(path, token, body('POST', data), { timeout: 90000 }),
   update: (token: string, id: number, data: PersonnelWriteInput, version: number) => request<PersonnelDetail>(`${path}/${id}`, token, body('PUT', { ...data, expected_version: version })),
   revealSocialSecurityNumber: (token: string, id: number, signal: AbortSignal) => request<{ social_security_number: string }>(`${path}/${id}/social-security-number/reveal`, token, { method: 'POST', signal, cache: 'no-store' }),
   archive: (token: string, id: number, archived: boolean, version: number) => request<PersonnelDetail>(`${path}/${id}/archive`, token, body('PATCH', { is_archived: archived, expected_version: version })),

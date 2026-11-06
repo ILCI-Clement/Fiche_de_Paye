@@ -3,12 +3,8 @@ import copy
 from fastapi import HTTPException
 from datetime import date
 from calendar import monthrange
-if __package__:
-    from .role_policy import is_admin, is_super_admin
-    from .destructive_audit import append_deletion_event, append_archive_event
-else:
-    from role_policy import is_admin, is_super_admin
-    from destructive_audit import append_deletion_event, append_archive_event
+from .role_policy import is_admin, is_super_admin
+from .destructive_audit import append_deletion_event, append_archive_event
 
 ATTENDANCE_FIELDS = {'vacances', 'absences', 'arret', 'calendar_overrides', 'planning_detail', 'nb_jours', 'nb_heures_jour'}
 

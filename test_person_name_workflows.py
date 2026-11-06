@@ -2,6 +2,7 @@
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+from test_support.sqlite_fixtures import connect_fixture
 import tempfile
 import unittest
 from unittest.mock import MagicMock
@@ -44,7 +45,7 @@ class LeavePersonNameTests(unittest.TestCase):
         self.addCleanup(self.client.close)
 
     def connect(self):
-        db = sqlite3.connect(self.path)
+        db = connect_fixture(self.path)
         db.row_factory = sqlite3.Row
         return db
 

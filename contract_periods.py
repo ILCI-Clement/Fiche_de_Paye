@@ -15,18 +15,23 @@ def matching_contracts(contracts, month, year):
             and (not c.get('end_date') or day(c['end_date']) >= first)]
 
 
-def bind_contract(fiche, contract, month, year):
+def contract_values(contract, month, year):
     start = day(contract['start_date'])
     end = day(contract['end_date']) if contract.get('end_date') else None
-    fiche.update(contract_id=contract['id'], contract_snapshot=dict(contract), sheet_month=month, sheet_year=year,
+    values = dict(contract_id=contract['id'], contract_snapshot=dict(contract), sheet_month=month, sheet_year=year,
                  sheet_period_start=max(start,date(year,month,1)).isoformat(),
                  sheet_period_end=min(end or date.max,date(year,month,monthrange(year,month)[1])).isoformat())
-    fiche['id'] = uuid4().hex
     intern = contract['employee_type'] == 'stagiaire'
-    fiche['type'] = 'Stagiaire' if intern else 'Salarié'
-    fiche['dds' if intern else 'ddc'] = start
-    fiche['fds' if intern else 'fdc'] = end if end else 'Pas de fin'
-    fiche['cdi'] = bool(contract['is_cdi']) if not intern else False
+    values['type'] = 'Stagiaire' if intern else 'Salarié'
+    values['dds' if intern else 'ddc'] = start
+    values['fds' if intern else 'fdc'] = end if end else 'Pas de fin'
+    values['cdi'] = bool(contract['is_cdi']) if not intern else False
+    return values
+
+
+def bind_contract(fiche, contract, month, year):
+    fiche.update(contract_values(contract, month, year))
+    fiche['id'] = uuid4().hex
     return fiche
 
 

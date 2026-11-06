@@ -3,12 +3,9 @@ from datetime import date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, EmailStr, TypeAdapter, field_validator, model_validator
 
-try:
-    from .personnel_sensitive import NirProtectionError, normalize_social_security_number
-except ImportError:
-    from personnel_sensitive import NirProtectionError, normalize_social_security_number
+from .personnel_sensitive import NirProtectionError, normalize_social_security_number
 
 
 PersonnelType = Literal['', 'salarie', 'stagiaire', 'alternance']
@@ -74,6 +71,13 @@ class PeriodInput(RegisterInput):
 
 
 class EmployeeInput(RegisterInput):
+    email: str = Field(default='', max_length=254)
+
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, value):
+        return str(TypeAdapter(EmailStr).validate_python(value)) if value else ''
+
     full_name: str = Field(default='', max_length=200)
     last_name: str = Field(default='', max_length=100)
     first_name: str = Field(default='', max_length=100)
@@ -136,11 +140,21 @@ class EmployeeInput(RegisterInput):
         return value or None
 
 
+class RegistrationAccount(RegisterInput):
+    role_tags: list[str] = Field(default_factory=lambda: ['Employe'], min_length=1, max_length=4)
+    group_ids: list[int] = Field(default_factory=list, max_length=100)
+    managed_group_ids: list[int] = Field(default_factory=list, max_length=100)
+    manager_id: str | None = Field(default=None, max_length=255)
+
+
 class EmployeeCreate(EmployeeInput):
     initial_period: PeriodInput | None = None
+    account: RegistrationAccount | None = None
 
     @model_validator(mode='after')
     def required_registration(self):
+        if self.account and (self.linked_username or not self.email):
+            raise ValueError('Renseignez un e-mail et choisissez soit un nouveau compte, soit un compte existant.')
         missing = registration_missing(self.model_dump(), self.initial_period.model_dump() if self.initial_period else None)
         if missing:
             raise ValueError('Champs obligatoires : ' + ', '.join(missing) + '.')

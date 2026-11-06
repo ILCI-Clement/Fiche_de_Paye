@@ -9,6 +9,8 @@ export interface WorkDestination {
   month?: number
   year?: number
   view?: 'editing' | 'signed'
+  snapshots?: boolean
+  completion?: string
 }
 export type WorkRequest = WorkDestination & { sequence: number }
 export const WorkspaceNavigation = createContext<{ request: WorkRequest | null; navigate: (destination: WorkDestination) => void } | null>(null)

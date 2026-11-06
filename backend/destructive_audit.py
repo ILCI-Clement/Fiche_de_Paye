@@ -3,7 +3,7 @@ import json
 
 
 RESOURCE_TYPES = frozenset({'account', 'personnel', 'document', 'contract', 'group',
-                            'leave_request', 'annual_interview', 'attendance_sheet'})
+                            'leave_request', 'annual_interview', 'attendance_sheet', 'signed_fiche', 'medical_visit'})
 COUNT_FIELDS = frozenset({'deleted_records', 'deleted_files', 'period_count', 'history_count',
                          'contract_count', 'document_count', 'sheet_count', 'membership_count',
                          'request_count', 'interview_count', 'affected_people', 'confirmed',

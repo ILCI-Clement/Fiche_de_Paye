@@ -1,6 +1,7 @@
 """Isolated HTTP/transaction checks. No production or snapshot connections or files."""
 import json
 import sqlite3
+from test_support.sqlite_fixtures import connect_fixture
 import tempfile
 import unittest
 from contextlib import closing
@@ -29,7 +30,7 @@ class Cursor:
 
 class Connection:
     def __init__(self, path):
-        self.db = sqlite3.connect(path)
+        self.db = connect_fixture(path)
         self.db.row_factory = sqlite3.Row
     def cursor(self): return Cursor(self.db)
     def commit(self): self.db.commit()
@@ -44,7 +45,7 @@ class MaintenanceTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / 'test.sqlite'
-        with closing(sqlite3.connect(self.path)) as db:
+        with closing(connect_fixture(self.path)) as db:
             db.executescript('''
                 CREATE TABLE users (username TEXT PRIMARY KEY,email TEXT,role_tags TEXT,
                     is_active INTEGER DEFAULT 1,session_version INTEGER DEFAULT 0,
@@ -87,7 +88,7 @@ class MaintenanceTests(unittest.TestCase):
         if user: user['role_tags'] = json.loads(user['role_tags'])
         return user
     def sql(self, sql, params=()):
-        with closing(sqlite3.connect(self.path)) as db:
+        with closing(connect_fixture(self.path)) as db:
             rows = db.execute(sql, params).fetchall()
             db.commit()
             return rows

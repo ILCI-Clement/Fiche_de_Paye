@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+from test_support.sqlite_fixtures import connect_fixture
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -70,7 +71,7 @@ class Cursor:
 class Connection:
     def __init__(self, fixture):
         self.fixture = fixture
-        self.db = sqlite3.connect(fixture.path, timeout=10, isolation_level=None)
+        self.db = connect_fixture(fixture.path, timeout=10, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.create_function('UNIX_TIMESTAMP', 1, lambda value:
             datetime.fromisoformat(value).replace(tzinfo=timezone.utc).timestamp() if value else None)
@@ -95,7 +96,7 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
         self.fail_audit = False
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.executescript('''CREATE TABLE users (
                 username TEXT PRIMARY KEY,email TEXT UNIQUE,role_tags TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1,session_version INTEGER NOT NULL DEFAULT 0,
@@ -169,7 +170,7 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
 
     def rows(self, table):
         self.assertIn(table, {'users', 'personnel_contracts', 'personnel_register', 'personnel_register_periods', 'personnel_register_events'})
-        with closing(sqlite3.connect(self.path)) as db:
+        with closing(connect_fixture(self.path)) as db:
             db.row_factory = sqlite3.Row
             return [dict(row) for row in db.execute('SELECT * FROM ' + table)]
 
@@ -177,7 +178,7 @@ class PersonnelSensitiveHTTPTests(unittest.TestCase):
         return next(row for row in self.rows('personnel_register') if row['employee_id'] == employee['employee_id'])
 
     def raw_update(self, sql, params):
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.execute(sql, params)
 
     def assert_safe(self, value):

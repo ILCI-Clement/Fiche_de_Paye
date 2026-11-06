@@ -1,19 +1,12 @@
-"""Authenticated paid leave routes; no attendance, mail or balance side effects."""
+"""Authenticated leave routes with transactional attendance synchronization."""
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Query
 from pydantic import EmailStr, TypeAdapter, ValidationError
-if __package__:
-    from .person_names import person_display_name
-else:
-    from person_names import person_display_name
+from .person_names import person_display_name
 
-if __package__:
-    from .leave_rules import LeaveInput, LeaveDecision, can_review, display_name, roles
-    from .leave_store import LeaveStore, ensure_leave_schema, iso, timestamp
-else:
-    from leave_rules import LeaveInput, LeaveDecision, can_review, display_name, roles
-    from leave_store import LeaveStore, ensure_leave_schema, iso, timestamp
+from .leave_rules import LeaveInput, LeaveDecision, can_review, display_name, roles
+from .leave_store import LeaveStore, ensure_leave_schema, iso, timestamp
 
 
 _HISTORICAL_EMAIL = TypeAdapter(EmailStr)
@@ -52,6 +45,12 @@ def projection(row, actor, names=None):
         'employee_name': person_display_name({'username': row.get('employee_username'), 'email': row.get('current_email')}, names),
         'approver_name': person_display_name({'username': current_manager, 'email': row.get('manager_email')}, names) if current_manager else 'Administration',
         'is_archived': bool(row.get('is_archived', False)),
+        'cancellation_status': row.get('cancellation_status') or '',
+        'can_request_cancellation': not row.get('is_archived') and row['status'] == 'approved'
+            and row.get('cancellation_status') != 'pending' and row['employee_username'] == actor['username'],
+        'can_review_cancellation': not row.get('is_archived') and row['status'] == 'approved'
+            and row.get('cancellation_status') == 'pending' and row['employee_username'] != actor['username']
+            and can_review(actor, row['employee_username'], current_manager),
         'can_review': not row.get('is_archived') and row['status'] == 'pending' and can_review(actor, row['employee_username'], current_manager),
         'can_withdraw': not row.get('is_archived') and row['status'] == 'pending' and row['employee_username'] == actor['username'],
     }
@@ -64,7 +63,7 @@ def require_visible(row, actor):
         raise HTTPException(403, 'Cette demande ne vous est pas accessible.')
 
 
-def register_leave_routes(app, *, get_db_connection, get_current_user):
+def register_leave_routes(app, *, get_db_connection, get_current_user, attendance=None, notifications=None):
     @app.on_event('startup')
     def migrate_leave():
         ensure_leave_schema(get_db_connection)
@@ -84,7 +83,7 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
 
     @app.get('/leave-requests')
     def list_requests(scope: Literal['mine', 'team'] = 'mine',
-                      status: Literal['all', 'pending', 'approved', 'rejected'] = 'all',
+                      status: Literal['all', 'pending', 'approved', 'rejected', 'cancelled'] = 'all',
                       page: int = Query(default=1, ge=1),
                       page_size: int = Query(default=12, ge=1, le=50),
                       actor=Depends(get_current_user)):
@@ -103,14 +102,17 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
                    LEFT JOIN users m ON m.username=u.manager_username'''
         with LeaveStore(get_db_connection) as store:
             store.execute(f'''SELECT COUNT(*) AS total,
-                COALESCE(SUM(CASE WHEN r.status='pending' THEN 1 ELSE 0 END),0) AS pending,
+                COALESCE(SUM(CASE WHEN r.status='pending' OR (r.status='approved' AND r.cancellation_status='pending') THEN 1 ELSE 0 END),0) AS pending,
                 COALESCE(SUM(CASE WHEN r.status='approved' THEN 1 ELSE 0 END),0) AS approved,
                 COALESCE(SUM(CASE WHEN r.status='rejected' THEN 1 ELSE 0 END),0) AS rejected
                 {joins} WHERE {condition}''', tuple(params))
             counts = store.one()
             if status != 'all':
-                condition += ' AND r.status=%s'
-                params.append(status)
+                if status == 'pending':
+                    condition += " AND (r.status='pending' OR (r.status='approved' AND r.cancellation_status='pending'))"
+                else:
+                    condition += ' AND r.status=%s'
+                    params.append(status)
             store.execute(f'SELECT COUNT(*) AS total {joins} WHERE {condition}', tuple(params))
             total = store.one()['total']
             store.execute(f'''SELECT r.*,u.email AS current_email,m.email AS manager_email,
@@ -135,6 +137,7 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
                  payload.start_slot, payload.end_slot, payload.note, now, now))
             request_id = store.cursor.lastrowid
             store.event(request_id, actor, 'submitted', None, 'pending', payload.note)
+            if notifications is not None: notifications.enqueue(store, request_id, 'submitted')
             return projection(store.request(request_id), actor, store.person_names())
 
     @app.get('/leave-requests/{request_id}')
@@ -151,8 +154,10 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
             names = store.person_names()
         return {'request': projection(row, actor, names), 'history': history}
 
-    def transition(request_id, actor, new_status, comment=''):
+    def transition(request_id, actor, new_status, comment='', attendance_confirmation=None):
         with LeaveStore(get_db_connection, write=True) as store:
+            if attendance is not None:
+                attendance.lock(store)
             row = store.request(request_id, lock=True)
             require_visible(row, actor)
             if row.get('is_archived'):
@@ -164,12 +169,16 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
                 raise HTTPException(403, 'Seul le responsable actuel ou un Admin peut traiter cette demande.')
             if row['status'] != 'pending':
                 raise HTTPException(409, 'Cette demande a déjà été traitée ou retirée. Actualisez la liste.')
+            if new_status == 'approved' and attendance is not None:
+                attendance.apply(store, row, actor, 'approve', attendance_confirmation)
             store.execute("UPDATE leave_requests SET status=%s,updated_at=%s WHERE id=%s AND status='pending'",
                           (new_status, timestamp(), request_id))
             if store.cursor.rowcount != 1:
                 raise HTTPException(409, 'Cette demande vient de changer. Actualisez la liste.')
             action = 'withdrawn' if new_status == 'withdrawn' else 'decided'
             store.event(request_id, actor, action, 'pending', new_status, comment.strip())
+            if notifications is not None and new_status in {'approved','rejected'}:
+                notifications.enqueue(store, request_id, new_status)
             return projection(store.request(request_id), actor, store.person_names())
 
     @app.post('/leave-requests/{request_id}/withdraw')
@@ -178,4 +187,62 @@ def register_leave_routes(app, *, get_db_connection, get_current_user):
 
     @app.post('/leave-requests/{request_id}/decision')
     def decide(request_id: int, payload: LeaveDecision, actor=Depends(get_current_user)):
-        return transition(request_id, actor, payload.decision, payload.comment)
+        return transition(request_id, actor, payload.decision, payload.comment, payload.attendance_confirmation)
+
+    def cancellation(request_id, actor, payload=None):
+        with LeaveStore(get_db_connection, write=True) as store:
+            if attendance is not None:
+                attendance.lock(store)
+            row = store.request(request_id, lock=True)
+            require_visible(row, actor)
+            if row.get('is_archived') or row['status'] != 'approved':
+                raise HTTPException(409, 'Seul un congé approuvé et non archivé peut être annulé.')
+            if payload is None:
+                if row['employee_username'] != actor['username']:
+                    raise HTTPException(403, 'Vous pouvez uniquement demander l’annulation de vos propres congés.')
+                if row.get('cancellation_status') == 'pending':
+                    raise HTTPException(409, 'Une demande d’annulation est déjà en attente.')
+                result, status, action, comment = 'pending', 'approved', 'cancel_requested', ''
+            else:
+                if row['employee_username'] == actor['username'] or not can_review(actor, row['employee_username'], row.get('current_manager')):
+                    raise HTTPException(403, 'Seul le responsable actuel ou un autre Admin peut traiter cette annulation.')
+                if row.get('cancellation_status') != 'pending':
+                    raise HTTPException(409, 'Aucune annulation en attente. Actualisez la liste.')
+                result = payload.decision
+                status = 'cancelled' if result == 'approved' else 'approved'
+                action = 'cancel_approved' if result == 'approved' else 'cancel_rejected'
+                comment = payload.comment.strip()
+                if result == 'approved' and attendance is not None:
+                    attendance.apply(store, row, actor, 'cancel', payload.attendance_confirmation)
+            store.execute('UPDATE leave_requests SET status=%s,cancellation_status=%s,updated_at=%s WHERE id=%s',
+                          (status, result, timestamp(), request_id))
+            store.event(request_id, actor, action, row['status'], status, comment)
+            if notifications is not None:
+                notifications.enqueue(store, request_id, 'cancel_requested' if payload is None else action)
+            return projection(store.request(request_id), actor, store.person_names())
+
+    @app.post('/leave-requests/{request_id}/cancellation')
+    def request_cancellation(request_id: int, actor=Depends(get_current_user)):
+        return cancellation(request_id, actor)
+
+    @app.post('/leave-requests/{request_id}/cancellation-decision')
+    def decide_cancellation(request_id: int, payload: LeaveDecision, actor=Depends(get_current_user)):
+        return cancellation(request_id, actor, payload)
+
+    @app.get('/leave-requests/{request_id}/attendance-preview')
+    def attendance_preview(request_id: int, operation: Literal['approve', 'cancel'], actor=Depends(get_current_user)):
+        if attendance is None:
+            raise HTTPException(503, 'La synchronisation des présences est indisponible.')
+        with LeaveStore(get_db_connection, write=True) as store:
+            if attendance is not None:
+                attendance.lock(store)
+            row = store.request(request_id, lock=True)
+            require_visible(row, actor)
+            if not can_review(actor, row['employee_username'], row.get('current_manager')):
+                raise HTTPException(403, 'Seul le responsable actuel ou un Admin peut vérifier cette synchronisation.')
+            if row.get('is_archived') or (operation == 'approve' and row['status'] != 'pending') or (
+                operation == 'cancel' and (row['status'] != 'approved' or row.get('cancellation_status') != 'pending')):
+                raise HTTPException(409, 'Cette demande a changé. Actualisez la liste.')
+            if operation == 'cancel' and row['employee_username'] == actor['username']:
+                raise HTTPException(403, 'Vous ne pouvez pas approuver votre propre annulation.')
+            return attendance.prepare(store, row, actor, operation)['public']

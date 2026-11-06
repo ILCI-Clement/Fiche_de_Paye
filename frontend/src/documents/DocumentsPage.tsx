@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, MenuItem, Paper, Pagination, Snackbar, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material'
 import SearchRounded from '@mui/icons-material/SearchRounded'
 import CloseRounded from '@mui/icons-material/CloseRounded'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { alpha } from '@mui/material/styles'
 import type { Session } from '../types'
 import { downloadFile } from '../download'
@@ -22,8 +22,13 @@ import { BatchExportResult } from '../components/BatchExportResult'
 import type { ExportResult } from '../components/BatchExportResult'
 import { periodLabel } from './api'
 import { matchesDocumentSearch } from './documentSearch'
+import { FileBatchDialog } from '../components/FileBatchDialog'
+import { fileActionLabels } from '../fileBatch'
+import type { FileAction } from '../fileBatch'
 
 export function DocumentsPage({ token, session }: { token: string; session: Session }) {
+  const queryClient = useQueryClient()
+  const [batch, setBatch] = useState<{ action: FileAction; items: Receipt[]; archived: boolean } | null>(null)
   const admin = isAdmin(session)
   const superAdmin = isSuperAdmin(session)
   const manager = session.role_tags.includes('Responsable')
@@ -131,6 +136,11 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center', '& .MuiButton-root': { minHeight: 32, py: .5 } }}>
         <Button disabled={busy || !visible.length || !!list.error} onClick={() => setSelected(allSelected ? [] : visible.map(r => r.id))}>{allSelected ? 'Tout désélectionner' : `Tout sélectionner (${visible.length})`}</Button>
         <Button variant="contained" disabled={busy || !selection.length || selection.length > 100 || totalBytes > 100 * 1024 * 1024 || !!list.error} onClick={() => void exportSelection()}>Télécharger le ZIP ({selection.length})</Button>
+        {selection.length > 0 && (admin || (!manager && selection.every(r => r.uploaded_by === session.username || r.employee_username === session.username))) && <Button
+          disabled={busy || selection.length > 100 || !!list.error} onClick={() => setBatch({ action: archived ? 'restore' : 'archive', items: [...selection], archived })}>
+          {archived ? 'Restaurer' : 'Archiver'} ({selection.length})</Button>}
+        {superAdmin && archived && selection.length > 0 && <Button color="error" disabled={busy || selection.length > 100 || !!list.error}
+          onClick={() => setBatch({ action: 'delete', items: [...selection], archived })}>Supprimer ({selection.length})</Button>}
         <Typography variant="caption" color="text.secondary">100 fichiers / 100 Mo maximum · {(totalBytes / 1024 / 1024).toFixed(1)} Mo sélectionnés</Typography>
       </Box>
     </Paper>
@@ -157,6 +167,18 @@ export function DocumentsPage({ token, session }: { token: string; session: Sess
       <Typography variant="caption" color="text.secondary">{(currentPage - 1) * 20 + 1}–{Math.min(currentPage * 20, visible.length)} sur {visible.length} · 20 par page</Typography>
       <Pagination count={pageCount} page={currentPage} disabled={busy} onChange={(_, value) => setPage(value)} color="primary" size="small" aria-label="Pagination des documents" />
     </Box>}
+    {batch && <FileBatchDialog action={batch.action} items={batch.items.map(r => `${r.document_number || '#' + r.id} · ${r.original_filename}`)}
+      onClose={() => setBatch(null)} onConfirm={async confirmation => {
+        if (lock.current) throw new Error('Une opération est déjà en cours.')
+        lock.current = true; setBusy(true); setError('')
+        try {
+          const result = await documentsApi.batch(token, batch.items.map(r => r.id), batch.action, batch.archived, confirmation)
+          setSelected([]); setPage(1); setMessageSeverity(result.cleanup_pending ? 'warning' : 'success')
+          setMessage(result.cleanup_pending ? 'Documents retirés ; nettoyage des fichiers à terminer par la maintenance.' : `${result.count} fichier(s) : ${fileActionLabels[batch.action].toLowerCase()}.`)
+          await Promise.all(['documents', 'person-profile', 'work-center'].map(key => queryClient.invalidateQueries({ queryKey: [key] })))
+        } catch (failure) { await list.refetch(); throw failure }
+        finally { lock.current = false; setBusy(false) }
+      }} />}
     {preview && <DocumentPreview key={preview.id} token={token} receipt={preview} onClose={() => setPreview(null)} />}
     <Snackbar open={!!message} autoHideDuration={5000} onClose={() => setMessage('')}><Alert severity={messageSeverity} variant="filled" onClose={() => setMessage('')}>{message}</Alert></Snackbar>
   </Box>

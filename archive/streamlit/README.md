@@ -32,3 +32,6 @@ New-Item -ItemType Directory -Path .streamlit -Force | Out-Null
 也可通过 Git 标签导出原始源码：`git archive --format=zip --output=streamlit-source.zip archive/streamlit-20261023`。本目录中的 ZIP 本身可用于没有 Git 历史的源码下载包。
 
 不要将备案后端直接作为生产回退入口。线上仍运行的 `presence-interface` 与 flat API 是独立部署，未在此次本地整理中停止；上线时按 `backend/README.md` 比较、备份和分步处理。
+
+
+2026-10-30 update: production Streamlit and standalone flat API services are now stopped and masked. This archive is for offline recovery/reference only; routine deployments run solely `backend.rebuild_server:app` and the React frontend. See [retirement verification](../../doc/releases/retire-legacy-20261030.md).

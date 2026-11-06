@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { CompletionDot } from '../components/CompletionDot'
+import { useEffect, useRef, useState } from 'react'
+import { useWorkNavigation, type WorkRequest } from '../workspaceNavigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
 import LinkOutlined from '@mui/icons-material/LinkOutlined'
 import { useDraftGuard } from '../draftGuard'
@@ -12,18 +14,33 @@ import type { AccountPersonnel, PersonnelChoice } from './accountPersonnelApi'
 import { EmploymentSummary, PersonnelInformation } from '../personnel/PersonnelInformation'
 
 /** Account-bound self-service data; only the server can enable association edits. */
-export function AccountPersonnelSection({ token, username, viewer, disabled = false, embedded = false }: { token: string; username: string; viewer: string; disabled?: boolean; embedded?: boolean }) {
+export function AccountPersonnelSection({ token, username, viewer, disabled = false, embedded = false, completionIssues = [], completion }: { completion?: WorkRequest; token: string; username: string; viewer: string; disabled?: boolean; embedded?: boolean; completionIssues?: string[] }) {
+  const navigation = useWorkNavigation()
+  const applied = useRef<number | undefined>(undefined)
+  const [expanded, setExpanded] = useState(false)
   const client = useQueryClient()
   const profile = useQuery({ queryKey: ['account-personnel', viewer, username], queryFn: ({ signal }) => accountPersonnelApi.get(token, username, signal), retry: false, gcTime: 0 })
   const [editing, setEditing] = useState(false)
   const [message, setMessage] = useState('')
   const data = profile.data, employee = data?.employee
+  const [openedCompletion, setOpenedCompletion] = useState<number | undefined>(undefined)
+  if (completion?.completion && data && openedCompletion !== completion.sequence) {
+    setOpenedCompletion(completion.sequence)
+    setExpanded(true)
+    if (data.can_manage_link && !employee) setEditing(true)
+  }
+  useEffect(() => {
+    if (!completion?.completion || !data || applied.current === completion.sequence) return
+    applied.current = completion.sequence
+    if (employee && data.can_manage_link && !employee.is_archived && completion.completion !== 'register_link') {
+      navigation?.navigate({ page: 'personnel', employeeId: employee.employee_id, completion: completion.completion })
+    }
+  }, [completion, data, employee, navigation])
   const content = <>
         {profile.isPending ? <CircularProgress size={24} /> : profile.error ? <Alert severity="error">{profile.error.message}<Button onClick={() => void profile.refetch()}>Réessayer</Button></Alert> : data && <>
           <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 2 }}>
             {employee && <Chip size="small" variant="outlined" label={`Registre n° ${employee.registration_number}`} />}
             {employee?.is_archived && <Chip size="small" label="Fiche archivée" />}
-            <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>Informations en lecture seule, tenues à jour par un administrateur.</Typography>
             {data.can_manage_link && <Button startIcon={<LinkOutlined />} size="small" disabled={disabled} onClick={() => { setMessage(''); setEditing(true) }}>{employee ? 'Modifier l’association' : 'Associer une fiche'}</Button>}
           </Box>
           {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
@@ -34,13 +51,12 @@ export function AccountPersonnelSection({ token, username, viewer, disabled = fa
               <TableHead><TableRow><TableCell>Date d’entrée</TableCell><TableCell>Sortie effective</TableCell><TableCell>Fin prévue du contrat</TableCell><TableCell>Contrat</TableCell></TableRow></TableHead>
               <TableBody>{data.periods.map(period => <TableRow key={period.period_id}><TableCell>{dateLabel(period.entry_date)}</TableCell><TableCell>{dateLabel(period.actual_exit_date)}</TableCell><TableCell>{dateLabel(period.exit_date)}</TableCell><TableCell>{contractLabel(period)}<EmploymentSummary period={period} /></TableCell></TableRow>)}</TableBody>
             </Table>}
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>La sortie effective est renseignée par un administrateur. Elle ne correspond pas automatiquement à la fin prévue du contrat.</Typography>
           </>}
         </>}
   </>
   return <>
-    {embedded ? <Paper sx={{ p: { xs: 2, md: 3 }, width: '100%' }}>{content}</Paper> : <Accordion disableGutters sx={{ mb: 2 }}>
-      <AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography>Données du registre du personnel</Typography></AccordionSummary>
+    {embedded ? <Paper sx={{ p: { xs: 2, md: 3 }, width: '100%' }}>{content}</Paper> : <Accordion expanded={expanded} onChange={(_, value) => setExpanded(value)} disableGutters sx={{ mb: 2 }}>
+      <AccordionSummary expandIcon={<ExpandMoreRounded />}><Typography><CompletionDot issues={completionIssues} />Données du liste des utilisateurs</Typography></AccordionSummary>
       <AccordionDetails>{content}</AccordionDetails>
     </Accordion>}
     {editing && data?.can_manage_link && <AssociationDialog token={token} username={username} viewer={viewer} initial={data} onClose={() => setEditing(false)} onSaved={async result => {
@@ -57,7 +73,7 @@ function AssociationDialog({ token, username, viewer, initial, onClose, onSaved 
   const choices = useQuery({ queryKey: ['account-personnel-choices', viewer, username, search], queryFn: ({ signal }) => accountPersonnelApi.choices(token, username, search, signal), retry: false, gcTime: 0 })
   const action = useRegistryAction()
   const changed = (selected?.employee_id ?? null) !== (initial.employee?.employee_id ?? null)
-  const close = useDraftGuard(changed, action.busy, 'Association au registre du personnel')
+  const close = useDraftGuard(changed, action.busy, 'Association au liste des utilisateurs')
   const options = [...(choices.data?.employees || [])]
   if (selected && !options.some(item => item.employee_id === selected.employee_id)) options.unshift(selected)
   async function save() {
@@ -77,10 +93,10 @@ function AssociationDialog({ token, username, viewer, initial, onClose, onSaved 
     <Box component="form" onSubmit={event => { event.preventDefault(); void save() }}>
       <DialogTitle id="account-register-link-title">Associer une fiche du registre</DialogTitle>
       <DialogContent dividers>
-        <Alert severity="info" sx={{ mb: 2 }}>Choisissez une personne déjà enregistrée. Une fiche ne peut être associée qu’à un seul compte. Les informations et l’historique du registre sont conservés.</Alert>
+        <Tooltip title="Une fiche ne peut être associée qu’à un seul compte."><Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Choisissez une fiche existante.</Typography></Tooltip>
         <Typography variant="body2" sx={{ mb: 1, overflowWrap: 'anywhere' }}>Compte concerné : {initial.account_display_name} · {initial.account_email}</Typography>
         <Typography variant="body2" sx={{ mb: 2 }}>Association actuelle : {initial.employee ? `${initial.employee.full_name} · n° ${initial.employee.registration_number}` : 'Aucune'}</Typography>
-        <TextField fullWidth size="small" label="Rechercher par nom ou numéro" value={search} disabled={action.busy} onChange={event => setSearch(event.target.value)} sx={{ mb: 2 }} />
+        <TextField autoFocus fullWidth size="small" label="Rechercher par nom ou numéro" value={search} disabled={action.busy} onChange={event => setSearch(event.target.value)} sx={{ mb: 2 }} />
         {choices.error && <Alert severity="error" sx={{ mb: 2 }}>{choices.error.message}<Button onClick={() => void choices.refetch()}>Réessayer</Button></Alert>}
         <TextField fullWidth select label="Fiche du registre" value={selected?.employee_id ?? ''} disabled={action.busy || choices.isPending} onChange={event => setSelected(options.find(item => item.employee_id === Number(event.target.value)) || null)}>
           <MenuItem value="">Aucune association</MenuItem>

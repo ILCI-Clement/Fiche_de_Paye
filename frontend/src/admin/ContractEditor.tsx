@@ -1,6 +1,7 @@
 import { FrenchDateField } from '../components/FrenchDateField'
 import { useDraftGuard, useWorkspaceGuard } from '../draftGuard'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useCompletionFocus } from '../components/useCompletionFocus'
 import { Alert, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { adminApi, personnelTypes } from './api'
@@ -27,7 +28,7 @@ export function ContractEditor({ token, username, busy, run, canDelete = false, 
     <TextField select fullWidth label="Contrat à gérer" value={selected} disabled={busy} onChange={e => { const value = e.target.value === '' ? '' : Number(e.target.value); protect(() => setSelected(value)) }}>
       <MenuItem value="">{archived ? 'Sélectionner un contrat archivé' : 'Nouveau contrat'}</MenuItem>{options.map(c => <MenuItem key={c.id} value={c.id}>{c.employee_type} · {c.start_date} → {c.end_date || 'CDI'}</MenuItem>)}
     </TextField>
-    <Typography variant="body2" color="text.secondary" sx={{ my: 2 }}>Les contrats historiques sont conservés. Les périodes ne doivent pas se chevaucher.</Typography>
+    <Typography variant="body2" color="text.secondary" sx={{ my: 2 }}>Les périodes ne doivent pas se chevaucher.</Typography>
     {(!archived || current) && <ContractForm key={`${selected}-${JSON.stringify(current)}`} current={current} busy={busy} disabled={disabled || !!current?.is_archived} save={data => disabled || current?.is_archived ? Promise.resolve(false) : run(() => adminApi.saveContract(token, username, current?.id ?? null, data), 'Contrat enregistré.')} />}
     {current && !readOnly && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
       <Button disabled={busy} onClick={() => protect(() => { setFailed(false); setArchiveConfirm(true) })}>{current.is_archived ? 'Restaurer le contrat' : 'Archiver le contrat'}</Button>
@@ -39,15 +40,17 @@ export function ContractEditor({ token, username, busy, run, canDelete = false, 
 }
 
 export function ContractForm({ current, busy, disabled, save }: { current?: Contract; busy: boolean; disabled: boolean; save: (data: ContractInput) => Promise<boolean> }) {
+  const completionRoot = useRef<HTMLFormElement>(null)
+  useCompletionFocus(completionRoot, !current ? 'contract_start' : undefined)
   const [kind, setKind] = useState(current?.employee_type || 'salarie')
   const [start, setStart] = useState(current?.start_date || '')
   const [end, setEnd] = useState(current?.end_date || '')
   const [cdi, setCdi] = useState(Boolean(current?.is_cdi))
   const [baseline, setBaseline] = useState(() => JSON.stringify([kind, start, end, cdi]))
   useDraftGuard(JSON.stringify([kind, start, end, cdi]) !== baseline, busy, 'Contrat')
-  return <Box component="form" onSubmit={e => { e.preventDefault(); void save({ employee_type: kind, start_date: start, end_date: cdi ? null : end, is_cdi: cdi }).then(ok => { if (ok) setBaseline(JSON.stringify([kind, start, end, cdi])) }) }} sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+  return <Box ref={completionRoot} component="form" onSubmit={e => { e.preventDefault(); void save({ employee_type: kind, start_date: start, end_date: cdi ? null : end, is_cdi: cdi }).then(ok => { if (ok) setBaseline(JSON.stringify([kind, start, end, cdi])) }) }} sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
     <TextField select label="Type de contrat" value={kind} disabled={disabled} onChange={e => { setKind(e.target.value); if (e.target.value === 'stagiaire') setCdi(false) }} sx={{ minWidth: 180 }}>{personnelTypes.map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</TextField>
-    <FrenchDateField label="Début" required value={start} disabled={disabled} onChange={setStart} />
+    <FrenchDateField completionField="contract_start" label="Début" required value={start} disabled={disabled} onChange={setStart} />
     <FormControlLabel control={<Checkbox checked={cdi} disabled={disabled || kind === 'stagiaire'} onChange={e => setCdi(e.target.checked)} />} label="CDI / sans date de fin" />
     {!cdi && <FrenchDateField label="Fin" required value={end} disabled={disabled} onChange={setEnd} min={start || undefined} />}
     <Button type="submit" variant="contained" disabled={disabled}>Enregistrer le contrat</Button>

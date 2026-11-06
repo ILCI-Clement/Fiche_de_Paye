@@ -1,5 +1,6 @@
 """Leave integration tests run solely in a temporary SQLite database."""
 import sqlite3
+from test_support.sqlite_fixtures import connect_fixture
 import tempfile
 import unittest
 from contextlib import closing
@@ -31,7 +32,7 @@ class LeaveWorkflowTests(unittest.TestCase):
         self.addCleanup(self.client.close)
 
     def connect(self):
-        db = sqlite3.connect(self.path)
+        db = connect_fixture(self.path)
         db.row_factory = sqlite3.Row
         return db
 
@@ -45,6 +46,79 @@ class LeaveWorkflowTests(unittest.TestCase):
 
     def decide(self, identifier, decision='approved'):
         return self.client.post(f'/leave-requests/{identifier}/decision',json={'decision':decision,'comment':'Reviewed'})
+
+    def approved_leave(self):
+        identifier = self.create().json()['id']
+        self.as_actor('boss', 'Responsable')
+        self.assertEqual(self.decide(identifier).status_code, 200)
+        self.as_actor('member', 'Employe')
+        return identifier
+
+    def test_approved_cancellation_requires_separate_approval_and_keeps_audit(self):
+        identifier = self.approved_leave()
+        url = f'/leave-requests/{identifier}/cancellation'
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'approved')
+        self.assertEqual(response.json()['cancellation_status'], 'pending')
+        self.assertEqual(self.client.post(url).status_code, 409)
+        self.as_actor('boss', 'Responsable')
+        pending = self.client.get('/leave-requests?scope=team&status=pending').json()
+        self.assertEqual(pending['total'], 1)
+        self.assertTrue(pending['items'][0]['can_review_cancellation'])
+        response = self.client.post(url + '-decision', json={'decision': 'approved'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'cancelled')
+        self.assertEqual(self.client.post(url + '-decision', json={'decision': 'approved'}).status_code, 409)
+        self.as_actor('member', 'Employe')
+        history = self.client.get(f'/leave-requests/{identifier}').json()['history']
+        self.assertEqual([e['action'] for e in history], ['submitted', 'decided', 'cancel_requested', 'cancel_approved'])
+        self.assertEqual(self.client.get('/leave-requests?status=cancelled').json()['total'], 1)
+        self.assertEqual(self.client.get('/leave-requests').json()['counts']['approved'], 0)
+
+    def test_cancellation_rejection_keeps_original_approval(self):
+        identifier = self.approved_leave()
+        url = f'/leave-requests/{identifier}/cancellation'
+        self.client.post(url)
+        self.as_actor('boss', 'Responsable')
+        response = self.client.post(url + '-decision', json={'decision': 'rejected', 'comment': 'Required staffing'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'approved')
+        self.assertEqual(response.json()['cancellation_status'], 'rejected')
+        self.assertEqual(self.client.get('/leave-requests?scope=team&status=pending').json()['total'], 0)
+
+    def test_cancellation_owner_and_current_manager_permissions(self):
+        identifier = self.approved_leave()
+        url = f'/leave-requests/{identifier}/cancellation'
+        self.as_actor('boss', 'Responsable')
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.as_actor('member', 'Employe')
+        self.client.post(url)
+        self.assertEqual(self.client.post(url + '-decision', json={'decision': 'approved'}).status_code, 403)
+        with closing(self.connect()) as db, db:
+            db.execute("UPDATE users SET manager_username='other' WHERE username='member'")
+        self.as_actor('boss', 'Responsable')
+        self.assertEqual(self.client.post(url + '-decision', json={'decision': 'approved'}).status_code, 403)
+        self.as_actor('other', 'Responsable')
+        self.assertEqual(self.client.post(url + '-decision', json={'decision': 'approved'}).status_code, 200)
+
+    def test_pending_or_archived_leave_cannot_request_cancellation_approval(self):
+        identifier = self.create().json()['id']
+        self.assertEqual(self.client.post(f'/leave-requests/{identifier}/cancellation').status_code, 409)
+        self.as_actor('boss', 'Responsable')
+        self.decide(identifier)
+        self.as_actor('member', 'Employe')
+        with closing(self.connect()) as db, db:
+            db.execute('UPDATE leave_requests SET is_archived=1 WHERE id=?', (identifier,))
+        self.assertEqual(self.client.post(f'/leave-requests/{identifier}/cancellation').status_code, 409)
+
+    def test_admin_cannot_approve_own_cancellation(self):
+        self.as_actor('admin', 'Admin')
+        identifier = self.create().json()['id']
+        self.decide(identifier)
+        url = f'/leave-requests/{identifier}/cancellation'
+        self.assertEqual(self.client.post(url).status_code, 200)
+        self.assertEqual(self.client.post(url + '-decision', json={'decision': 'approved'}).status_code, 403)
 
     def test_create_half_day_and_audit(self):
         response = self.create()

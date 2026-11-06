@@ -4,10 +4,7 @@ import re
 import secrets
 import uuid
 from contextlib import contextmanager
-if __package__:
-    from .role_policy import is_admin
-else:
-    from role_policy import is_admin
+from .role_policy import is_admin
 
 from fastapi import HTTPException
 
@@ -25,6 +22,7 @@ def ensure_signed_fiche_schema(cursor):
         fiche_month INT NOT NULL, fiche_year INT NOT NULL,
         mode VARCHAR(32) NOT NULL,
         status VARCHAR(32) NOT NULL DEFAULT 'pending',
+        is_archived TINYINT(1) NOT NULL DEFAULT 0,
         signed_pdf_url TEXT NULL,
         completed_at DATETIME(6) NULL, archived_at DATETIME(6) NULL,
         sha256 CHAR(64) NULL, file_bytes BIGINT NULL,
@@ -41,6 +39,9 @@ def ensure_signed_fiche_schema(cursor):
     cursor.execute('SHOW COLUMNS FROM signed_fiche_documents LIKE %s', ('manager_username',))
     if not cursor.fetchone():
         cursor.execute('ALTER TABLE signed_fiche_documents ADD COLUMN manager_username VARCHAR(255) NULL')
+    cursor.execute('SHOW COLUMNS FROM signed_fiche_documents LIKE %s', ('is_archived',))
+    if not cursor.fetchone():
+        cursor.execute('ALTER TABLE signed_fiche_documents ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0')
     cursor.execute('''CREATE TABLE IF NOT EXISTS signed_fiche_events (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         archive_id CHAR(32) NOT NULL,

@@ -3,15 +3,12 @@ import json
 import re
 from datetime import date, datetime, timezone
 
-try:
-    from .personnel_rules import PeriodInput, employment_status, registration_missing
-except ImportError:
-    from personnel_rules import PeriodInput, employment_status, registration_missing
+from .personnel_rules import PeriodInput, employment_status, registration_missing
 
 
 EMPLOYEE_FIELDS = (
     'full_name', 'last_name', 'first_name', 'nationality', 'sex', 'address', 'birth_date',
-    'job_title', 'qualification', 'personnel_type', 'linked_username',
+    'job_title', 'qualification', 'personnel_type', 'linked_username', 'email',
 )
 PERIOD_FIELDS = tuple(PeriodInput.model_fields)
 EMPLOYEE_COLUMNS = ('employee_id', *EMPLOYEE_FIELDS, 'registration_schema_version', 'is_archived', 'version', 'created_at', 'updated_at',
@@ -116,6 +113,7 @@ def ensure_personnel_schema(cursor):
     # Additive migration: do not split historical names or relabel contract ends as departures.
     for table, columns in (
         ('personnel_register', {'last_name': "VARCHAR(100) NOT NULL DEFAULT ''",
+                                'email': "VARCHAR(254) NOT NULL DEFAULT ''",
                                 'first_name': "VARCHAR(100) NOT NULL DEFAULT ''",
                                 'registration_schema_version': 'SMALLINT NOT NULL DEFAULT 1'}),
         ('personnel_register_periods', {
@@ -204,6 +202,20 @@ def touch_employee(cursor, employee_id):
 
 def delete_personnel_records(cursor, employee_id):
     """Delete this independent registry identity only, within its caller's transaction."""
+    # Medical evidence is a separate history and must never become an orphan.
+    import sqlite3
+    import pymysql
+    from fastapi import HTTPException
+    try:
+        cursor.execute('SELECT id FROM medical_visits WHERE employee_id=%s LIMIT 1', (employee_id,))
+        if cursor.fetchone():
+            raise HTTPException(409, 'Cette fiche possède des visites médicales. Conservez-la dans les archives.')
+    except pymysql.err.ProgrammingError as error:
+        if error.args[0] != 1146:
+            raise
+    except sqlite3.OperationalError as error:
+        if str(error) != 'no such table: medical_visits':
+            raise
     counts = {}
     for table, label in (('personnel_register_periods', 'period_count'),
                          ('personnel_register_events', 'history_count')):

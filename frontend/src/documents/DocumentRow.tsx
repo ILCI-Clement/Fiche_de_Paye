@@ -74,6 +74,6 @@ export function DocumentRow({ receipt: r, admin, canArchive, canDelete, selected
         else setFailed(true)
       }}>Confirmer</Button></DialogActions>
     </Dialog>
-    {dialog === 'delete' && <PermanentDeleteDialog title="Supprimer définitivement ce document ?" expected={String(r.id)} description={`${r.original_filename} sera retiré du registre et son fichier supprimé.`} onConfirm={onDelete} onDeleted={() => setDialog(null)} onClose={() => setDialog(null)} />}
+    {dialog === 'delete' && <PermanentDeleteDialog title="Supprimer définitivement ce document ?" expected="SUPPRIMER" description={`${r.original_filename} sera retiré du registre et son fichier supprimé.`} onConfirm={onDelete} onDeleted={() => setDialog(null)} onClose={() => setDialog(null)} />}
   </Paper>
 }

@@ -1,10 +1,7 @@
 """Resolve both attendance signers from authorized personnel accounts."""
 from fastapi import HTTPException
 import re
-if __package__:
-    from .person_names import person_display_name
-else:
-    from person_names import person_display_name
+from .person_names import person_display_name
 
 
 def signer_display_name(name, email):
@@ -26,7 +23,7 @@ def resolve_manager(recipient_email, actor, connect, load_user, access, *, inclu
                 recipient_email = str(employee.get('email') or '').strip()
                 if not recipient_email:
                     raise HTTPException(400, 'Renseignez l’adresse e-mail du compte salarié dans Administration.')
-            cursor.execute('SELECT username FROM users WHERE LOWER(email)=LOWER(%s)', (str(recipient_email).strip(),))
+            cursor.execute('SELECT username FROM users WHERE LOWER(TRIM(email))=LOWER(%s) AND login_deleted_at IS NULL', (str(recipient_email).strip(),))
             matches = cursor.fetchall()
             if len(matches) != 1:
                 raise HTTPException(400, 'Le salarié doit être associé à un compte unique enregistré.')

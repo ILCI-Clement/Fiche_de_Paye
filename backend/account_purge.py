@@ -6,12 +6,8 @@ The caller locks all users and validates a fresh super-admin and confirmation fi
 """
 import json
 from fastapi import HTTPException
-if __package__:
-    from .destructive_audit import append_deletion_event
-    from .role_policy import is_super_admin, reserve_deleted_account_name
-else:
-    from destructive_audit import append_deletion_event
-    from role_policy import is_super_admin, reserve_deleted_account_name
+from .destructive_audit import append_deletion_event
+from .role_policy import is_super_admin, reserve_deleted_account_name
 
 
 def purge_account(cursor, actor, target, *, reason):

@@ -2,7 +2,7 @@ import { personDisplayName } from './personDisplayName'
 import { isAdmin } from './rolePolicy'
 import { useState } from 'react'
 import { useWorkNavigation } from './workspaceNavigation'
-import { Alert, Avatar, Box, Button, CircularProgress, Divider, IconButton, Pagination, Paper, Snackbar, Tab, Tabs, Tooltip, Typography } from '@mui/material'
+import { Alert, Avatar, Box, Button, ButtonBase, CircularProgress, Divider, IconButton, Pagination, Paper, Snackbar, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import AddRounded from '@mui/icons-material/AddRounded'
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded'
 import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded'
@@ -18,6 +18,7 @@ import { LeaveDetail } from './components/LeaveDetail'
 import { StatusChip } from './components/StatusChip'
 import { alpha } from '@mui/material/styles'
 import { WorkspaceToolbar } from './components/WorkspaceToolbar'
+import { useLeaveReviews } from './useLeaveReviews'
 
 
 export function LeaveWorkspace({ token, session }: { token: string; session: Session }) {
@@ -32,13 +33,12 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
   const nextWork = navigation?.request
   if (nextWork?.page === 'leave' && appliedWork !== nextWork.sequence) {
     setAppliedWork(nextWork.sequence)
-    setScope('team'); setFilter('pending'); setPage(1); setSelected(nextWork.leaveId || null)
+    setScope(session.can_review ? 'team' : 'mine'); setFilter('pending'); setPage(1); setSelected(nextWork.leaveId || null)
   }
   const [message, setMessage] = useState('')
   const list = useQuery({ queryKey: ['leave-list', session.username, scope, filter, page],
     queryFn: ({ signal }) => api.list(token, scope, filter, page, signal), refetchInterval: 30000 })
-  const reviews = useQuery({ queryKey: ['leave-list', session.username, 'review-count'],
-    queryFn: ({ signal }) => api.list(token, 'team', 'pending', 1, signal), enabled: session.can_review, refetchInterval: 30000 })
+  const reviews = useLeaveReviews(token, session)
   const pending = reviews.data?.counts.pending ?? 0
   function navigate(next: Scope) { setScope(next); setFilter('all'); setPage(1) }
   function saved(text: string) {
@@ -46,6 +46,9 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
     void client.invalidateQueries({ queryKey: ['leave-list'] })
     void client.invalidateQueries({ queryKey: ['leave-detail'] })
     void client.invalidateQueries({ queryKey: ['work-center'] })
+    void client.invalidateQueries({ queryKey: ['person-profile'] })
+    void client.invalidateQueries({ queryKey: ['attendance-workspace'] })
+    void client.invalidateQueries({ queryKey: ['attendance-calendar'] })
   }
   return <Box>
       <Box component="main" className="workspace">
@@ -55,10 +58,17 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
           <Button className="workspace-primary-action" size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>Nouvelle demande</Button>
         </WorkspaceToolbar>
         <Box className="stats-grid">
-          {[{ label: 'En attente', value: list.data?.counts.pending, icon: <AccessTimeRounded />, color: 'warning' as const },
-            { label: 'Approuvées', value: list.data?.counts.approved, icon: <CheckCircleOutlineRounded />, color: 'success' as const },
-            { label: 'Total des demandes', value: list.data?.counts.total, icon: <CalendarMonthRounded />, color: 'secondary' as const }].map(stat =>
-              <Paper key={stat.label} className="stat-card"><Box sx={theme => ({ bgcolor: alpha(theme.palette[stat.color].main, .14), color: theme.palette[stat.color].main, borderRadius: 3, p: 1.3, display: 'flex' })}>{stat.icon}</Box>
+          {[{ label: 'En attente', filter: 'pending' as const, value: list.data?.counts.pending, icon: <AccessTimeRounded />, color: 'warning' as const },
+            { label: 'Approuvées', filter: 'approved' as const, value: list.data?.counts.approved, icon: <CheckCircleOutlineRounded />, color: 'success' as const },
+            { label: 'Total des demandes', filter: 'all' as const, value: list.data?.counts.total, icon: <CalendarMonthRounded />, color: 'secondary' as const }].map(stat =>
+              <Paper component={ButtonBase} key={stat.label} className="stat-card" type="button"
+                aria-label={stat.label} aria-pressed={filter === stat.filter}
+                onClick={() => { setFilter(stat.filter); setPage(1) }}
+                sx={theme => ({ textAlign: 'left', justifyContent: 'flex-start', color: 'text.primary',
+                  '&.stat-card': { borderColor: filter === stat.filter ? 'primary.main' : 'var(--border)' },
+                  '&:hover': { bgcolor: alpha(theme.palette.primary.main, .06) },
+                  '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+                })}><Box sx={theme => ({ bgcolor: alpha(theme.palette[stat.color].main, .14), color: theme.palette[stat.color].main, borderRadius: 3, p: 1.3, display: 'flex' })}>{stat.icon}</Box>
                 <Box><Typography variant="body2" color="text.secondary">{stat.label}</Typography><Typography sx={{ fontWeight: 750, fontSize: 28 }}>{stat.value ?? '—'}</Typography></Box></Paper>)}
         </Box>
         {scope === 'team' && pending > 0 && <Alert severity="info" icon={<AccessTimeRounded />} sx={{ mb: 2 }}>
@@ -68,7 +78,7 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
           <Box className="list-heading"><Typography variant="h6">{scope === 'mine' ? 'Historique de mes demandes' : 'Demandes de congé'}</Typography></Box>
           <Tabs value={filter} onChange={(_, value: Filter) => { setFilter(value); setPage(1) }} variant="scrollable" scrollButtons="auto" sx={{ px: 2 }}>
             <Tab value="all" label="Toutes" /><Tab value="pending" label="En attente" /><Tab value="approved" label="Approuvées" /><Tab value="rejected" label="Refusées" />
-          </Tabs><Divider />
+          <Tab value="cancelled" label="Annulées" /></Tabs><Divider />
           {list.isPending && <Box className="empty-state"><CircularProgress size={25} /><Typography color="text.secondary">Chargement des demandes…</Typography></Box>}
           {list.error && <Alert severity="error" sx={{ m: 3 }}>{list.error.message}</Alert>}
           {list.data?.items.length === 0 && <Box className="empty-state"><Box className="empty-icon"><CalendarMonthRounded sx={{ fontSize: 32 }} /></Box>
@@ -82,8 +92,8 @@ export function LeaveWorkspace({ token, session }: { token: string; session: Ses
               <Box sx={{ display: 'flex', gap: 1.5, minWidth: 0, alignItems: 'center' }}><Avatar sx={{ bgcolor: 'var(--surface-soft)', color: 'text.secondary', fontSize: 13 }}>{initials(personDisplayName({ display_name: item.employee_name }))}</Avatar>
                 <Box sx={{ minWidth: 0 }}><Typography sx={{ fontWeight: 650, fontSize: 14 }}>{personDisplayName({ display_name: item.employee_name })}</Typography><Typography sx={{ fontSize: 13, mt: 0.4 }}>{periodLabel(item)}</Typography><Typography variant="caption" color="text.secondary">{slotLabel(item)}</Typography></Box></Box>
               <Box className="request-manager"><Typography variant="body2">{personDisplayName({ display_name: item.approver_name })}</Typography><Typography variant="caption" color="text.secondary">Envoyée le {timeLabel(item.created_at)}</Typography></Box>
-              <Box><StatusChip status={item.status} /></Box>
-              <Button className="detail-button" size="small" color="inherit" endIcon={<ArrowForwardRounded fontSize="small" />} onClick={() => setSelected(item.id)}>{item.can_review ? 'Traiter' : 'Détails'}</Button>
+              <Box><StatusChip status={item.status} cancellationPending={item.cancellation_status === 'pending'} /></Box>
+              <Button className="detail-button" size="small" color="inherit" endIcon={<ArrowForwardRounded fontSize="small" />} onClick={() => setSelected(item.id)}>{(item.can_review || item.can_review_cancellation) ? 'Traiter' : 'Détails'}</Button>
             </Box>)}
           </>}
           {list.data && (list.data.total > 12 || page > 1) && <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}><Pagination page={page} count={Math.max(1, Math.ceil(list.data.total / 12))} onChange={(_, value) => setPage(value)} /></Box>}

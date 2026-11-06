@@ -1,17 +1,19 @@
+import { createPortal } from 'react-dom'
 import { personDisplayName } from '../personDisplayName'
 import { accountConfirmation } from './accountIdentity'
 import { canManageTeam, isSuperAdmin } from '../rolePolicy'
 import { PermanentDeleteDialog } from '../components/PermanentDeleteDialog'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Tooltip, Typography } from '@mui/material'
 import PersonOffOutlined from '@mui/icons-material/PersonOffOutlined'
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded'
 import { adminApi } from './api'
 import type { AdminUser, RunAction } from './api'
-import { DeleteAction } from '../components/DeleteAction'
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded'
 
-export function AccountAccess({ token, user, actor, actorRoles, busy, run, confirmChange, requestError }: {
+export function AccountAccess({ token, user, actor, actorRoles, busy, run, confirmChange, requestError, actionsContainer }: {
+  actionsContainer?: HTMLElement | null;
   token: string; user: AdminUser; actor: string; actorRoles: string[]; busy: boolean; run: RunAction; confirmChange: (action: () => void) => void; requestError: string;
 }) {
   const [confirm, setConfirm] = useState(false)
@@ -23,17 +25,22 @@ export function AccountAccess({ token, user, actor, actorRoles, busy, run, confi
   const protectedTarget = isSuperAdmin(user) && !superAdmin
   const confirmationIdentity = accountConfirmation(user)
   const history = useQuery({ queryKey: ['account-activation-history', actor, user.username], queryFn: ({ signal }) => adminApi.activationHistory(token, user.username, signal), retry: false })
-  return <Box sx={{ mt: 3 }}>
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
-      <Chip size="small" label={deleted ? 'Connexion supprimée · historique conservé' : active ? 'Compte actif' : 'Compte désactivé'} variant="outlined" />
-      {!deleted && <Button variant="outlined" startIcon={active ? <PersonOffOutlined /> : <PersonOutlineRounded />}
+  const activationControls = <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1,
+    '& .MuiButton-root': { whiteSpace: 'nowrap', minHeight: 30, height: 30, px: 1, py: 0, fontSize: 12, fontWeight: 500, borderRadius: 1.5 },
+    '& .MuiButton-startIcon': { mr: .5, ml: 0, '& > *:nth-of-type(1)': { fontSize: 16 } } }}>
+      <Tooltip title="La désactivation conserve les données ; la suppression définitive est réservée au Super Admin."><Chip size="small" label={deleted ? 'Connexion supprimée · historique conservé' : active ? 'Actif' : 'Désactivé'} variant="outlined" /></Tooltip>
+      {!deleted && <Button size="small" variant="outlined" startIcon={active ? <PersonOffOutlined /> : <PersonOutlineRounded />}
         disabled={busy || user.username === actor || protectedTarget} onClick={() => confirmChange(() => { setFailed(false); setConfirm(true) })}>
-        {active ? 'Désactiver le compte' : 'Réactiver le compte'}
+        {active ? 'Désactiver' : 'Réactiver'}
       </Button>}
-      {superAdmin && !active && !deleted && user.username !== actor && <DeleteAction label="Supprimer la connexion et conserver l’historique" disabled={busy} onClick={() => confirmChange(() => { setFailed(false); setDeleting('login') })} />}
-      {superAdmin && !active && user.username !== actor && <Button color="error" disabled={busy} onClick={() => confirmChange(() => setDeleting('purge'))}>Suppression complète…</Button>}
+  </Box>
+  return <Box sx={{ mt: 3 }}>
+    {actionsContainer ? createPortal(activationControls, actionsContainer) : activationControls}
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
+      {superAdmin && !active && !deleted && user.username !== actor && <Button color="error" variant="outlined" startIcon={<DeleteOutlineRounded />} disabled={busy} onClick={() => confirmChange(() => { setFailed(false); setDeleting('login') })}>Supprimer l’accès</Button>}
+      {superAdmin && !active && user.username !== actor && <Button color="error" variant="outlined" startIcon={<DeleteOutlineRounded />} disabled={busy} onClick={() => confirmChange(() => setDeleting('purge'))}>Supprimer définitivement…</Button>}
     </Box>
-    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{deleted ? 'L’accès est définitivement supprimé. L’identité historique et les données restent consultables ; ce compte ne peut plus être réactivé ni recréé.' : 'La désactivation conserve les présences, contrats, documents et historiques. La suppression définitive est réservée aux super-administrateurs.'}</Typography>
+    {deleted && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Connexion supprimée ; historique conservé.</Typography>}
     {history.error && <Alert severity="warning" sx={{ mt: 1 }}>Historique des accès indisponible.<Button onClick={() => void history.refetch()}>Réessayer</Button></Alert>}
     {!!history.data?.events.length && <Box sx={{ mt: 2 }}><Typography variant="body2" sx={{ fontWeight: 500 }}>Historique des accès (100 dernières opérations)</Typography>
       {history.data.events.map((event, index) => <Typography key={index} variant="caption" color="text.secondary" sx={{ display: 'block', mt: .5 }}>

@@ -4,6 +4,7 @@ from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
+from test_support.sqlite_fixtures import connect_fixture
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -40,7 +41,7 @@ class ResourceDeletionTests(unittest.TestCase):
         self.file.write_bytes(b'%PDF-1.4 isolated document fixture')
         self.fail_audit = False
         self.fail_deletion_audit = False
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.executescript('''CREATE TABLE users (
                 username TEXT PRIMARY KEY,email TEXT,role TEXT,role_tags TEXT,is_admin INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,session_version INTEGER DEFAULT 0,login_deleted_at TEXT,
@@ -128,7 +129,7 @@ class ResourceDeletionTests(unittest.TestCase):
     def super_actor(self): self.actor = self.identity('fixture-super', 'SuperAdmin')
 
     def sql(self, sql, params=()):
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.row_factory = sqlite3.Row
             cursor = db.execute(sql, params)
             return [dict(row) for row in cursor.fetchall()]

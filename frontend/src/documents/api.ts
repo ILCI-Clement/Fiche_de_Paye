@@ -1,4 +1,5 @@
 import { request } from '../api'
+import type { FileAction, FileBatchResult } from '../fileBatch'
 
 export interface Receipt {
   id: number; document_number?: string | null; employee_username: string; uploaded_by: string; original_filename: string;
@@ -15,6 +16,7 @@ export interface Upload {
 }
 const root = '/transport-receipts'
 export const documentsApi = {
+  batch: (token: string, ids: number[], action: FileAction, expected_archived: boolean, confirmation?: string) => request<FileBatchResult>(`${root}/batch`, token, { method: 'POST', body: JSON.stringify({ ids, action, expected_archived, confirmation }) }),
   list: (token: string, signal?: AbortSignal) => request<{ receipts: Receipt[] }>(root, token, { signal }),
   assignees: (token: string, signal?: AbortSignal) => request<{ users: string[]; accounts?: DocumentAccount[] }>(`${root}/assignees`, token, { signal }),
   upload: (token: string, data: Upload) => request(root, token, { method: 'POST', body: JSON.stringify(data) }, { timeout: 120000 }),

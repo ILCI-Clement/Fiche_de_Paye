@@ -78,6 +78,29 @@ class AttendanceSignatureTests(unittest.TestCase):
         self.assertEqual(self.send(payload).status_code, 409)
         self.sender.assert_not_called()
 
+    def test_calendar_change_while_waiting_for_signature_lock_requires_new_preview(self):
+        payload = self.payload()
+        cursor = self.connection.cursor.return_value.__enter__.return_value
+        def changed_on_lock(sql, *_):
+            if 'FOR UPDATE' in sql:
+                self.config['employes_data'][0]['vacances'] = [{'date': '2026-09-01', 'matin': True, 'aprem': False}]
+        cursor.execute.side_effect = changed_on_lock
+        self.assertEqual(self.send(payload).status_code, 409)
+        self.sender.assert_not_called()
+        self.connection.rollback.assert_called_once()
+        self.connection.close.assert_called_once()
+
+    def test_provider_send_occurs_before_releasing_source_lock(self):
+        payload = self.payload()
+        def sender(*_):
+            cursor = self.connection.cursor.return_value.__enter__.return_value
+            self.assertTrue(any('FOR UPDATE' in call.args[0] for call in cursor.execute.call_args_list))
+            self.connection.rollback.assert_not_called()
+            return {'document_id': 'synthetic-lock-test'}
+        self.sender.side_effect = sender
+        self.assertEqual(self.send(payload).status_code, 200)
+        self.connection.rollback.assert_called_once()
+
     def test_unapproved_live_recipient_is_rejected(self):
         payload = self.payload()
         self.policy.side_effect = HTTPException(403, 'not approved')

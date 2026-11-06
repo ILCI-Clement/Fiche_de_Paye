@@ -19,8 +19,8 @@ function CellText({ value, title }: { value?: string | null; title?: string }) {
 }
 
 /** Template columns B:R, split into readable sheets while retaining one row per employee. */
-export function PersonnelTable({ employees, token, active, resetKey, onOpen }: {
-  employees: Employee[]; token: string; active: boolean; resetKey: string; onOpen: (id: number) => void;
+export function PersonnelTable({ employees, token, active, resetKey, onOpen, headerActions }: {
+  employees: Employee[]; token: string; active: boolean; resetKey: string; onOpen: (id: number) => void; headerActions?: ReactNode;
 }) {
   const [sheet, setSheet] = useState<Sheet>('identity')
   const theme = useTheme()
@@ -73,13 +73,16 @@ export function PersonnelTable({ employees, token, active, resetKey, onOpen }: {
     else groups.push({ label: column.group, count: 1 })
   }
   return <>
-    <Tabs value={sheet} onChange={(_, value: Sheet) => setSheet(value)} variant="scrollable" scrollButtons="auto" aria-label="Feuilles du registre" sx={{ flexShrink: 0, borderBottom: 1, borderColor: 'divider', '&.MuiTabs-root': { minHeight: 38 }, '& .MuiTab-root': { minHeight: 38, py: .75, px: 2, fontSize: 12 } }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', minHeight: 40, flexShrink: 0, minWidth: 0, borderBottom: 1, borderColor: 'divider' }}>
+    <Tabs value={sheet} onChange={(_, value: Sheet) => setSheet(value)} variant="scrollable" scrollButtons="auto" aria-label="Feuilles du registre" sx={{ flex: 1, minWidth: 0, '&.MuiTabs-root': { minHeight: 38 }, '& .MuiTab-root': { minHeight: 38, py: .75, px: 2, fontSize: 12 } }}>
       <Tab id="registry-sheet-identity" aria-controls="registry-table" value="identity" label="Informations de base" />
       <Tab id="registry-sheet-employment" aria-controls="registry-table" value="employment" label="Emploi et dates" title="Dernière période d’emploi. L’historique complet reste disponible dans la fiche." />
       <Tab id="registry-sheet-special" aria-controls="registry-table" value="special" label="Situations particulières" title="Situations de la dernière période d’emploi. L’historique complet reste disponible dans la fiche." />
     </Tabs>
+    {headerActions}
+    </Box>
     <TableContainer id="registry-table" role="tabpanel" aria-labelledby={`registry-sheet-${sheet}`} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: 'stable' }}>
-      <Table stickyHeader size="small" aria-label="Registre du personnel" sx={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0,
+      <Table stickyHeader size="small" aria-label="Utilisateurs" sx={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0,
         '& .MuiTableCell-root': { overflow: 'hidden', borderRight: 1, borderRightColor: 'divider', lineHeight: 1.4 },
         '& .MuiTableCell-root:last-child': { borderRight: 0 },
         '& .MuiTableCell-head': { bgcolor: 'background.paper', whiteSpace: 'nowrap', textOverflow: 'ellipsis' },

@@ -20,12 +20,10 @@ class AttendanceRevisionTests(unittest.TestCase):
                 self.state = json.loads(params[1])
         self.cursor.execute.side_effect = execute
         self.link = MagicMock()
-        self.sync = MagicMock()
         self.patches = [patch.object(main, 'get_db_connection', return_value=self.db),
                         patch.object(main, 'require_target_access'), patch.object(main, 'validate_manager_save'),
                         patch.object(main, 'load_user', side_effect=lambda _cursor, username: {'username': username, 'role_tags': ['Admin'], 'is_active': True, 'session_version': 0}),
-                        patch.object(main, 'link_fiche_records_to_users', self.link),
-                        patch.object(main, 'sync_contract_dates_from_config', self.sync)]
+                        patch.object(main, 'link_fiche_records_to_users', self.link)]
         for item in self.patches: item.start()
         self.addCleanup(patch.stopall)
         self.actor = {'username': 'unit', 'role_tags': ['Admin']}
@@ -50,7 +48,7 @@ class AttendanceRevisionTests(unittest.TestCase):
             main.save_config_checked('unit', {'mois': 8}, self.actor, old_revision)
         self.assertEqual(error.exception.status_code, 409)
         self.assertEqual(self.state['mois'], 10)
-        self.link.assert_not_called(); self.sync.assert_not_called()
+        self.link.assert_not_called()
         self.db.commit.assert_not_called(); self.db.rollback.assert_called_once()
 
     def test_two_windows_second_save_is_rejected(self):

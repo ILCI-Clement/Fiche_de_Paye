@@ -1,10 +1,8 @@
 """Authenticated employee department directory, separate from personnel records."""
 from fastapi import Depends
 from organization_model import build_organization
-if __package__:
-    from .person_names import load_person_names, person_display_name
-else:
-    from person_names import load_person_names, person_display_name
+from .person_visibility import account_list_visible, annotate_visibility, daily_person
+from .person_names import load_person_names, person_display_name
 
 
 def directory_people(rows, memberships, names=None):
@@ -45,8 +43,8 @@ def register_team_directory(app, *, get_db_connection, get_current_user):
             with connection.cursor() as cursor:
                 cursor.execute('SELECT id,name,is_active FROM organization_groups ORDER BY name')
                 groups = cursor.fetchall()
-                cursor.execute('SELECT username,email FROM users WHERE is_active=1 ORDER BY username')
-                rows = cursor.fetchall()
+                cursor.execute('SELECT username,email,role_tags FROM users WHERE is_active=1 AND login_deleted_at IS NULL ORDER BY username')
+                rows = [row for row in annotate_visibility(cursor, cursor.fetchall()) if daily_person(row) and account_list_visible(row, actor)]
                 cursor.execute('SELECT username,group_id,relation FROM user_group_memberships')
                 memberships = cursor.fetchall()
                 names = load_person_names(cursor, [row['username'] for row in rows])
@@ -71,10 +69,10 @@ def register_team_directory(app, *, get_db_connection, get_current_user):
                     return {'groups': [], 'members': []}
                 ids = [int(group['id']) for group in groups]
                 placeholders = ','.join(['%s'] * len(ids))
-                cursor.execute(f'''SELECT u.username, u.email, m.group_id, m.relation
+                cursor.execute(f'''SELECT u.username, u.email, u.role_tags, m.group_id, m.relation
                     FROM user_group_memberships m JOIN users u ON u.username=m.username
-                    WHERE u.is_active=1 AND m.group_id IN ({placeholders}) ORDER BY u.username''', tuple(ids))
-                rows = cursor.fetchall()
+                    WHERE u.is_active=1 AND u.login_deleted_at IS NULL AND m.group_id IN ({placeholders}) ORDER BY u.username''', tuple(ids))
+                rows = [row for row in annotate_visibility(cursor, cursor.fetchall()) if daily_person(row) and account_list_visible(row, actor)]
                 names = load_person_names(cursor, [row['username'] for row in rows])
                 return {'groups': groups, 'members': team_members(rows, names)}
         finally:

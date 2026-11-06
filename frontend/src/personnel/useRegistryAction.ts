@@ -10,7 +10,7 @@ export function useRegistryAction() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [conflict, setConflict] = useState(false)
-  useDraftGuard(false, busy, 'Registre du personnel')
+  useDraftGuard(false, busy, 'Utilisateurs')
   async function run(action: () => Promise<unknown>) {
     if (lock.current) return false
     lock.current = true; setBusy(true); setError(''); setConflict(false)
@@ -22,6 +22,11 @@ export function useRegistryAction() {
         client.invalidateQueries({ queryKey: ['account-personnel-choices'] }),
         client.invalidateQueries({ queryKey: ['admin-contracts'] }),
         client.invalidateQueries({ queryKey: ['admin-users'] }),
+        client.invalidateQueries({ queryKey: ['team-personnel'] }),
+        client.invalidateQueries({ queryKey: ['my-team'] }),
+        client.invalidateQueries({ queryKey: ['organization'] }),
+        client.invalidateQueries({ queryKey: ['document-assignees'] }),
+        client.invalidateQueries({ queryKey: ['work-center'] }),
         client.invalidateQueries({ queryKey: ['attendance-workspace'] }),
         client.invalidateQueries({ queryKey: ['person-profile'] }),
       ])

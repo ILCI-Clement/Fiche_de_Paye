@@ -49,6 +49,15 @@ def can_manage_account(actor, target):
     return is_admin(actor) and (is_super_admin(actor) or not is_super_admin(target))
 
 
+def direct_business_report(actor, target):
+    """An active employee/manager reporting directly to a manager; never a privileged account."""
+    return bool(actor and target and 'Responsable' in _roles(actor) and not is_admin(target)
+                and {'Employe', 'Responsable'} & set(_roles(target))
+                and target.get('is_active', True) and not target.get('login_deleted_at')
+                and target.get('manager_username') == actor['username']
+                and target['username'] != actor['username'])
+
+
 def can_assign_roles(actor, requested_tags, target=None):
     if (not isinstance(requested_tags, (list, tuple, set, frozenset))
             or not requested_tags or any(not isinstance(tag, str) or tag not in VALID_ROLES for tag in requested_tags)

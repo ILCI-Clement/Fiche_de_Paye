@@ -8,10 +8,7 @@ import pymysql
 from fastapi import Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
-if __package__:
-    from .role_policy import checked_resource_actor, is_admin
-else:
-    from role_policy import checked_resource_actor, is_admin
+from .role_policy import checked_resource_actor, is_admin
 
 BUILTIN_TYPES = {'transport': 'Transport', 'autre': 'Autre'}
 

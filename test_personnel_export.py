@@ -7,7 +7,10 @@ import test_personnel_register_sensitive as fixture
 
 
 class PersonnelExcelTests(unittest.TestCase):
-    setUp = fixture.PersonnelSensitiveHTTPTests.setUp
+    def setUp(self):
+        fixture.PersonnelSensitiveHTTPTests.setUp(self)
+        self.raw_update('UPDATE users SET role_tags=? WHERE username=?', ('["SuperAdmin","Admin"]', 'fixture-admin'))
+        self.actor['role_tags'] = ['SuperAdmin', 'Admin']
     create = fixture.PersonnelSensitiveHTTPTests.create
     rows = fixture.PersonnelSensitiveHTTPTests.rows
     raw_update = fixture.PersonnelSensitiveHTTPTests.raw_update
@@ -51,7 +54,7 @@ class PersonnelExcelTests(unittest.TestCase):
         self.assertEqual(self.export(q='no-match').status_code, 404)
         self.actor = {'username': 'fixture-employee', 'role_tags': ['Admin'], 'session_version': 0}
         self.assertEqual(self.export().status_code, 403)
-        self.actor = {'username': 'fixture-admin', 'role_tags': ['Admin'], 'session_version': 0}
+        self.actor = {'username': 'fixture-admin', 'role_tags': ['SuperAdmin', 'Admin'], 'session_version': 0}
         self.fail_audit = True
         with self.assertLogs('backend.personnel_register', level='ERROR'):
             response = self.export()

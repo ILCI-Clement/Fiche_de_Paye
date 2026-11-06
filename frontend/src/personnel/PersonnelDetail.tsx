@@ -1,5 +1,7 @@
 import { personDisplayName } from '../personDisplayName'
 import { useId, useState } from 'react'
+import { missingPersonnelField } from '../completionTarget'
+import type { WorkRequest } from '../workspaceNavigation'
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, Tooltip, Typography } from '@mui/material'
 import EditOutlined from '@mui/icons-material/EditOutlined'
 import AddRounded from '@mui/icons-material/AddRounded'
@@ -19,18 +21,26 @@ import { useRegistryViewer } from './context'
 import { SensitiveNumber } from './SensitiveNumber'
 import { EmploymentSummary, PersonnelInformation } from './PersonnelInformation'
 
-export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete = false }: { token: string; employeeId: number; onClose: () => void; onSaved: (message: string) => void; canDelete?: boolean }) {
+export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete = false, completion }: { completion?: WorkRequest; token: string; employeeId: number; onClose: () => void; onSaved: (message: string) => void; canDelete?: boolean }) {
   const viewer = useRegistryViewer()
   const client = useQueryClient()
   const detail = useQuery({ queryKey: ['personnel-register', viewer, 'detail', employeeId], queryFn: ({ signal }) => personnelApi.detail(token, employeeId, signal), retry: false })
   const [tab, setTab] = useState<'information' | 'periods' | 'history'>('information')
   const [editing, setEditing] = useState<Employee | null>(null)
+  const [editingFocus, setEditingFocus] = useState('register_fields')
   const [employment, setEmployment] = useState<{ employee: Employee; period?: EmploymentPeriod; situationsOnly?: boolean } | null>(null)
   const [archiving, setArchiving] = useState<Employee | null>(null)
   const [deleting, setDeleting] = useState<Employee | null>(null)
   const tabsId = useId()
   const employee = detail.data?.employee
   const latestPeriod = detail.data?.periods[0]
+  const [appliedCompletion, setAppliedCompletion] = useState<number | undefined>(undefined)
+  if (employee && completion?.completion && appliedCompletion !== completion.sequence) {
+    setAppliedCompletion(completion.sequence)
+    setEditingFocus(completion.completion)
+    if (missingPersonnelField(employee as unknown as Record<string, unknown>, completion.completion)) setEditing({ ...employee })
+    else if (!latestPeriod?.entry_date) setEmployment({ employee: { ...employee }, period: latestPeriod ? { ...latestPeriod } : undefined })
+  }
   const inEditor = !!editing || !!employment || !!archiving || !!deleting
   return <>
     <Dialog open={!inEditor} fullWidth maxWidth="lg" onClose={onClose} aria-labelledby="personnel-detail-title"
@@ -53,7 +63,7 @@ export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete
         {detail.isPending ? <CircularProgress size={28} /> : detail.error ? <Alert severity="error">{detail.error.message}<Button onClick={() => void detail.refetch()}>Réessayer</Button></Alert> : employee && <>
           <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 2 }}>
             <Chip size="small" color={employee.status === 'employed' ? 'primary' : 'default'} variant="outlined" label={statusLabels[employee.status] || 'À préciser'} />
-            <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>État issu de la dernière période datée · le compte de connexion est géré séparément.</Typography>
+            <Box sx={{ flex: 1 }} />
             <Button disabled={detail.isFetching} onClick={() => void detail.refetch()}>Actualiser</Button>
           </Box>
           <Tabs value={tab} onChange={(_, next: typeof tab) => setTab(next)} variant="scrollable" scrollButtons="auto" aria-label="Sections de la fiche du personnel" sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
@@ -61,9 +71,9 @@ export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete
             <Tab value="periods" label={`Périodes d’emploi (${detail.data.periods.length})`} id={`${tabsId}-periods-tab`} aria-controls={`${tabsId}-periods-panel`} />
             <Tab value="history" label="Historique des modifications" id={`${tabsId}-history-tab`} aria-controls={`${tabsId}-history-panel`} />
           </Tabs>
-          {!!employee.missing_fields?.length && <Alert severity="info" sx={{ mb: 2 }}>Fiche à compléter : {employee.missing_fields.join(', ')}. Les autres opérations restent disponibles.</Alert>}
+          {!!employee.missing_fields?.length && <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}><Button size="small" onClick={() => { setEditingFocus('register_fields'); if (missingPersonnelField(employee as unknown as Record<string, unknown>)) setEditing({ ...employee }); else setEmployment({ employee: { ...employee }, period: latestPeriod ? { ...latestPeriod } : undefined }) }}>Compléter ({employee.missing_fields.length})</Button></Box>}
           {tab === 'information' && <Box role="tabpanel" id={`${tabsId}-information-panel`} aria-labelledby={`${tabsId}-information-tab`}>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}><Button startIcon={<EditOutlined />} onClick={() => setEditing({ ...employee })}>Modifier les informations</Button></Box>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}><Button startIcon={<EditOutlined />} onClick={() => { setEditingFocus('register_fields'); setEditing({ ...employee }) }}>Modifier les informations</Button></Box>
             <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1.5, p: 2, mb: 3 }}>
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
                 <Box sx={{ flex: 1, minWidth: 180 }}>
@@ -89,7 +99,7 @@ export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete
             </PersonnelInformation>
           </Box>}
           {tab === 'periods' && <Box role="tabpanel" id={`${tabsId}-periods-panel`} aria-labelledby={`${tabsId}-periods-tab`}>
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}><Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>Les périodes précédentes sont conservées lors d’une nouvelle entrée. Une correction reste visible dans l’historique.</Typography><Button variant="outlined" startIcon={<AddRounded />} onClick={() => setEmployment({ employee: { ...employee } })}>Ajouter une période</Button></Box>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}><Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}></Typography><Button variant="outlined" startIcon={<AddRounded />} onClick={() => setEmployment({ employee: { ...employee } })}>Ajouter une période</Button></Box>
             {!detail.data.periods.length ? <Alert severity="info">Aucune période renseignée. Complétez la date d’entrée depuis « Ajouter une période ».</Alert> : <TableContainer sx={{ overflowX: 'hidden' }}><Table size="small" sx={{ tableLayout: 'fixed', '& td, & th': { overflowWrap: 'anywhere', px: 1 } }} aria-label="Toutes les périodes d’emploi"><TableHead><TableRow><TableCell>Période et situations</TableCell><TableCell>Date d’entrée</TableCell><TableCell>Sortie effective</TableCell><TableCell>Fin prévue du contrat</TableCell><TableCell>Contrat</TableCell><TableCell align="right" sx={{ width: 64 }}>Action</TableCell></TableRow></TableHead><TableBody>{detail.data.periods.map(period => <TableRow key={period.period_id}>
               <TableCell>{period.account_contract_id ? `Contrat #${period.account_contract_id}` : `#${period.period_id}`}<EmploymentSummary period={period} /></TableCell>
               <TableCell>{dateLabel(period.entry_date)}</TableCell><TableCell>{dateLabel(period.actual_exit_date)}</TableCell><TableCell>{dateLabel(period.exit_date)}</TableCell><TableCell>{contractLabel(period)}</TableCell>
@@ -105,8 +115,8 @@ export function PersonnelDetail({ token, employeeId, onClose, onSaved, canDelete
         <Button onClick={onClose}>Fermer</Button>
       </DialogActions>
     </Dialog>
-    {editing && <PersonnelEditor token={token} employee={editing} onClose={() => setEditing(null)} onSaved={onSaved} />}
-    {employment && <EmploymentEditor token={token} employee={employment.employee} period={employment.period} situationsOnly={employment.situationsOnly} onClose={() => setEmployment(null)} onSaved={onSaved} />}
+    {editing && <PersonnelEditor token={token} employee={editing} completionCode={editingFocus} onClose={() => setEditing(null)} onSaved={onSaved} />}
+    {employment && <EmploymentEditor token={token} employee={employment.employee} focusEntry={!!completion?.completion} period={employment.period} situationsOnly={employment.situationsOnly} onClose={() => setEmployment(null)} onSaved={onSaved} />}
     {archiving && <ArchiveConfirmation token={token} employee={archiving} onClose={() => setArchiving(null)} onSaved={onSaved} />}
     {deleting && <PermanentDeleteDialog title="Supprimer définitivement cette fiche du personnel ?" expected={String(deleting.employee_id)} description={`La fiche de ${deleting.full_name}, ses périodes d’emploi et son historique du registre seront supprimés. Le compte de connexion est géré séparément.`}
       onConfirm={confirmation => personnelApi.remove(token, deleting.employee_id, deleting.version, confirmation)} onClose={() => setDeleting(null)} onDeleted={() => {

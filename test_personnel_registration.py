@@ -149,6 +149,7 @@ class RegistrationHTTPTests(unittest.TestCase):
             temporary_company_name='Synthetic agency', temporary_company_address='Synthetic address',
             is_young_worker=True, youth_contract_type='apprenti'))
         self.assertEqual(result.status_code, 201, result.text)
+        self.raw_update('UPDATE users SET role_tags=? WHERE username=?', ('["SuperAdmin","Admin"]', 'fixture-admin'))
         response = self.client.post('/personnel-register/export.xlsx', json={'confirm_sensitive_export': True})
         self.assertEqual(response.status_code, 200, response.text[:100])
         book = load_workbook(BytesIO(response.content))

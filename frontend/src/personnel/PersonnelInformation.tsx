@@ -16,6 +16,7 @@ export function PersonnelInformation({ employee, structuredNames = false, accoun
         : key === 'sex' ? employee.sex === 'F' ? 'Femme' : employee.sex === 'M' ? 'Homme' : '' : employee[key]
       return <InformationValue key={key} label={personnelFieldLabels[key]} value={value} wide={key === 'address'} />
     })}
+    <InformationValue label="E-mail" value={employee.email || ''} />
     {accountName !== undefined && <InformationValue label="Compte associé" value={accountName} />}
     {children}
   </Box>

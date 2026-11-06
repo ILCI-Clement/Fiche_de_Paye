@@ -7,18 +7,12 @@ from fastapi import Depends, HTTPException, Query, Response
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from contract_periods import day, matching_contracts
 
-if __package__:
-    from .role_policy import checked_resource_actor, is_admin
-    from .person_names import person_display_name
-    from .personnel_rules import registration_missing
-    from .signed_fiche_store import signed_fiche_scope
-    from .leave_rules import can_review
-else:
-    from role_policy import checked_resource_actor, is_admin
-    from person_names import person_display_name
-    from personnel_rules import registration_missing
-    from signed_fiche_store import signed_fiche_scope
-    from leave_rules import can_review
+from .person_visibility import account_list_visible, daily_person
+from .role_policy import checked_resource_actor, is_admin, direct_business_report
+from .person_names import person_display_name
+from .personnel_rules import registration_missing
+from .signed_fiche_store import signed_fiche_scope
+from .leave_rules import can_review
 
 
 _EMAIL = TypeAdapter(EmailStr)
@@ -40,6 +34,9 @@ def person_readiness(user, manager, contracts, *, actor, month, year, emails, re
     """A register warning never becomes an attendance prerequisite."""
     issues = []
     username = user['username']
+    if 'SuperAdmin' in user.get('role_tags', []):
+        return {'username': username, 'display_name': person_display_name(user),
+                'attendance_ready': False, 'contacts_ready': True, 'issues': []}
     admin = is_admin(actor)
     can_setup = admin or ('Responsable' in actor.get('role_tags', [])
                           and user.get('manager_username') == actor['username'])
@@ -58,10 +55,11 @@ def person_readiness(user, manager, contracts, *, actor, month, year, emails, re
     manager_ok = bool(manager and manager.get('is_active', True) and not manager.get('login_deleted_at')
                       and ({'Admin', 'SuperAdmin', 'Responsable'} & set(manager.get('role_tags', [])))
                       and manager['username'] != username)
-    if not manager_ok:
+    if user.get('manager_username') and not manager_ok:
         issue('manager', 'Responsable direct à définir ou réactiver', 'contacts', {'page': 'admin', 'username': username} if admin else None)
-    elif not mailbox(manager.get('email')) or emails[mailbox(manager.get('email'))] != 1 or not manager.get('full_name'):
-        issue('manager_contact', 'Nom ou e-mail du responsable à compléter', 'contacts', {'page': 'admin', 'username': manager['username']} if admin else None)
+    elif manager_ok and (not mailbox(manager.get('email')) or emails[mailbox(manager.get('email'))] != 1 or not manager.get('full_name')):
+        issue('manager_contact', f"Nom ou e-mail du responsable à compléter : {person_display_name(manager)}", 'contacts',
+              {'page': 'admin', 'username': manager['username']} if admin and account_list_visible(manager, actor) else None)
     if admin:
         if not registry:
             issue('register_link', 'Fiche du registre à créer ou à associer', 'register', {'page': 'admin', 'username': username})
@@ -91,8 +89,10 @@ def register_work_center(app, *, get_db_connection, get_current_user, load_user,
                 accounts = all_users(cursor)
                 by_name = {user['username']: user for user in accounts}
                 # Same catalog as attendance, excluding inactive/deleted accounts.
-                visible = [u for u in accounts if u.get('is_active', True) and not u.get('login_deleted_at')
-                           and 'Employe' in u.get('role_tags', []) and (is_admin(actor) or can_manage(cursor, actor, u))]
+                visible = [u for u in accounts if daily_person(u) and account_list_visible(u, actor)
+                           and ('Employe' in u.get('role_tags', []) or ('Responsable' in u.get('role_tags', [])
+                                and (is_admin(actor) or direct_business_report(actor, u))))
+                           and (is_admin(actor) or can_manage(cursor, actor, u))]
                 names = sorted(user['username'] for user in visible)
                 contracts = defaultdict(list)
                 if names:
@@ -118,7 +118,7 @@ def register_work_center(app, *, get_db_connection, get_current_user, load_user,
                             registry[row['linked_username']] = row
                         elif not row['is_archived']:
                             unlinked.append(row)
-                emails = Counter(mailbox(user.get('email')) for user in accounts)
+                emails = Counter(mailbox(user.get('email')) for user in accounts if not user.get('login_deleted_at'))
                 people = [person_readiness(user, by_name.get(user.get('manager_username')), contracts[user['username']],
                           actor=actor, month=month, year=year, emails=emails, registry=registry.get(user['username']))
                           for user in visible]
@@ -136,15 +136,15 @@ def register_work_center(app, *, get_db_connection, get_current_user, load_user,
                 # Review scope is narrower than managed departments: direct manager only.
                 leave_scope = '1=1' if is_admin(actor) else 'u.manager_username=%s AND r.employee_username<>%s'
                 params = () if is_admin(actor) else (actor['username'], actor['username'])
-                cursor.execute(f'''SELECT r.id,r.employee_username,r.start_date,r.end_date,u.manager_username
+                cursor.execute(f'''SELECT r.id,r.employee_username,r.start_date,r.end_date,r.cancellation_status,u.manager_username
                     FROM leave_requests r LEFT JOIN users u ON u.username=r.employee_username
-                    WHERE r.status='pending' AND r.is_archived=0 AND {leave_scope}
+                    WHERE (r.status='pending' OR (r.status='approved' AND r.cancellation_status='pending')) AND r.is_archived=0 AND {leave_scope}
                     ORDER BY r.created_at,r.id''', params)
                 for row in cursor.fetchall():
-                    if can_review(actor, row['employee_username'], row.get('manager_username')):
+                    if can_review(actor, row['employee_username'], row.get('manager_username')) and not (row.get('cancellation_status') == 'pending' and row['employee_username'] == actor['username']):
                         tasks.append({'id': f"leave:{row['id']}", 'kind': 'leave',
                             'name': person_display_name(by_name.get(row['employee_username'])),
-                            'label': f"{day(row['start_date']):%d/%m/%Y} → {day(row['end_date']):%d/%m/%Y}",
+                            'label': ('Annulation · ' if row.get('cancellation_status') == 'pending' else '') + f"{day(row['start_date']):%d/%m/%Y} → {day(row['end_date']):%d/%m/%Y}",
                             'destination': {'page': 'leave', 'leaveId': row['id']}})
                 scope, params = signed_fiche_scope(actor)
                 cursor.execute(f'''SELECT id,employee_username,status,fiche_month,fiche_year,last_error
@@ -158,6 +158,13 @@ def register_work_center(app, *, get_db_connection, get_current_user, load_user,
                         'name': person_display_name(by_name.get(row['employee_username'])),
                         'label': f"{row['fiche_month']:02d}/{row['fiche_year']} · {label}",
                         'destination': {'page': 'attendance', 'view': 'signed', 'month': row['fiche_month'], 'year': row['fiche_year']}})
+                if is_admin(actor) and hasattr(app.state, 'personnel_snapshots'):
+                    cursor.execute("SELECT COUNT(*) AS total FROM personnel_snapshots WHERE status='failed'")
+                    failures = cursor.fetchone()['total']
+                    if failures:
+                        tasks.append({'id': 'snapshot:failures', 'kind': 'archive', 'name': 'Archives du registre',
+                                      'label': f'{failures} sauvegarde(s) en échec',
+                                      'destination': {'page': 'personnel', 'snapshots': True}})
                 counts = {kind: sum(task['kind'] == kind for task in tasks) for kind in ('readiness', 'leave', 'signature', 'archive')}
                 return {'month': month, 'year': year, 'people': people, 'tasks': tasks, 'counts': counts}
         finally:

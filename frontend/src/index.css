@@ -13,15 +13,16 @@ body { margin: 0; min-width: 320px; }
 .admin-nav-group--active { border-color: var(--accent); background: var(--nav-hover); }
 .admin-nav-heading.MuiTypography-root { display: flex; align-items: center; gap: 7px; margin: 0 12px 8px; color: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: .4px; }
 .admin-nav-group .nav-item.MuiButton-root { margin-bottom: 3px; }
-.admin-area-label.MuiChip-root { flex-shrink: 0; height: 26px; font-size: 11px; }
-.sidebar-note { margin: auto 10px 26px; border-top: 1px solid var(--border); padding-top: 18px; }
+.sidebar-controls { margin-top: auto; padding: 12px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--border); }
+.sidebar-controls .preview-chip { max-width: calc(100% - 48px); color: var(--sidebar-muted); border-color: var(--border); }
+.sidebar-controls .MuiIconButton-root { color: var(--sidebar-muted); }
 .sidebar-user { display: flex; gap: 10px; align-items: center; padding-top: 16px; border-top: 1px solid var(--border); }
 .main-column { margin-left: 248px; min-width: 0; flex: 1; }
 .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; position: sticky; top: 0; z-index: 20; }
-.topbar-primary { min-height: 52px; display: flex; align-items: center; gap: 12px; min-width: 0; }
-.topbar--with-tools { padding-inline: 16px; }
-.topbar--with-tools .topbar-primary { min-height: 48px; }
-.topbar-tools { min-width: 0; width: 100%; padding-bottom: 12px; }
+.topbar-primary { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 47px; align-self: flex-start; flex-shrink: 0; }
+.topbar--with-tools { padding: 12px 16px; min-height: 72px; display: flex; align-items: center; gap: 20px; }
+.topbar-title { white-space: nowrap; }
+.topbar-tools { min-width: 0; flex: 1; }
 .topbar-tools:empty { display: none; }
 .topbar-inline-tools { display: flex; flex-shrink: 0; align-items: center; }
 .topbar-inline-tools:empty { display: none; }
@@ -108,8 +109,9 @@ body { margin: 0; min-width: 320px; }
   .fiche-panel.MuiPaper-root, .batch-panel.MuiPaper-root { padding: 16px; }
   .fiche-fields, .batch-selection { grid-template-columns: 1fr; }
   .attendance-calendar-grid { gap: 2px; }.calendar-day { padding: 2px; }.calendar-half.MuiButton-root { font-size: 9px; min-height: 38px; }
-  .topbar { padding: 0 12px; }.topbar-primary { min-height: 48px; gap: 6px; }.topbar .preview-chip { display: none; }
-  .topbar--with-tools .topbar-primary:has(.admin-area-label) { flex-wrap: wrap; padding-block: 8px; }
+  .topbar--with-tools { padding: 12px; flex-wrap: wrap; gap: 12px; }
+  .topbar-primary { min-height: 40px; gap: 6px; flex-shrink: 1; flex-wrap: wrap; }
+  .topbar-tools { flex-basis: 100%; }
   .workspace-action-bar .MuiIconButton-root { width: 44px; height: 44px; }
   .workspace-action-bar .MuiButton-root { min-height: 44px; }
   .workspace { padding: 12px; }
@@ -124,3 +126,18 @@ body { margin: 0; min-width: 320px; }
   .login-intro > .MuiBox-root:last-child { display: none; }.login-intro > .MuiTypography-body1:last-of-type { font-size: 14px; }
   .login-content { padding: 20px; align-items: start; }
 }
+.MuiButton-root, .MuiIconButton-root, .MuiToggleButton-root {
+  transition: transform 180ms cubic-bezier(.2, .8, .3, 1.35), background-color 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+.MuiButton-root:not(.Mui-disabled):not(.calendar-half):active,
+.MuiIconButton-root:not(.Mui-disabled):active,
+.MuiToggleButton-root:not(.Mui-disabled):active { transform: scale(.96); transition-duration: 75ms; }
+/* Opacity preserves viewport positioning of floating save controls. */
+.workspace-page-enter { animation: workspace-appear 200ms ease-out; }
+@keyframes workspace-appear { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-page-enter { animation: none; }
+  .MuiButton-root, .MuiIconButton-root, .MuiToggleButton-root { transition: none !important; transform: none !important; }
+}
+
+.completion-focus { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }

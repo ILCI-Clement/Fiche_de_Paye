@@ -12,15 +12,19 @@ from fastapi import Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from contract_periods import bind_contract, matching_contracts, outside_contract, period_sheets
+from contract_periods import matching_contracts, outside_contract, period_sheets
 from calendar_view import apply_calendar_status, resolve_cell
 from fiche_exports import generate_fiche_file, validate_fiche
 from fiche_serialization import deserialize_dates, serialize_dates
-from planning import default_planning
 from .attendance_revision import config_revision
+from .attendance_sheet import new_sheet
+from .attendance_contract_sync import refresh_contract_snapshots
+from .leave_attendance import leave_cells, signed_months
+from .leave_store import LeaveStore
 from .attendance_permissions import attendance_scope
 from .role_policy import is_admin, is_super_admin
 from .person_names import load_person_names, person_display_name
+from .person_visibility import account_list_visible, annotate_visibility, daily_person
 
 
 class OpenSheet(BaseModel):
@@ -33,6 +37,10 @@ class SaveWorkspace(BaseModel):
     config: dict
     revision: str = Field(min_length=64, max_length=64)
     deleted_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class RefreshContracts(BaseModel):
+    revision: str = Field(min_length=64, max_length=64)
 
 
 class ExportSheets(OpenSheet):
@@ -98,6 +106,19 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
         require_role(actor)
         return commit(actor, payload.config, payload.revision, payload.deleted_ids)
 
+    @app.post('/attendance/refresh-contracts')
+    def refresh_contracts(payload: RefreshContracts, actor=Depends(get_current_user)):
+        require_role(actor)
+        db = get_db_connection()
+        try:
+            with db.cursor() as cursor:
+                config, revision, _ = read_snapshot(cursor, actor)
+                check_client_revision(revision, payload.revision)
+            # The checked writer re-reads contracts/signatures under the users lock.
+            return commit(actor, config, revision)
+        finally:
+            db.close()
+
     def require_employee(cursor, actor, employee):
         if is_admin(actor):
             return
@@ -119,14 +140,14 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
             with db.cursor() as cursor:
                 config, revision, hidden_count = read_snapshot(cursor, actor)
                 cursor.execute('SELECT username FROM users ORDER BY username')
-                users = [load_user(cursor, row['username']) for row in cursor.fetchall()]
+                users = annotate_visibility(cursor, [load_user(cursor, row['username']) for row in cursor.fetchall()])
                 names = load_person_names(cursor)
                 accounts = {user['username']: user for user in users if user}
                 cursor.execute('SELECT id,name FROM organization_groups WHERE is_active=1 ORDER BY name')
                 group_names = {row['id']: row['name'] for row in cursor.fetchall()}
                 catalog = []
                 for user in users:
-                    if user and user.get('is_active', True) and ('Admin' in actor['role_tags'] or can_manage(cursor, actor, user)):
+                    if daily_person(user) and account_list_visible(user, actor) and ('Admin' in actor['role_tags'] or can_manage(cursor, actor, user)):
                         cursor.execute('SELECT * FROM personnel_contracts WHERE username=%s ORDER BY start_date,id', (user['username'],))
                         manager = next((u for u in users if u and u['username'] == user.get('manager_username')), None)
                         catalog.append({'username': user['username'], 'email': user['email'],
@@ -137,6 +158,7 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                             'contracts': cursor.fetchall()})
                 visible = config.get('employes_data', [])
                 return {'config': config, 'revision': revision, 'accounts': catalog,
+                        'contract_refresh_required': bool(refresh_contract_snapshots(LeaveStore.borrow(cursor), config)),
                         'hidden_sheet_count': hidden_count,
                         'person_labels': {str(employee['id']): person_display_name(
                             accounts.get(str(employee.get('account_username') or '')) or
@@ -185,25 +207,7 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
                             raise HTTPException(409, 'Cette fiche est archivée. Un administrateur peut la restaurer depuis les archives.')
                         active = str(existing['id'])
                         continue
-                    name = person_display_name(account)
-                    record = {'nom': name, 'nom_stagiaire': name, 'prenom_stagiaire': '',
-                        'email_employe': account['email'], 'account_username': username,
-                        'responsable': person_display_name(manager) if manager else '',
-                        'email_responsable': (manager or {}).get('email', ''),
-                        'nb_jours': 0, 'nb_heures_jour': 0.0, 'taux_horaire': 0.0,
-                        'facture_mensuelle': 0.0, 'transport': '', 'taux': 0.0,
-                        'vacances': [], 'absences': [], 'arret': [], 'calendar_overrides': {}, 'planning_detail': default_planning()}
-                    prior = next((e for e in reversed(records) if e.get('account_username') == username), None)
-                    if prior:
-                        for field in ('nom', 'nom_stagiaire', 'prenom_stagiaire', 'responsable', 'email_responsable', 'planning_detail'):
-                            if prior.get(field):
-                                record[field] = copy.deepcopy(prior[field])
-                        expected_type = 'Stagiaire' if contract['employee_type'] == 'stagiaire' else 'Salarié'
-                        if prior.get('type') == expected_type:
-                            for field in ('taux_horaire', 'nb_heures_jour', 'transport', 'taux'):
-                                if field in prior:
-                                    record[field] = copy.deepcopy(prior[field])
-                    records.append(serialize_dates(bind_contract(record, contract, payload.month, payload.year)))
+                    records.append(new_sheet(account, manager, contract, payload.month, payload.year, records))
                     active = str(records[-1]['id'])
                 config.update(mois=payload.month, annee=payload.year)
             result = commit(actor, config, revision)
@@ -219,13 +223,26 @@ def register_attendance_routes(app, *, get_db_connection, get_current_user, load
             with db.cursor() as cursor:
                 employee = selected(read_config(cursor, actor), sheet_id)
                 require_employee(cursor, actor, employee)
+                read_only = bool(employee.get('is_archived')) or (year, month) in signed_months(
+                    LeaveStore.borrow(cursor), employee.get('account_username') or '')
+                pending = {}
+                if employee.get('account_username'):
+                    cursor.execute('''SELECT start_date,end_date,start_slot,end_slot FROM leave_requests
+                        WHERE employee_username=%s AND status='pending' AND is_archived=0
+                        AND start_date<=%s AND end_date>=%s''', (employee['account_username'],
+                        date(year, month, monthrange(year, month)[1]), date(year, month, 1)))
+                    for request in cursor.fetchall():
+                        for current, period in leave_cells(request):
+                            if current.month == month and current.year == year:
+                                pending.setdefault(current.isoformat(), {})[period] = True
             days = []
             for number in range(1, monthrange(year, month)[1] + 1):
                 current = date(year, month, number)
                 days.append({'date': current.isoformat(), 'number': number, 'weekday': current.weekday(),
-                    'disabled': outside_contract(employee, current),
-                    'matin': resolve_cell(employee, current, 'matin')[:2], 'aprem': resolve_cell(employee, current, 'aprem')[:2]})
-            return {'days': days}
+                    'disabled': read_only or outside_contract(employee, current),
+                    'matin': resolve_cell(employee, current, 'matin')[:2], 'aprem': resolve_cell(employee, current, 'aprem')[:2],
+                    'pending_leave': pending.get(current.isoformat(), {})})
+            return {'days': days, 'read_only': read_only}
         finally:
             db.close()
 

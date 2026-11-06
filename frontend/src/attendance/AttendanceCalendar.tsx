@@ -22,7 +22,7 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, acti
   const [status, setStatus] = useState('Congé payé')
   const [reason, setReason] = useState('')
   const query = useQuery({ queryKey: ['attendance-calendar', id, month, year, version],
-    queryFn: ({ signal }) => attendanceApi.calendar(token, id, month, year, signal), enabled: active })
+    queryFn: ({ signal }) => attendanceApi.calendar(token, id, month, year, signal), enabled: active, refetchInterval: 30000 })
   return <Box>
       {showPeriodSelector && <PeriodSelector month={month} year={year} disabled={busy} onChange={onPeriod} />}
       <Box className="calendar-toolbar">
@@ -32,8 +32,8 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, acti
           </MenuItem>)}
         </TextField>
         {status === 'Autre' && <TextField label="Précision" value={reason} onChange={e => setReason(e.target.value)} disabled={busy} />}
-        <Button variant="contained" sx={{ minWidth: 120, whiteSpace: 'nowrap' }} disabled={!selection.length || busy} onClick={async () => { if (await onApply(selection, status, reason)) clear() }}>Appliquer ({selection.length})</Button>
-        <Button disabled={!selection.length || busy} onClick={clear}>Effacer la sélection</Button>
+        <Button variant="contained" sx={{ minWidth: 120, whiteSpace: 'nowrap' }} disabled={!selection.length || busy || query.data?.read_only} onClick={async () => { if (await onApply(selection, status, reason)) clear() }}>Appliquer ({selection.length})</Button>
+        <Button disabled={!selection.length || busy || query.data?.read_only} onClick={clear}>Effacer la sélection</Button>
         <Typography component="span" role="status" aria-live="polite" aria-atomic="true" variant="caption" color="text.secondary" sx={{ width: 200, flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
           {selection.length} demi-journée{selection.length > 1 ? 's' : ''} sélectionnée{selection.length > 1 ? 's' : ''}
         </Typography>
@@ -45,6 +45,7 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, acti
         })}
         <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Contour bleu : sélection</Typography>
       </Box>
+      {query.data?.read_only && <Alert severity="info" sx={{ mb: 1 }}>Fiche signée, en cours de signature ou archivée : consultation uniquement.</Alert>}
       {query.isPending && <CircularProgress size={24} sx={{ m: 2 }} />}
       {query.error && <Alert severity="error">{query.error.message}</Alert>}
       {query.data && <Box className="attendance-calendar-grid">
@@ -56,10 +57,10 @@ export function AttendanceCalendar({ token, id, month, year, busy, version, acti
             const color = calendarStatus(day[period][0], mode)
             return <Button key={period} className={`calendar-half ${selection.some(c => c.date === day.date && c.period === period) ? 'selected' : ''}`}
             style={{ '--status-background': color.background, '--status-foreground': color.foreground } as React.CSSProperties}
-            disabled={busy || day.disabled} title={`${day.date} · ${period === 'matin' ? 'Matin' : 'Après-midi'} · ${day[period].join(' · ')}`}
+            disabled={busy || day.disabled} title={`${day.date} · ${period === 'matin' ? 'Matin' : 'Après-midi'} · ${day[period].join(' · ')}${day.pending_leave?.[period] ? ' · Congé en attente d’approbation' : ''}`}
             aria-pressed={selection.some(c => c.date === day.date && c.period === period)}
             aria-label={`${day.date} ${period === 'matin' ? 'matin' : 'après-midi'} ${day[period][0]}`}
-            {...cellProps({ date: day.date, period })}>{period === 'matin' ? 'M' : 'A'} · {color.short}</Button>
+            {...cellProps({ date: day.date, period })}>{period === 'matin' ? 'M' : 'A'} · {color.short}{day.pending_leave?.[period] && <Box component="span" sx={{ ml: .5, color: 'warning.main', fontSize: 10 }}>· En attente</Box>}</Button>
           })}
         </Box>)}
       </Box>}

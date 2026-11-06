@@ -34,8 +34,8 @@ export interface Fiche {
 export interface Config { mois: number; annee: number; employes_data: Fiche[]; [key: string]: unknown }
 export interface Account { username: string; email: string; full_name?: string | null; display_name?: string; manager_username?: string | null; manager_display_name?: string; contracts: unknown[]; group_names?: string[] }
 export interface SavedConfig { config: Config; revision: string; person_labels?: Record<string, string>; hidden_sheet_count?: number }
-export interface Workspace extends SavedConfig { accounts: Account[]; can_edit_identity: boolean; can_delete_sheets: boolean; can_archive_sheets: boolean }
-export interface Day { date: string; number: number; weekday: number; disabled: boolean; matin: [string, string]; aprem: [string, string] }
+export interface Workspace extends SavedConfig { accounts: Account[]; can_edit_identity: boolean; can_delete_sheets: boolean; can_archive_sheets: boolean; contract_refresh_required?: boolean }
+export interface Day { pending_leave?: Partial<Record<'matin' | 'aprem', boolean>>; date: string; number: number; weekday: number; disabled: boolean; matin: [string, string]; aprem: [string, string] }
 export interface Cell { date: string; period: 'matin' | 'aprem' }
 
 /** Labels are presentation metadata: never merge them into a saved or dirty fiche. */

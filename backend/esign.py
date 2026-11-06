@@ -10,12 +10,8 @@ import urllib.error, urllib.request
 from urllib.parse import urlsplit
 from fastapi.responses import Response
 from pydantic import EmailStr
-if __package__:
-    from .signature_flow import resolve_manager, signing_people, attendance_signature_fields
-    from .signature_placement import place_signature_fields
-else:
-    from signature_flow import resolve_manager, signing_people, attendance_signature_fields
-    from signature_placement import place_signature_fields
+from .signature_flow import resolve_manager, signing_people, attendance_signature_fields
+from .signature_placement import place_signature_fields
 
 CLAWSHOW_CREATE_URL = "https://esign.clawshow.ai/esign/create"
 

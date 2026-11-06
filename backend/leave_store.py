@@ -3,10 +3,8 @@ import sqlite3
 import re
 from datetime import datetime, timezone
 
-if __package__:
-    from .person_names import load_person_names, load_person_accounts, person_display_name
-else:
-    from person_names import load_person_names, load_person_accounts, person_display_name
+from .person_names import load_person_names, load_person_accounts, person_display_name
+from .leave_attendance import ensure_leave_attendance_schema
 
 
 def timestamp():
@@ -21,6 +19,15 @@ class LeaveStore:
     def __init__(self, connect, *, write=False):
         self.connect = connect
         self.write = write
+
+    @classmethod
+    def borrow(cls, cursor):
+        """Use the attendance writer's existing transaction; never commit or close it."""
+        store = cls(None)
+        store.cursor = cursor
+        store.sqlite = isinstance(cursor, sqlite3.Cursor)
+        store._person_names = None
+        return store
 
     def __enter__(self):
         self.db = self.connect()
@@ -116,6 +123,9 @@ def ensure_leave_schema(connect):
             columns = {row['Field'] for row in store.many()}
         if 'is_archived' not in columns:
             store.execute('ALTER TABLE leave_requests ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0')
+        if 'cancellation_status' not in columns:
+            store.execute("ALTER TABLE leave_requests ADD COLUMN cancellation_status VARCHAR(12) NOT NULL DEFAULT ''")
+        ensure_leave_attendance_schema(store)
         if store.sqlite:
             store.execute('CREATE INDEX IF NOT EXISTS leave_owner ON leave_requests(employee_username,status,id)')
             store.execute('CREATE INDEX IF NOT EXISTS leave_event_request ON leave_events(request_id,id)')
@@ -148,3 +158,4 @@ def align_leave_identity_collations(store):
 def rename_leave_owner(cursor, previous, current):
     """Follow account renames; immutable event actor snapshots remain unchanged."""
     cursor.execute('UPDATE leave_requests SET employee_username=%s WHERE employee_username=%s', (current, previous))
+    cursor.execute('UPDATE leave_attendance_cells SET workspace_owner=%s WHERE workspace_owner=%s', (current, previous))

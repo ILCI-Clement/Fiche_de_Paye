@@ -16,11 +16,22 @@ from .personnel_register import register_personnel_routes
 from .resource_maintenance import register_resource_maintenance
 
 app = main.app
+from .system_storage import register_storage_routes, application_storage_paths
+register_storage_routes(app, get_db_connection=main.get_db_connection,
+                        get_current_user=main.get_current_user, load_user=main.load_user,
+                        paths=application_storage_paths(main))
+from .personnel_snapshots import register_snapshot_routes
+register_snapshot_routes(app, get_db_connection=main.get_db_connection,
+                         get_current_user=main.get_current_user, load_user=main.load_user)
 register_personnel_routes(app, get_db_connection=main.get_db_connection,
-                          get_current_user=main.get_current_user, load_user=main.load_user)
+                          get_current_user=main.get_current_user, load_user=main.load_user,
+                          insert_account=main.insert_account, welcome_account=main.welcome_created_account)
+from .medical_visits import register_medical_routes
+register_medical_routes(app, get_db_connection=main.get_db_connection,
+                        get_current_user=main.get_current_user, load_user=main.load_user, can_manage=main.user_can_manage)
 register_resource_maintenance(app, get_db_connection=main.get_db_connection,
                              get_current_user=main.get_current_user, load_user=main.load_user)
-# During a reversible cutover, the retained legacy API owns the single worker.
+# Production runs one API and owns its workers. Tests/candidates can disable mail.
 if os.getenv('PRESENCE_CONTRACT_REMINDER_WORKER', '1') == '0':
     main.start_contract_reminder_worker = lambda: None
 register_attendance_routes(

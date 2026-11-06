@@ -14,6 +14,8 @@ import { PersonProfile } from './PersonProfile'
 import { WorkspaceToolbar } from '../components/WorkspaceToolbar'
 import { useWorkCenter } from '../dashboard/useWorkCenter'
 import { ReadinessStatus } from '../dashboard/ReadinessStatus'
+import { accountStatus } from '../admin/accountStatus'
+import { teamPeople } from './teamPeople'
 
 export function TeamPage({ token, session, onAttendance }: { token: string; session: Session; onAttendance: () => void }) {
   const privileged = canManageTeam(session)
@@ -30,7 +32,8 @@ export function TeamPage({ token, session, onAttendance }: { token: string; sess
   const groups = useQuery({ queryKey: ['team-groups', session.username], queryFn: ({ signal }) => teamApi.groups(token, signal), enabled: privileged, retry: false })
   const names = new Map((privileged ? groups.data?.groups : team.data?.groups)?.filter(g => g.is_active === undefined || Boolean(g.is_active)).map(g => [g.id, g.name]))
   const groupNames = (ids: number[]) => [...new Set(ids)].map(id => names.get(id) || String(id)).join(', ')
-  const rows = privileged ? (people.data?.users || []).filter(p => p.role_tags?.includes('Employe') || (!p.role_tags?.length && p.role === 'Employe')).map(p => ({ id: p.username, cells: [
+  const activePeople = (people.data?.users || []).filter(person => accountStatus(person) === 'active')
+  const rows = privileged ? teamPeople(activePeople).map(p => ({ id: p.username, cells: [
     personDisplayName(p), p.employee_type || 'salarie', p.manager_id ? personDisplayName({ display_name: p.manager_display_name }) : '', groupNames(p.group_ids || []), p.email,
   ] })) : (team.data?.members || []).map((p, index) => ({ id: String(index), cells: [personDisplayName({ full_name: p.full_name, display_name: p.display_name || p.name }), groupNames([...p.group_ids, ...p.managed_group_ids]), groupNames(p.managed_group_ids)] }))
   const filtered = rows.filter(row => row.cells.join(' ').toLocaleLowerCase('fr').includes(search.trim().toLocaleLowerCase('fr')))
@@ -43,7 +46,7 @@ export function TeamPage({ token, session, onAttendance }: { token: string; sess
         {sheet === 'team' && <>
           <TextField size="small" placeholder="Rechercher une personne" value={search} onChange={event => setSearch(event.target.value)} slotProps={{ htmlInput: { 'aria-label': 'Rechercher une personne' } }} sx={{ width: { xs: '100%', sm: 230 }, maxWidth: '100%' }} />
           {privileged && <TextField select size="small" label="Consulter un profil" value="" sx={{ minWidth: 'min(100%, 220px)', maxWidth: 360, flex: { xs: '1 1 100%', sm: '0 1 260px' } }} slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { width: 640, maxWidth: 'calc(100vw - 32px)' } } } } } }} onChange={event => setProfile(event.target.value)}>
-            {(people.data?.users || []).filter(person => isAdmin(session) || person.username === session.username || person.manager_id === session.username).map(person => <MenuItem key={person.username} value={person.username} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.5fr)', columnGap: 2, alignItems: 'center', py: 1 }}>
+            {activePeople.filter(person => isAdmin(session) || person.username === session.username || person.manager_id === session.username).map(person => <MenuItem key={person.username} value={person.username} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.5fr)', columnGap: 2, alignItems: 'center', py: 1 }}>
               <Typography component="span" title={personDisplayName(person)} sx={{ minWidth: 0, fontSize: 14, fontWeight: 500, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{personDisplayName(person)}</Typography>
               <Typography component="span" title={person.email || ''} sx={{ minWidth: 0, fontSize: 13, color: 'text.secondary', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{person.email || '—'}</Typography>
             </MenuItem>)}
@@ -55,13 +58,13 @@ export function TeamPage({ token, session, onAttendance }: { token: string; sess
       </Box>
     </WorkspaceToolbar>
     <Tabs value={sheet} onChange={(_, value: 'team' | 'organization') => setSheet(value)} variant="scrollable" scrollButtons="auto" aria-label="Vues de Mon équipe" sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-      <Tab value="team" label={privileged ? 'Employés gérés' : 'Mon département'} id={`${tabsId}-team-tab`} aria-controls={`${tabsId}-team-panel`} />
+      <Tab value="team" label={privileged ? 'Personnes gérées' : 'Mon département'} id={`${tabsId}-team-tab`} aria-controls={`${tabsId}-team-panel`} />
       <Tab value="organization" label="Organigramme de l’entreprise" id={`${tabsId}-organization-tab`} aria-controls={`${tabsId}-organization-panel`} />
     </Tabs>
     <Box role="tabpanel" hidden={sheet !== 'team'} id={`${tabsId}-team-panel`} aria-labelledby={`${tabsId}-team-tab`}>
     <Paper sx={{ p: { xs: 1, sm: 2 } }}>
-      {pending ? <CircularProgress size={24} /> : error ? <Alert severity="error">{error.message}<Button onClick={refresh}>Réessayer</Button></Alert> : !filtered.length ? <Typography color="text.secondary">{search ? 'Aucun résultat pour cette recherche.' : privileged ? 'Aucun Employé dans votre périmètre.' : 'Aucun membre dans votre département actif.'}</Typography> :
-        <TableContainer><Table size="small" aria-label={privileged ? 'Employés gérés' : 'Mon département'}><TableHead><TableRow>{(privileged ? ['Nom et prénoms', 'Type', 'Responsable', 'Groupes', 'E-mail'] : ['Nom', 'Département', 'Responsable de']).map(header => <TableCell key={header}>{header}</TableCell>)}</TableRow></TableHead><TableBody>{filtered.map(row => <TableRow key={row.id}>{row.cells.map((value, j) => <TableCell key={j} sx={{ overflowWrap: 'anywhere' }}>{privileged && j === 0 ? <Box><Button onClick={() => setProfile(row.id)} sx={{ textAlign: 'left', justifyContent: 'start', overflowWrap: 'anywhere' }}>{value}</Button>{dossiers.get(row.id) && <Box><ReadinessStatus person={dossiers.get(row.id)!} /></Box>}{readiness.error && <Typography variant="caption" color="warning.main">État indisponible</Typography>}</Box> : (privileged ? j === 3 : j === 1) ? <DepartmentBadges names={value ? value.split(', ') : []} /> : value || '—'}</TableCell>)}</TableRow>)}</TableBody></Table></TableContainer>}
+      {pending ? <CircularProgress size={24} /> : error ? <Alert severity="error">{error.message}<Button onClick={refresh}>Réessayer</Button></Alert> : !filtered.length ? <Typography color="text.secondary">{search ? 'Aucun résultat pour cette recherche.' : privileged ? 'Aucune personne dans votre périmètre.' : 'Aucun membre dans votre département actif.'}</Typography> :
+        <TableContainer><Table size="small" aria-label={privileged ? 'Personnes gérées' : 'Mon département'}><TableHead><TableRow>{(privileged ? ['Nom et prénoms', 'Type', 'Responsable', 'Groupes', 'E-mail'] : ['Nom', 'Département', 'Responsable de']).map(header => <TableCell key={header}>{header}</TableCell>)}</TableRow></TableHead><TableBody>{filtered.map(row => <TableRow key={row.id}>{row.cells.map((value, j) => <TableCell key={j} sx={{ overflowWrap: 'anywhere' }}>{privileged && j === 0 ? <Box sx={{ display: 'flex', alignItems: 'center', gap: .75 }}><Button onClick={() => setProfile(row.id)} sx={{ textAlign: 'left', justifyContent: 'start', overflowWrap: 'anywhere' }}>{value}</Button>{dossiers.get(row.id) && <ReadinessStatus person={dossiers.get(row.id)!} />}{readiness.error && <Typography variant="caption" color="warning.main">État indisponible</Typography>}</Box> : (privileged ? j === 3 : j === 1) ? <DepartmentBadges names={value ? value.split(', ') : []} /> : value || '—'}</TableCell>)}</TableRow>)}</TableBody></Table></TableContainer>}
     </Paper>
     </Box>
     <Box role="tabpanel" hidden={sheet !== 'organization'} id={`${tabsId}-organization-panel`} aria-labelledby={`${tabsId}-organization-tab`}>

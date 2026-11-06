@@ -1,4 +1,4 @@
-import type { Filter, LeaveDetail, LeaveInput, LeaveList, LeaveRequest, Scope, Session } from './types'
+import type { LeaveAttendancePreview, Filter, LeaveDetail, LeaveInput, LeaveList, LeaveRequest, Scope, Session } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -47,7 +47,11 @@ export const api = {
     request<LeaveList>(`/leave-requests?scope=${scope}&status=${status}&page=${page}`, token, { signal }),
   create: (token: string, data: LeaveInput) => request<LeaveRequest>('/leave-requests', token, { method: 'POST', body: JSON.stringify(data) }),
   detail: (token: string, id: number, signal?: AbortSignal) => request<LeaveDetail>(`/leave-requests/${id}`, token, { signal }),
+  leaveAttendancePreview: (token: string, id: number, operation: 'approve' | 'cancel', signal?: AbortSignal) => request<LeaveAttendancePreview>(`/leave-requests/${id}/attendance-preview?operation=${operation}`, token, { signal }),
+  requestCancellation: (token: string, id: number) => request<LeaveRequest>(`/leave-requests/${id}/cancellation`, token, { method: 'POST' }),
+  decideCancellation: (token: string, id: number, decision: 'approved' | 'rejected', comment: string, attendance_confirmation?: string) =>
+    request<LeaveRequest>(`/leave-requests/${id}/cancellation-decision`, token, { method: 'POST', body: JSON.stringify({ decision, comment, attendance_confirmation }) }),
   withdraw: (token: string, id: number) => request<LeaveRequest>(`/leave-requests/${id}/withdraw`, token, { method: 'POST' }),
-  decide: (token: string, id: number, decision: 'approved' | 'rejected', comment: string) =>
-    request<LeaveRequest>(`/leave-requests/${id}/decision`, token, { method: 'POST', body: JSON.stringify({ decision, comment }) }),
+  decide: (token: string, id: number, decision: 'approved' | 'rejected', comment: string, attendance_confirmation?: string) =>
+    request<LeaveRequest>(`/leave-requests/${id}/decision`, token, { method: 'POST', body: JSON.stringify({ decision, comment, attendance_confirmation }) }),
 }

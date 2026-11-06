@@ -27,28 +27,18 @@ import pymysql
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
 
-if __package__:
-    from .account_onboarding import credentials_for_account, send_welcome_email
-    from .account_names import AccountNames, ensure_account_names_schema
-    from .login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
-                              ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
-    from .person_names import (annotate_person_names, load_person_accounts,
-                               load_person_names, person_display_name)
-    from .role_policy import (VALID_ROLES, ROLE_PRIORITY, active_super_admin_count, can_assign_roles,
-                              can_manage_account, canonical_role_tags, checked_resource_actor,
-                              ensure_role_audit_schema, is_admin, is_super_admin, record_role_change,
-                              reserve_deleted_account_name, username_is_reserved)
-else:
-    from account_onboarding import credentials_for_account, send_welcome_email
-    from account_names import AccountNames, ensure_account_names_schema
-    from login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
-                             ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
-    from person_names import (annotate_person_names, load_person_accounts,
-                              load_person_names, person_display_name)
-    from role_policy import (VALID_ROLES, ROLE_PRIORITY, active_super_admin_count, can_assign_roles,
-                             can_manage_account, canonical_role_tags, checked_resource_actor,
-                             ensure_role_audit_schema, is_admin, is_super_admin, record_role_change,
-                             reserve_deleted_account_name, username_is_reserved)
+from .person_visibility import account_list_visible, annotate_visibility, daily_person
+from .account_onboarding import credentials_for_account, send_welcome_email
+from .account_email import ensure_account_email_schema, require_available_login_email, sync_registry_email
+from .account_names import AccountNames, ensure_account_names_schema
+from .login_guard import (COOLDOWN_SECONDS, check_cooldown, cooldown_error,
+                          ensure_login_guard_schema, lock_login_attempt, record_failure, reset_failures)
+from .person_names import (annotate_person_names, load_person_accounts,
+                           load_person_names, person_display_name)
+from .role_policy import (VALID_ROLES, ROLE_PRIORITY, active_super_admin_count, can_assign_roles,
+                          can_manage_account, canonical_role_tags, checked_resource_actor, direct_business_report,
+                          ensure_role_audit_schema, is_admin, is_super_admin, record_role_change,
+                          reserve_deleted_account_name, username_is_reserved)
 
 
 app = FastAPI(title="ILCI · RH API")
@@ -215,12 +205,12 @@ def ensure_organization_schema() -> None:
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            if __package__:
-                from .account_lifecycle import ensure_account_lifecycle_schema
-            else:
-                from account_lifecycle import ensure_account_lifecycle_schema
+            from .account_lifecycle import ensure_account_lifecycle_schema
             ensure_account_lifecycle_schema(cursor)
+            ensure_account_email_schema(cursor)
             ensure_role_audit_schema(cursor)
+            from .management_reports import ensure_management_assignment_schema
+            ensure_management_assignment_schema(cursor)
             cursor.execute("SHOW COLUMNS FROM users")
             columns = {item["Field"] for item in cursor.fetchall()}
             ensure_login_guard_schema(cursor, columns)
@@ -452,6 +442,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "role_tags": user["role_tags"],
         "is_admin": is_admin(user),
         "is_active": bool(user.get("is_active", True)),
+        "personnel_archived": bool(user.get('personnel_archived', False)),
         "initial_password_pending": bool(user.get('initial_password_pending', False)),
         "login_deleted_at": user.get("login_deleted_at"),
         "employee_type": user.get("employee_type") or "salarie",
@@ -522,10 +513,11 @@ def resolve_fiche_account_username(cursor: pymysql.cursors.Cursor, employee: dic
             return str(row["username"])
     email = str(employee.get("email_employe") or "").strip()
     if email:
-        cursor.execute("SELECT username FROM users WHERE email = %s", (email,))
-        row = cursor.fetchone()
-        if row:
-            return str(row["username"])
+        # A recycled address cannot identify a legacy fiche without a stable ID.
+        cursor.execute("SELECT username FROM users WHERE LOWER(TRIM(email)) = LOWER(%s) LIMIT 2", (email,))
+        rows = cursor.fetchall()
+        if len(rows) == 1:
+            return str(rows[0]["username"])
     return None
 
 
@@ -545,9 +537,6 @@ def clear_mislinked_contract(cursor: pymysql.cursors.Cursor, username: str, empl
     )
 
 
-def sync_contract_dates_from_config(cursor, config):
-    """Contract dates are maintained through contract history only."""
-    return
 
 
 def link_fiche_records_to_users(cursor: pymysql.cursors.Cursor, config: dict[str, Any]) -> bool:
@@ -567,7 +556,7 @@ def link_fiche_records_to_users(cursor: pymysql.cursors.Cursor, config: dict[str
 
 
 def sync_all_contract_dates(cursor: pymysql.cursors.Cursor) -> None:
-    """Backfill contract fields from pre-existing saved attendance configurations."""
+    """Backfill stable account links in pre-existing attendance configurations."""
     cursor.execute("SELECT user_id, form_content FROM Presence")
     for row in cursor.fetchall():
         content = row.get("form_content")
@@ -576,7 +565,6 @@ def sync_all_contract_dates(cursor: pymysql.cursors.Cursor) -> None:
         except (TypeError, json.JSONDecodeError):
             continue
         linked = link_fiche_records_to_users(cursor, config)
-        sync_contract_dates_from_config(cursor, config)
         if linked:
             cursor.execute(
                 "UPDATE Presence SET form_content = %s WHERE user_id = %s",
@@ -671,7 +659,7 @@ def contract_deadlines_from_fiches(cursor: pymysql.cursors.Cursor, today: date) 
 def eligible_for_annual_interview(user: dict[str, Any]) -> bool:
     # The Admin label is an application permission, not an employment status:
     # administrators also need their yearly interview to be tracked.
-    return bool(user.get('is_active', True) and not user.get('login_deleted_at')
+    return bool(daily_person(user)
                 and {"Admin", "Employe", "Responsable"} & set(user["role_tags"]))
 
 
@@ -693,11 +681,12 @@ def all_users(cursor: pymysql.cursors.Cursor) -> list[dict[str, Any]]:
     accounts = cursor.fetchall()
     names = load_person_names(cursor, [account['username'] for account in accounts])
     labels = {account['username']: person_display_name(account, names) for account in accounts}
-    return [user for account in accounts if (user := load_user(cursor, str(account['username']),
-                                                             person_names=names, account_names=labels))]
+    return annotate_visibility(cursor, [user for account in accounts if (user := load_user(cursor, str(account['username']),
+                                                             person_names=names, account_names=labels))])
 
 
 def users_visible_to_actor(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    users = [user for user in users if account_list_visible(user, actor)]
     if "Admin" in actor["role_tags"]:
         return users
     return [
@@ -735,7 +724,11 @@ def require_roles(*roles: str):
 def user_can_manage(cursor: pymysql.cursors.Cursor, actor: dict[str, Any], target: dict[str, Any]) -> bool:
     if "Admin" in actor["role_tags"]:
         return True
-    if "Responsable" not in actor["role_tags"] or "Employe" not in target["role_tags"]:
+    if "Responsable" not in actor["role_tags"]:
+        return False
+    if direct_business_report(actor, target):
+        return True
+    if "Employe" not in target["role_tags"]:
         return False
     if target.get("manager_username") == actor["username"]:
         return True
@@ -814,6 +807,15 @@ def require_target_access(cursor: pymysql.cursors.Cursor, actor: dict[str, Any],
     raise HTTPException(status_code=403, detail="Cet utilisateur ne fait pas partie de votre périmètre.")
 
 
+def require_workspace_access(cursor, actor, username, *, edit):
+    target = require_target_access(cursor, actor, username, edit=edit)
+    # A subordinate manager's workspace can contain their own team's private sheets.
+    # The superior creates that manager's personal sheet in the superior's workspace.
+    if actor['username'] != username and not is_admin(actor) and 'Responsable' in target['role_tags']:
+        raise HTTPException(403, 'Utilisez votre propre espace pour gérer la fiche de cette personne.')
+    return target
+
+
 def send_account_welcome_email(email: str, name: str, password: str, generated: bool) -> bool:
     if getattr(app.state, 'local_snapshot', False):
         return False
@@ -886,11 +888,11 @@ def send_contract_end_reminder_email(recipient_email: str, contract: dict[str, A
 def contract_reminder_recipients(cursor: pymysql.cursors.Cursor, contract: dict[str, Any]) -> set[str]:
     """Return the administrators and direct manager who must receive a reminder."""
     users = all_users(cursor)
-    inactive_emails = {str(user.get("email") or "").strip().casefold() for user in users if not user.get("is_active", True)}
+    inactive_emails = {str(user.get("email") or "").strip().casefold() for user in users if not user.get("is_active", True) or user.get("login_deleted_at")}
     recipients = {
         str(user["email"]).strip()
         for user in users
-        if user.get("is_active", True) and "Admin" in user["role_tags"] and str(user.get("email") or "").strip()
+        if user.get("is_active", True) and not user.get("login_deleted_at") and "Admin" in user["role_tags"] and str(user.get("email") or "").strip()
     }
     manager_email = str(contract.get("manager_email") or "").strip()
     if manager_email and manager_email.casefold() not in inactive_emails:
@@ -986,8 +988,8 @@ def login(payload: dict[str, Any]) -> dict[str, Any]:
             # Resolve to the canonical account before issuing tokens. Ambiguous
             # username/e-mail matches must never silently select an identity.
             cursor.execute(
-                "SELECT username FROM users WHERE LOWER(TRIM(username)) = LOWER(%s) "
-                "OR LOWER(TRIM(email)) = LOWER(%s) LIMIT 2",
+                "SELECT username FROM users WHERE login_deleted_at IS NULL AND (LOWER(TRIM(username)) = LOWER(%s) "
+                "OR LOWER(TRIM(email)) = LOWER(%s)) LIMIT 2",
                 (identifier, identifier),
             )
             matches = cursor.fetchall() if identifier else []
@@ -1128,8 +1130,8 @@ def update_group(group_id: int, payload: GroupRequest, _: dict[str, Any] = Depen
         connection.close()
 
 
-@app.post("/create-user")
-def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require_roles("Admin"))) -> dict[str, Any]:
+def insert_account(cursor, payload: dict[str, Any], actor: dict[str, Any]):
+    """Validate and insert on the caller transaction; never commit or send mail."""
     try:
         names = AccountNames(first_name=payload.get('first_name'), last_name=payload.get('last_name'))
     except ValidationError:
@@ -1152,65 +1154,70 @@ def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require
     if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"] and tags != ["Employe"]:
         raise HTTPException(status_code=403, detail="Un Responsable peut uniquement créer un Employé.")
 
+    actor = checked_resource_actor(cursor, actor, load_user, lock=True)
+    if not can_assign_roles(actor, tags):
+        raise HTTPException(status_code=403, detail="Vous ne pouvez pas attribuer ces droits.")
+    if username_is_reserved(cursor, username):
+        raise HTTPException(status_code=409, detail="Ce nom de compte est réservé et ne peut pas être réutilisé.")
+    require_available_login_email(cursor, email)
+    group_ids = validate_group_ids(cursor, list(payload.get("group_ids") or []))
+    managed_group_ids = validate_group_ids(cursor, list(payload.get("managed_group_ids") or []))
+    require_responsable_for_managed_groups(tags, managed_group_ids)
+    manager_username = payload.get("manager_id")
+    if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"]:
+        allowed = set(actor["managed_group_ids"])
+        if not set(group_ids).issubset(allowed):
+            raise HTTPException(status_code=403, detail="Les Groupes choisis doivent être gérés par ce Responsable.")
+        manager_username = actor["username"]
+        managed_group_ids = []
+    elif manager_username:
+        manager = load_user(cursor, str(manager_username))
+        if not is_valid_direct_manager(manager):
+            raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
+    if "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
+        raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
+
+    cursor.execute(
+        """
+        INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username, first_name, last_name, initial_password_pending)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type, manager_username,
+         names.first_name, names.last_name, credentials.generated),
+    )
+    cursor.execute("UPDATE users SET role_tags = %s WHERE username = %s", (json.dumps(tags), username))
+    replace_memberships(cursor, username, "member", group_ids)
+    replace_memberships(cursor, username, "manager", managed_group_ids if "Responsable" in tags else [])
+    record_role_change(cursor, actor['username'], username, [], tags, action='created')
+    return {"username": username, "names": names, "credentials": credentials}
+
+
+@app.post("/create-user")
+def create_user(payload: dict[str, Any], actor: dict[str, Any] = Depends(require_roles("Admin"))) -> dict[str, Any]:
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            actor = checked_resource_actor(cursor, actor, load_user, lock=True)
-            if not can_assign_roles(actor, tags):
-                raise HTTPException(status_code=403, detail="Vous ne pouvez pas attribuer ces droits.")
-            if username_is_reserved(cursor, username):
-                raise HTTPException(status_code=409, detail="Ce nom de compte est réservé et ne peut pas être réutilisé.")
-            cursor.execute('SELECT username FROM users WHERE LOWER(TRIM(email))=LOWER(%s) LIMIT 1', (email,))
-            if cursor.fetchone():
-                raise HTTPException(400, 'Cette adresse e-mail est déjà utilisée.')
-            group_ids = validate_group_ids(cursor, list(payload.get("group_ids") or []))
-            managed_group_ids = validate_group_ids(cursor, list(payload.get("managed_group_ids") or []))
-            require_responsable_for_managed_groups(tags, managed_group_ids)
-            manager_username = payload.get("manager_id")
-            if "Responsable" in actor["role_tags"] and "Admin" not in actor["role_tags"]:
-                allowed = set(actor["managed_group_ids"])
-                if not set(group_ids).issubset(allowed):
-                    raise HTTPException(status_code=403, detail="Les Groupes choisis doivent être gérés par ce Responsable.")
-                manager_username = actor["username"]
-                managed_group_ids = []
-            elif manager_username:
-                manager = load_user(cursor, str(manager_username))
-                if not is_valid_direct_manager(manager):
-                    raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
-            if "Employe" in tags and not manager_username:
-                raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
-            if "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
-                raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
-
-            cursor.execute(
-                """
-                INSERT INTO users (username, email, password_hash, is_admin, role, employee_type, manager_username, first_name, last_name, initial_password_pending)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (username, email, hash_password(password), "Admin" in tags, tags[0], employee_type, manager_username,
-                 names.first_name, names.last_name, credentials.generated),
-            )
-            cursor.execute("UPDATE users SET role_tags = %s WHERE username = %s", (json.dumps(tags), username))
-            replace_memberships(cursor, username, "member", group_ids)
-            replace_memberships(cursor, username, "manager", managed_group_ids if "Responsable" in tags else [])
-            record_role_change(cursor, actor['username'], username, [], tags, action='created')
+            created = insert_account(cursor, payload, actor)
         connection.commit()
     except pymysql.err.IntegrityError:
         connection.rollback()
-        raise HTTPException(status_code=400, detail="Ce nom ou cet e-mail est déjà utilisé.") from None
+        raise HTTPException(400, "Ce nom ou cet e-mail est déjà utilisé.") from None
     except Exception:
         connection.rollback()
         raise
     finally:
         connection.close()
+    return {'status': 'success', 'message': 'Compte créé.', 'welcome_email_sent': welcome_created_account(created)}
 
-    # Account creation is committed once before SMTP. A mail failure must not
-    # report creation failure or invite the administrator to create it again.
+
+def welcome_created_account(created):
+    """One post-commit attempt; no credentials in responses or audit snapshots."""
+    credentials, names = created['credentials'], created['names']
     try:
-        email_sent = send_account_welcome_email(email, names.full_name, password, credentials.generated)
+        return send_account_welcome_email(credentials.email, names.full_name,
+                                          credentials.password.get_secret_value(), credentials.generated)
     except Exception:
-        email_sent = False  # Do not echo SMTP errors or plaintext credentials.
-    return {'status': 'success', 'message': 'Compte créé.', 'welcome_email_sent': email_sent}
+        return False
 
 
 def admin_job_titles(cursor: pymysql.cursors.Cursor, actor: dict[str, Any],
@@ -1248,15 +1255,22 @@ def admin_job_titles(cursor: pymysql.cursors.Cursor, actor: dict[str, Any],
 
 
 @app.get("/list-users")
-def list_users(actor: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+def list_users(actor: dict[str, Any] = Depends(get_current_user), include_inactive: bool = False) -> dict[str, Any]:
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            candidates = all_users(cursor)
+            if include_inactive and not is_admin(actor):
+                raise HTTPException(403, 'Seul un administrateur peut consulter les comptes désactivés.')
+            candidates = [user for user in all_users(cursor) if account_list_visible(user, actor)]
+            if not include_inactive:
+                candidates = [user for user in candidates if daily_person(user)]
             if is_admin(actor):
                 visible = candidates
             elif "Responsable" in actor["role_tags"]:
-                visible = [user for user in candidates if user and user_can_manage(cursor, actor, user)]
+                # The directory includes direct reports who are themselves managers.
+                # Editing/account permissions still use their existing separate guards.
+                visible = [user for user in candidates if user and (
+                    user_can_manage(cursor, actor, user) or user.get('manager_username') == actor['username'])]
             else:
                 visible = [user for user in candidates if user and user["username"] == actor["username"]]
             users = [public_user(user) for user in visible if user]
@@ -1287,19 +1301,23 @@ def get_dashboard(actor: dict[str, Any] = Depends(require_roles("Admin", "Respon
             auto_send = contract_reminders_auto_enabled(cursor)
             users = all_users(cursor)
             visible_users = [user for user in users_visible_to_actor(cursor, actor, users)
-                             if user.get('is_active', True) and not user.get('login_deleted_at')]
+                             if daily_person(user)]
             visible_usernames = {user["username"] for user in visible_users}
             candidates = contract_deadlines_from_fiches(cursor, today)
             if "Admin" in actor["role_tags"]:
                 contracts = candidates
             else:
+                email_is_unique = sum(str(u.get("email") or "").strip().casefold() == str(actor["email"]).strip().casefold() for u in users) == 1
                 contracts = [
                     contract
                     for contract in candidates
                     if contract.get("employee_username") == actor["username"]
                     or contract.get("manager_username") == actor["username"]
-                    or str(contract.get("manager_email") or "").casefold() == str(actor["email"]).casefold()
+                    or (not contract.get("manager_username") and email_is_unique
+                        and str(contract.get("manager_email") or "").casefold() == str(actor["email"]).casefold())
                 ]
+            hidden_accounts = {user['username'] for user in users if not account_list_visible(user, actor)}
+            contracts = [contract for contract in contracts if contract.get('employee_username') not in hidden_accounts]
             if visible_usernames:
                 placeholders = ", ".join(["%s"] * len(visible_usernames))
                 cursor.execute(
@@ -1469,9 +1487,7 @@ def update_user_organization(
             if is_super_admin(target) and 'SuperAdmin' not in tags:
                 if active_super_admin_count(cursor, exclude_username=target['username']) == 0:
                     raise HTTPException(status_code=409, detail="Le dernier Super-administrateur actif doit être conservé.")
-                if target['username'] == actor['username']:
-                    raise HTTPException(status_code=400, detail="Vous ne pouvez pas retirer vos propres droits de Super-administrateur.")
-            if target_username == actor["username"] and "Admin" not in tags:
+            if target_username == actor["username"] and "Admin" not in tags and not is_super_admin(actor):
                 raise HTTPException(status_code=400, detail="Vous ne pouvez pas retirer votre propre rôle Admin. Demandez à un autre administrateur.")
             employee_type = str(payload.get("employee_type", target["employee_type"]))
             if employee_type not in VALID_EMPLOYEE_TYPES:
@@ -1498,8 +1514,6 @@ def update_user_organization(
                         raise HTTPException(status_code=400, detail="Le Responsable direct ou l'Administrateur est invalide.")
                     if target_username == manager_username or would_create_management_cycle(cursor, target_username, manager_username):
                         raise HTTPException(status_code=400, detail="Cette affectation créerait une boucle hiérarchique.")
-                if "Employe" in tags and not manager_username:
-                    raise HTTPException(status_code=400, detail="Un Employé doit avoir un Responsable direct ou un Administrateur.")
                 if "Responsable" in tags and "Admin" not in tags and not managed_group_ids:
                     raise HTTPException(status_code=400, detail="Un Responsable doit gérer au moins un Groupe.")
                 if tags == ["Admin"]:
@@ -1588,12 +1602,6 @@ def assign_direct_manager(
         connection.close()
 
 
-def fiche_record_belongs_to_user(record: dict[str, Any], username: str, email: str) -> bool:
-    account_username = str(
-        record.get("account_username") or record.get("employee_username") or record.get("user_username") or ""
-    ).strip()
-    record_email = str(record.get("email_employe") or "").strip()
-    return account_username == username or (bool(record_email) and record_email.casefold() == email.casefold())
 
 
 def serialize_fiche_config(data: dict[str, Any]) -> str:
@@ -1657,8 +1665,13 @@ def migrate_username_in_saved_fiches(
                 employee["responsable"] = new_username
                 changed = True
             if old_email != new_email:
-                for field in ("email_employe", "email_responsable"):
-                    if str(employee.get(field) or "").casefold() == old_email.casefold():
+                identities = {
+                    'email_employe': ('account_username', 'employee_username', 'user_username'),
+                    'email_responsable': ('manager_username', 'responsable_id', 'responsable'),
+                }
+                for field, identity_fields in identities.items():
+                    if (any(employee.get(key) == new_username for key in identity_fields)
+                            and str(employee.get(field) or "").casefold() == old_email.casefold()):
                         employee[field] = new_email
                         changed = True
         if changed:
@@ -1703,10 +1716,7 @@ def delete_user(username_to_delete: str, payload: AccountPurgeRequest,
 
 
 def perform_account_purge(cursor, actor, target, *, reason):
-    if __package__:
-        from .account_purge import purge_account
-    else:
-        from account_purge import purge_account
+    from .account_purge import purge_account
     return purge_account(cursor, actor, target, reason=reason)
 
 
@@ -1744,6 +1754,7 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                 params.append(payload.new_username)
                 target_username = payload.new_username
             if payload.new_email and payload.new_email != user["email"]:
+                require_available_login_email(cursor, str(payload.new_email), exclude_username=username)
                 updates.append("email = %s")
                 target_email = str(payload.new_email)
                 params.append(target_email)
@@ -1751,6 +1762,7 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                 updates.append("password_hash = %s")
                 params.append(hash_password(payload.new_password))
             if updates:
+                email_changed = target_email != str(user["email"])
                 if target_username != username:
                     reserve_deleted_account_name(cursor, user)
                 cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE username = %s", (*params, username))
@@ -1798,7 +1810,15 @@ def update_profile(username: str, payload: ProfileUpdateRequest, actor: dict[str
                     rename_leave_owner(cursor, username, target_username)
                     rename_personnel_account_link(cursor, username, target_username, target_username)
                     rename_signed_fiche_owner(cursor, username, target_username)
-                if target_username != username or target_email != str(user["email"]):
+                if email_changed:
+                    sync_registry_email(cursor, target_username, target_email, target_username)
+                    if not (payload.new_password and user.get('initial_password_pending')):
+                        next_session_version += 1
+                    cursor.execute('''UPDATE users SET session_version=%s,
+                        remember_token_hash=NULL,remember_token_expires=NULL,reset_token=NULL,
+                        reset_token_expires=CURRENT_TIMESTAMP WHERE username=%s''',
+                        (next_session_version, target_username))
+                if target_username != username:
                     migrate_username_in_saved_fiches(
                         cursor,
                         username,
@@ -1831,8 +1851,8 @@ def forgot_password(payload: dict[str, Any]) -> dict[str, str]:
                 return {"status": "success", "message": "Si l'adresse est valide, un e-mail a été envoyé."}
             token = secrets.token_urlsafe(32)
             cursor.execute(
-                "UPDATE users SET reset_token = %s, reset_token_expires = %s WHERE email = %s",
-                (token, datetime.now() + timedelta(minutes=PASSWORD_RESET_DURATION_MINUTES), email),
+                "UPDATE users SET reset_token = %s, reset_token_expires = %s WHERE username = %s AND login_deleted_at IS NULL",
+                (token, datetime.now() + timedelta(minutes=PASSWORD_RESET_DURATION_MINUTES), user['username']),
             )
         connection.commit()
         send_password_reset_email(email, token)
@@ -1875,7 +1895,7 @@ def get_config(user_id: str, actor: dict[str, Any] = Depends(get_current_user)) 
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
-            require_target_access(cursor, actor, user_id, edit=False)
+            require_workspace_access(cursor, actor, user_id, edit=False)
             cursor.execute("SELECT form_content FROM Presence WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             if not result:
@@ -1899,15 +1919,12 @@ def save_config(user_id: str, data: dict[str, Any], actor: dict[str, Any] = Depe
 
 
 def save_config_checked(user_id, data, actor, expected_revision=None, *, confirmed_deletions=None, preserve_hidden=False):
-    if __package__:
-        from .attendance_revision import config_revision, require_revision
-    else:
-        from attendance_revision import config_revision, require_revision
+    from .attendance_revision import config_revision, require_revision
     connection = get_db_connection()
     try:
         with connection.cursor() as cursor:
             actor = checked_resource_actor(cursor, actor, load_user, lock=True)
-            require_target_access(cursor, actor, user_id, edit=True)
+            require_workspace_access(cursor, actor, user_id, edit=True)
             cursor.execute("SELECT form_content FROM Presence WHERE user_id=%s FOR UPDATE", (user_id,))
             old_row = cursor.fetchone()
             old_config = old_row["form_content"] if old_row else {}
@@ -1926,7 +1943,11 @@ def save_config_checked(user_id, data, actor, expected_revision=None, *, confirm
             # legacy name/e-mail relinking against protected historical records.
             if not scoped:
                 link_fiche_records_to_users(cursor, data)
-            sync_contract_dates_from_config(cursor, data)
+            leave_store = LeaveStore.borrow(cursor)
+            from .attendance_contract_sync import refresh_contract_snapshots
+            refresh_contract_snapshots(leave_store, data, actor=actor)
+            leave_attendance.guard_signed(leave_store, previous, data)
+            leave_attendance.sync_new_sheets(leave_store, previous, data, actor)
             if scoped:
                 data_visible = json.loads(serialize_fiche_config(data)).get('employes_data', [])
                 data = preserve_hidden_sheets(old_config, data, hidden)
@@ -1955,47 +1976,40 @@ def save_config_checked(user_id, data, actor, expected_revision=None, *, confirm
 
 
 # Support both package imports locally and `uvicorn main:app` on the server.
-if __package__:
-    from .account_lifecycle import register_account_lifecycle
-    from .ui_capabilities import register_ui_capabilities
-    from .leave_requests import register_leave_routes
-    from .leave_store import rename_leave_owner
-    from .personnel_store import rename_personnel_account_link
-    from .team_directory import register_team_directory
-    from .contract_history import register_contract_history
-    from .attendance_permissions import attendance_scope, preserve_hidden_sheets, validate_manager_save
-    from .documents import register_document_routes
-    from .esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
-else:
-    from account_lifecycle import register_account_lifecycle
-    from ui_capabilities import register_ui_capabilities
-    from leave_requests import register_leave_routes
-    from leave_store import rename_leave_owner
-    from personnel_store import rename_personnel_account_link
-    from contract_history import register_contract_history
-    from team_directory import register_team_directory
-    from attendance_permissions import attendance_scope, preserve_hidden_sheets, validate_manager_save
-    from documents import register_document_routes
-    from esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
+from .account_lifecycle import register_account_lifecycle
+from .ui_capabilities import register_ui_capabilities
+from .leave_requests import register_leave_routes
+from .leave_attendance import LeaveAttendance
+from .leave_store import rename_leave_owner, LeaveStore
+from .personnel_store import rename_personnel_account_link
+from .team_directory import register_team_directory
+from .contract_history import register_contract_history
+from .attendance_permissions import attendance_scope, preserve_hidden_sheets, validate_manager_save
+from .documents import register_document_routes
+from .esign import register_esign_routes, convert_fiche_to_pdf, submit_to_clawshow
 
 register_account_lifecycle(app, get_db_connection=get_db_connection, get_current_user=get_current_user, load_user=load_user, public_user=public_user, hash_password=hash_password)
 register_ui_capabilities(app, mail_configured=lambda: bool(SMTP_SERVER and SMTP_USER and SMTP_PASSWORD))
 register_contract_history(app, get_db_connection, require_roles, get_current_user, require_target_access, load_user=load_user)
 register_team_directory(app, get_db_connection=get_db_connection, get_current_user=get_current_user)
-register_leave_routes(app, get_db_connection=get_db_connection, get_current_user=get_current_user)
+leave_attendance = LeaveAttendance()
+from .leave_notifications import LeaveNotifications
+leave_notifications = LeaveNotifications(lambda: get_db_connection())
+register_leave_routes(app, get_db_connection=get_db_connection, get_current_user=get_current_user,
+                      attendance=leave_attendance, notifications=leave_notifications)
+leave_notifications.register(app)
 register_document_routes(
     app, get_db_connection=get_db_connection, get_current_user=get_current_user,
     require_roles=require_roles, load_user=load_user, user_can_manage=user_can_manage,
     all_users=all_users, storage_dir=TRANSPORT_RECEIPTS_DIR, max_file_bytes=MAX_TRANSPORT_RECEIPT_BYTES,
 )
-if __package__:
-    from .signed_fiches import register_signed_fiche_routes
-    from .signed_fiche_store import rename_signed_fiche_owner
-    from .work_center import register_work_center
-else:
-    from signed_fiches import register_signed_fiche_routes
-    from signed_fiche_store import rename_signed_fiche_owner
-    from work_center import register_work_center
+from .signed_fiches import register_signed_fiche_routes
+from .signed_fiche_store import rename_signed_fiche_owner
+from .work_center import register_work_center
+from .management_reports import register_report_routes
+register_report_routes(app, get_db_connection=get_db_connection, get_current_user=get_current_user,
+                       load_user=load_user, valid_manager=is_valid_direct_manager,
+                       would_cycle=would_create_management_cycle)
 register_work_center(app, get_db_connection=get_db_connection, get_current_user=get_current_user,
                      load_user=load_user, all_users=all_users, can_manage=user_can_manage)
 register_signed_fiche_routes(

@@ -9,6 +9,7 @@ import { useWorkspaceToolbar } from '../workspaceToolbar'
 import { personnelApi } from './api'
 import { useRegistryViewer } from './context'
 import { useSensitiveNumberCapability } from './useSensitiveNumberCapability'
+import { sensitiveNumberDisclosure } from './exclusiveDisclosure'
 
 /** Plaintext lives only in this short-lived view, never in query cache or storage. */
 type NumberInputRenderer = (state: { value: string; busy: boolean; enabled: boolean; toggle: () => void }) => ReactNode
@@ -35,8 +36,10 @@ function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pe
   const request = useRef<AbortController | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const generation = useRef(0)
+  const disclosure = useRef<ReturnType<typeof sensitiveNumberDisclosure.claim> | null>(null)
   const invalidate = useCallback(() => {
     generation.current += 1
+    disclosure.current?.release(); disclosure.current = null
     request.current?.abort(); request.current = null
     if (timer.current !== undefined) { clearTimeout(timer.current); timer.current = undefined }
   }, [])
@@ -54,6 +57,8 @@ function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pe
   async function reveal() {
     if (busy || request.current || !hasNumber || !enabled || document.visibilityState !== 'visible') return
     invalidate()
+    const ownership = sensitiveNumberDisclosure.claim(hide)
+    disclosure.current = ownership
     const current = generation.current
     const controller = new AbortController()
     request.current = controller
@@ -61,7 +66,7 @@ function SensitiveNumberView({ token, employeeId, hasNumber, viewer, enabled, pe
     try {
       // Deliberately not useQuery/useMutation: the response must never enter their cache.
       const result = await personnelApi.revealSocialSecurityNumber(token, employeeId, controller.signal)
-      if (controller.signal.aborted || current !== generation.current || document.visibilityState !== 'visible') return
+      if (controller.signal.aborted || current !== generation.current || !ownership.isCurrent() || document.visibilityState !== 'visible') return
       if (typeof result.social_security_number !== 'string' || !result.social_security_number) throw new Error('Unavailable')
       setValue(result.social_security_number)
       timer.current = setTimeout(hide, 30000)

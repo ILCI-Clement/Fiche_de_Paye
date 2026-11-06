@@ -2,17 +2,16 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { organizationValidation } from '../src/admin/organizationValidation.ts'
 
-const value = { role_tags: ['Responsable', 'Employe'], employee_type: 'salarie', manager_id: 'boss', group_ids: [1], managed_group_ids: [1] }
-test('a department membership does not replace the required managed department', () => {
-  assert.match(organizationValidation({ ...value, managed_group_ids: [] }), /département géré/)
-  assert.equal(organizationValidation(value), '')
+const base = { role_tags: ['Employe'], employee_type: 'salarie', manager_id: null, group_ids: [], managed_group_ids: [] }
+test('an employee account does not require a direct manager', () => {
+  assert.equal(organizationValidation(base), '')
 })
-test('employee function requires its own direct manager, including a manager who is also an employee', () => {
-  assert.match(organizationValidation({ ...value, manager_id: null }), /responsable direct/)
-  assert.equal(organizationValidation({ ...value, role_tags: ['Responsable'], manager_id: null }), '')
+test('a system Super Admin does not require business bindings', () => {
+  assert.equal(organizationValidation({ ...base, role_tags: ['SuperAdmin', 'Admin'] }), '')
+  assert.equal(organizationValidation({ ...base, role_tags: ['SuperAdmin', 'Admin', 'Employe'] }), '')
 })
-test('admin inherits general scope but department management still requires the business function', () => {
-  assert.equal(organizationValidation({ ...value, role_tags: ['Admin', 'Responsable'], managed_group_ids: [], manager_id: null }), '')
-  assert.equal(organizationValidation({ ...value, role_tags: ['SuperAdmin', 'Responsable'], managed_group_ids: [], manager_id: null }), '')
-  assert.match(organizationValidation({ ...value, role_tags: ['Employe'] }), /fonction Responsable/)
+test('ordinary Responsable department and role validation remain enforced', () => {
+  assert.notEqual(organizationValidation({ ...base, role_tags: ['Responsable'] }), '')
+  assert.notEqual(organizationValidation({ ...base, managed_group_ids: [1] }), '')
+  assert.notEqual(organizationValidation({ ...base, role_tags: [] }), '')
 })

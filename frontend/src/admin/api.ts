@@ -2,7 +2,7 @@ import { request } from '../api'
 import type { Group } from '../team/api'
 
 export interface AdminUser {
-  is_active?: boolean; login_deleted_at?: string | null;
+  is_active?: boolean; login_deleted_at?: string | null; personnel_archived?: boolean;
   username: string; email: string; role_tags: string[]; employee_type: string;
   full_name?: string | null; display_name?: string; manager_display_name?: string; job_title?: string | null;
   manager_id: string | null; group_ids: number[]; managed_group_ids: number[];
@@ -15,10 +15,13 @@ export interface ContractInput { employee_type: string; start_date: string; end_
 export interface Contract extends ContractInput { id: number; is_archived?: boolean }
 const userPath = (name: string) => `/users/${encodeURIComponent(name)}`
 export const adminApi = {
-  users: (token: string, signal?: AbortSignal) => request<{ users: AdminUser[] }>('/list-users', token, { signal }),
+  create: (token: string, data: OrganizationInput & { first_name: string; last_name: string; new_mail: string; generate_password: boolean; new_password?: string }) => request<{ welcome_email_sent?: boolean }>('/create-user', token, { method: 'POST', body: JSON.stringify(data) }, { timeout: 90000 }),
+  users: (token: string, signal?: AbortSignal) => request<{ users: AdminUser[] }>('/list-users?include_inactive=true', token, { signal }),
   groups: (token: string, signal?: AbortSignal) => request<{ groups: Group[] }>('/groups', token, { signal }),
   organization: (token: string, name: string, data: OrganizationInput) => request(`${userPath(name)}/organization`, token, { method: 'PUT', body: JSON.stringify(data) }),
   manager: (token: string, name: string, manager: string) => request(`${userPath(name)}/direct-manager`, token, { method: 'PATCH', body: JSON.stringify({ manager_id: manager }) }),
+  reports: (token: string, manager: string, changes: { username: string; expected_manager_id: string | null; assigned: boolean }[]) =>
+    request<{ updated: number }>(`${userPath(manager)}/reports`, token, { method: 'PUT', body: JSON.stringify({ changes }) }),
   activation: (token: string, name: string, is_active: boolean) => request(`${userPath(name)}/activation`, token, { method: 'PATCH', body: JSON.stringify({ is_active }) }),
   deleteLogin: (token: string, name: string, confirmation: string) => request(`${userPath(name)}/login`, token, { method: 'DELETE', body: JSON.stringify({ confirmation }) }),
   purge: (token: string, name: string, confirmation: string, reason: string) => request(`/delete-user/${encodeURIComponent(name)}`, token, { method: 'DELETE', body: JSON.stringify({ confirmation, reason }) }),

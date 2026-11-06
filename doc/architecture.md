@@ -13,7 +13,7 @@ flowchart LR
 ```
 
 - React：`frontend/src/main.tsx` → `App.tsx` → `AppWorkspace.tsx`。页面职责与工具栏入口见 [模块索引](modules.md)。
-- 线上 API：`backend/rebuild_server.py`，8015，复用 `backend/main.py`；保留 API 8001 仍支持 flat 导入，同样执行会话和角色保护。
+- Production API: `backend/rebuild_server.py` on 8015 is the only running RH backend; `backend/main.py` remains its shared implementation. Legacy standalone API/UI services are retired, not required dependencies.
 - 本地副本：`backend/local_rebuild.py`，8013；独立数据库 3307。Windows 启动入口为 `scripts/start_local_rebuild.ps1`，前端 5173。
 - `calendar_view.py` 只保留半天状态读取/修改及旧 JSON 数据兼容规则，React API 直接复用；没有 Streamlit 渲染与组件依赖。
 - `contract_periods.py`、`planning.py`、`fiche_exports.py`、`fiche_serialization.py`、`ExcelGen.py`、`DocxGen.py`、`document_downloads.py`、`organization_model.py` 仍是活动共用逻辑。
@@ -41,3 +41,5 @@ flowchart LR
 备案恢复到新的独立目录，可使用当前本地 API 查阅旧界面。根目录的历史文档出现旧路径时，均以此快照为定位依据。
 
 此次整理未停止线上 Streamlit、保留 API 或修改 Nginx；它们运行在独立部署目录。源码备案不能替代数据库/私有文件备份，生产发布和回退仍按现有部署流程执行。
+
+2026-10-30: previous notes about keeping the online flat API and Streamlit service are superseded by [single-service retirement](releases/retire-legacy-20261030.md). Preserve the historical source archives and current shared data/key paths; do not restore the retired runtime for normal operation.

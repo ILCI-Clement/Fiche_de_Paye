@@ -12,8 +12,8 @@ export function AttendanceToolbar({ month, year, busy, account, accounts, onPeri
   view: 'editing' | 'signed'; onView: (view: 'editing' | 'signed') => void;
 }) {
   return <WorkspaceToolbar>
-    <ToggleButtonGroup size="small" exclusive value={view} disabled={busy} aria-label="Vue des fiches" onChange={(_, value) => { if (value) onView(value) }}><ToggleButton value="editing">Fiches</ToggleButton><ToggleButton value="signed">Signatures</ToggleButton></ToggleButtonGroup>
-    <PeriodToolbar label="Mois des fiches de présence" month={month} year={year} disabled={busy} onChange={onPeriod} />
+    <ToggleButtonGroup size="small" exclusive value={view} disabled={busy} aria-label="Vue des fiches" onChange={(_, value) => { if (value) onView(value) }}><ToggleButton value="editing">Fiches</ToggleButton><ToggleButton value="signed">Signé</ToggleButton></ToggleButtonGroup>
+    <PeriodToolbar label={view === 'signed' ? 'Année des fiches signées' : 'Mois des fiches de présence'} yearOnly={view === 'signed'} month={month} year={year} disabled={busy} onChange={onPeriod} />
     {view === 'editing' && <><ToggleButtonGroup size="small" exclusive value={archived ? 'archived' : 'active'} disabled={busy} aria-label="Dossier des fiches" onChange={(_, value) => { if (value) onArchiveFilter(value === 'archived') }}><ToggleButton value="active">Normal</ToggleButton><ToggleButton value="archived">Archives</ToggleButton></ToggleButtonGroup>
     <TextField select label="Sélectionner une personne" value={account} disabled={busy} onChange={event => onAccount(event.target.value)} sx={{ flex: '1 1 260px', minWidth: { xs: 0, sm: 240 }, maxWidth: { xs: 'none', lg: 540 }, '& .MuiInputBase-root': { minHeight: 44 }, '& .MuiInputLabel-root': { fontSize: 13 } }} slotProps={{ select: {
       renderValue: value => { const selected = accounts.find(item => item.username === value); return selected ? <AccountOption account={selected} compact /> : '' },

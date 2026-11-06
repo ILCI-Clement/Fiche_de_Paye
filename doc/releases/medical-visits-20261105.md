@@ -1,0 +1,15 @@
+# Medical visits — 2026-11-05
+
+Published release: `rh-medical-20261105T161729Z`. Sole API/current and Nginx frontend now use this release; preceding API was `rh-mailnotify-20261104T162306Z`, preceding frontend `rh-help-guide-20261105T101144Z`.
+
+Visites médicales provides actual visit dates and optional private PDF certificates. Employees/Responsables maintain their own records; current managers read their team's records and previous versions using existing team permissions. Admin manages visible personnel and archives/restores visits. Only Super Admin permanently deletes archived visits and versions. Personnel with medical history cannot be purged accidentally. Corrections retain previous certificates.
+
+Toolbar downloads all matching pages under year/month/search/archive filters. Each employee row downloads their full history, all years and archived visits included. History selection downloads selected certificates. ZIP layout: `YYYY/MM/Name_employeeID_date_visitID.pdf`. Originals are copied unchanged; no Excel, generated index, local file links or appended PDFs in downloads. Limits: 100 PDF / 100 MiB; failure is atomic. Live access authorization and audits apply.
+
+Independent production AES-256-GCM key: `/var/lib/presence-secrets/medical-visits.json`, mode 0600 owned by the API service user; private files `/var/lib/presence-app/medical-visits`. The key was generated on the server, never copied from local or derived from NIR/session keys. The encrypted envelopes and independent key backup must be retained together for recovery, with key access restricted.
+
+Validation: 630 backend tests including real loopback MySQL, 78 frontend tests, lint and build passed. Production/local source comparison found only four related existing backend changes plus four medical modules. Candidate and current each passed 367 existing main checks plus signature, mailbox, storage and medical live-role checks. Candidate background workers were all disabled. Public verification matched 11 static resources, verified private anonymous routes reject access, and confirmed sole API/Nginx active with retired services masked and old ports closed. No production account roles changed, no real test upload, mail or signing request sent, and no local medical fixtures imported.
+
+Original 43 business tables were preserved; three additive medical tables were initialized empty, total 46. A fresh protected DB checkpoint was captured with the API quiesced before switch. Backup: `/var/backups/presence-react/rh-medical-20261105T161729Z`, containing database/source/config/private files and medical keyring, plus verified rollback.py. Rollback restores previous sole API/UI without restoring business data or dropping new tables/keys. It hides medical UI until redeployment; preserve all medical files/keys after any real submissions.
+
+Evidence: candidate-verified.json, published-checks.json, public-check.json, verification-summary.json in the protected backup. Local summary is `.local-test/release/medical-summary.json`.

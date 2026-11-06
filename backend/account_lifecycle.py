@@ -3,14 +3,9 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, StrictBool
 import secrets
 
-if __package__:
-    from .person_names import load_display_names
-    from .role_policy import (active_super_admin_count, can_manage_account, checked_resource_actor,
-                              is_admin, is_super_admin)
-else:
-    from person_names import load_display_names
-    from role_policy import (active_super_admin_count, can_manage_account, checked_resource_actor,
-                             is_admin, is_super_admin)
+from .person_names import load_display_names
+from .role_policy import (active_super_admin_count, can_manage_account, checked_resource_actor,
+                          is_admin, is_super_admin)
 
 
 class AccountActivation(BaseModel):

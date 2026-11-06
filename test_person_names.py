@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+from test_support.sqlite_fixtures import connect_fixture
 import tempfile
 import unittest
 from unittest.mock import Mock
@@ -72,7 +73,7 @@ class PersonDisplayNameTests(unittest.TestCase):
 
 class PersonNameStorageTests(unittest.TestCase):
     def setUp(self):
-        self.db = sqlite3.connect(':memory:')
+        self.db = connect_fixture(':memory:')
         self.addCleanup(self.db.close)
         self.db.row_factory = sqlite3.Row
         self.db.execute('CREATE TABLE users(username TEXT PRIMARY KEY,email TEXT,password_hash TEXT)')
@@ -197,7 +198,7 @@ class NameCursor:
 
 class NameConnection:
     def __init__(self, path):
-        self.db = sqlite3.connect(path)
+        self.db = connect_fixture(path)
         self.db.row_factory = sqlite3.Row
         self.db.create_function('UNIX_TIMESTAMP', 1, lambda value:
             datetime.fromisoformat(value).replace(tzinfo=timezone.utc).timestamp() if value else None)
@@ -212,7 +213,7 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / 'name-projection.sqlite3'
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.executescript('''CREATE TABLE users(username TEXT PRIMARY KEY,email TEXT,
                 password_hash TEXT DEFAULT 'private-hash',is_admin INTEGER DEFAULT 0,
                 role TEXT DEFAULT 'Employe',role_tags TEXT,employee_type TEXT DEFAULT 'salarie',
@@ -272,6 +273,22 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
 
+    def test_annual_leave_duration_is_visible_only_to_owner_current_manager_or_admin(self):
+        with closing(connect_fixture(self.path)) as db, db:
+            db.execute("CREATE TABLE leave_events(request_id INTEGER,action TEXT)")
+            db.execute("CREATE TABLE leave_attendance_cells(request_id INTEGER,cell_date TEXT,cell_period TEXT,after_state TEXT)")
+            db.execute("INSERT INTO leave_requests VALUES(1,'person-a','2026-10-30','2026-10-30','afternoon','afternoon','approved')")
+            db.execute("INSERT INTO leave_events VALUES(1,'attendance_synced')")
+            db.execute("INSERT INTO leave_attendance_cells VALUES(1,'2026-10-30','aprem',?)",(json.dumps({'resolved':['Congé payé',0]}),))
+        for username,role in [('person-a','Employe'),('manager-id','Responsable'),('admin-id','Admin')]:
+            self.actor={'username':username,'role_tags':[role],'session_version':0}
+            response=self.client.get('/person-profiles/person-a?year=2026')
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(response.json()['leave_totals']['approved_days'],.5)
+            self.assertEqual(response.json()['months'][9]['approved_leave_days'],.5)
+        self.actor={'username':'outsider-id','role_tags':['Employe'],'session_version':0}
+        self.assertEqual(self.client.get('/person-profiles/person-a?year=2026').status_code,403)
+
     def test_public_user_keeps_identity_and_hides_private_source_columns(self):
         connection = self.connect()
         try:
@@ -320,7 +337,7 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
         self.assertNotIn('email', members[0])
 
     def test_duplicate_membership_rows_deduplicate_identity_not_display_name(self):
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.execute('INSERT INTO user_group_memberships VALUES(?,1,?)', ('person-a', 'member'))
         response = self.client.get('/my-team')
         self.assertEqual(response.status_code, 200, response.text)
@@ -348,7 +365,7 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
         self.assertEqual(self.attempts.profile_receipts.call_args.args, ('person-a', 2026))
 
     def test_manager_profile_hides_old_and_unknown_signers_including_delivery_receipts(self):
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.execute('''CREATE TABLE signed_fiche_documents(id TEXT,document_id TEXT,employee_username TEXT,
                 manager_username TEXT,fiche_year INTEGER,fiche_month INTEGER,mode TEXT,status TEXT,
                 created_at TEXT,completed_at TEXT)''')
@@ -391,7 +408,7 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
 
     def test_history_projects_actor_but_keeps_recorded_ids_and_names(self):
         self.actor['username'] = 'admin-id'
-        with closing(sqlite3.connect(self.path)) as db:
+        with closing(connect_fixture(self.path)) as db:
             before = db.execute('SELECT after_snapshot FROM personnel_register_events').fetchone()[0]
         response = self.client.get('/personnel-register/3/history')
         self.assertEqual(response.status_code, 200, response.text)
@@ -400,12 +417,12 @@ class PersonNameProjectionHTTPTests(unittest.TestCase):
         self.assertEqual(event['actor_display_name'], 'Synthetic Manager')
         self.assertEqual(event['after']['employee']['linked_username'], 'person-a')
         self.assertEqual(event['after']['employee']['full_name'], 'Historical Name')
-        with closing(sqlite3.connect(self.path)) as db:
+        with closing(connect_fixture(self.path)) as db:
             self.assertEqual(db.execute('SELECT after_snapshot FROM personnel_register_events').fetchone()[0], before)
 
     def test_fresh_requests_reflect_updated_linked_name_without_changing_ids(self):
         self.assertEqual(self.client.get('/person-profiles/person-a?year=2026').json()['name'], 'Namesake Person')
-        with closing(sqlite3.connect(self.path)) as db, db:
+        with closing(connect_fixture(self.path)) as db, db:
             db.execute('UPDATE personnel_register SET full_name=? WHERE linked_username=?',
                        ('Updated Synthetic Name', 'person-a'))
         response = self.client.get('/person-profiles/person-a?year=2026')

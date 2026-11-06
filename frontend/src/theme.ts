@@ -1,4 +1,5 @@
 import { createTheme } from '@mui/material/styles'
+import { DialogMotion } from './components/DialogMotion'
 
 export function buildTheme(mode: 'light' | 'dark') {
   const dark = mode === 'dark'
@@ -44,7 +45,7 @@ export function buildTheme(mode: 'light' | 'dark') {
     MuiTextField: { defaultProps: { size: 'small', variant: 'outlined' } },
     MuiPaper: { defaultProps: { elevation: 0 }, styleOverrides: { root: { backgroundImage: 'none' } } },
     MuiChip: { styleOverrides: { root: { fontWeight: 650, fontSize: 12 } } },
-    MuiDialog: { styleOverrides: { paper: { borderRadius: 18 } } },
+    MuiDialog: { defaultProps: { slots: { transition: DialogMotion } }, styleOverrides: { paper: { borderRadius: 18 } } },
   },
   })
 }
